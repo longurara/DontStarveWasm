@@ -87,6 +87,11 @@ int release_lua(lua_State* L){auto path=luaL_checkstring(L,1);auto found=cache.f
 }
 bool backend_ready(){return dst_texture_backend_ready()!=0;}
 bool ready(const std::string& path){auto found=cache.find(web_strings::hash(path));return found!=cache.end()&&found->second.uploaded&&dst_texture_exists(found->first);}
+bool dimensions(const std::string& path,uint16_t& width,uint16_t& height){
+    auto found=cache.find(web_strings::hash(path));
+    if(found==cache.end()||found->second.texture.mips.empty())return false;
+    width=found->second.texture.mips[0].width;height=found->second.texture.mips[0].height;return true;
+}
 bool acquire(const std::string& path,std::string& error){
     if(!load(path,error))return false;auto& record=cache.at(web_strings::hash(path));
     if(!upload(path,error)){if(!record.references)release(path);return false;}++record.references;return true;

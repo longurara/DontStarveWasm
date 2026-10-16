@@ -146,6 +146,21 @@ void release(const std::string& path){auto found=cache.find(web_strings::hash(pa
 }
 const Atlas* get(const std::string& path){auto found=cache.find(web_strings::hash(path));return found==cache.end()?nullptr:&found->second.atlas;}
 const Atlas* get_owned(const std::string& path){auto found=cache.find(web_strings::hash(path));return found==cache.end()||!found->second.references?nullptr:&found->second.atlas;}
+const Element* resolve_element(uint32_t atlas_id,uint32_t element_id,std::string* texture_path,bool* texture_ready){
+    auto found=cache.find(atlas_id);if(found==cache.end()||!found->second.initialized||!found->second.references)return nullptr;
+    auto& record=found->second;const auto& elements=record.atlas.elements;
+    auto at=std::lower_bound(elements.begin(),elements.end(),element_id,[](const Element& item,uint32_t id){return item.id<id;});
+    if(at==elements.end()||at->id!=element_id)return nullptr;
+    if(!record.texture_loaded){
+        if(!client_role){record.texture_loaded=true;}
+        else if(web_texture_asset::backend_ready()){
+            std::string error;if(web_texture_asset::acquire(record.atlas.texture,error)){record.texture_owned=true;record.texture_loaded=true;}
+        }
+    }
+    if(texture_path)*texture_path=record.atlas.texture;
+    if(texture_ready)*texture_ready=record.texture_owned&&web_texture_asset::ready(record.atlas.texture);
+    return &(*at);
+}
 void clear(){for(const auto& pair:cache)if(pair.second.texture_owned)web_texture_asset::release(pair.second.atlas.texture);cache.clear();retained=0;}
 void install(lua_State* L,bool client){clear();client_role=client;lua_newtable(L);const luaL_Reg methods[]={{"Decode",decode_lua},{"Inspect",inspect},{"BindTexture",bind_lua},{"Release",release_lua},{nullptr,nullptr}};luaL_register(L,nullptr,methods);lua_setglobal(L,"WebAtlases");
     lua_getglobal(L,"TheSim");lua_pushcfunction(L,contains);lua_setfield(L,-2,"AtlasContains");lua_pop(L,1);}

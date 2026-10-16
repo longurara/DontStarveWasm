@@ -6,6 +6,7 @@
 #include "map_layers.hpp"
 #include "ui_transform.hpp"
 #include "text_widget.hpp"
+#include "image_widget.hpp"
 #include <cmath>
 #include <map>
 #include <string>
@@ -56,8 +57,8 @@ int inspect(lua_State* L){
     number(L,"textureHandle",-1);number(L,"staticHandle",-1);lua_pushlstring(L,found->second.requested_texture.data(),found->second.requested_texture.size());lua_setfield(L,-2,"requestedTexture");lua_pushboolean(L,false);lua_setfield(L,-2,"rendererReady");return 1;
 }
 }
-void retire(uint32_t id){shadows.erase(id);web_roads::retire(id);web_envelopes::retire(id);web_postprocessor::retire(id);web_font_manager::retire(id);web_map_layers::retire(id);web_ui::retire(id);web_text_widget::retire(id);}
-void clear(){shadows.clear();web_roads::clear();web_envelopes::clear();web_postprocessor::clear();web_font_manager::clear();web_map_layers::clear();web_ui::clear();web_text_widget::clear();}
+void retire(uint32_t id){shadows.erase(id);web_roads::retire(id);web_envelopes::retire(id);web_postprocessor::retire(id);web_font_manager::retire(id);web_map_layers::retire(id);web_ui::retire(id);web_text_widget::retire(id);web_image_widget::retire(id);}
+void clear(){shadows.clear();web_roads::clear();web_envelopes::clear();web_postprocessor::clear();web_font_manager::clear();web_map_layers::clear();web_ui::clear();web_text_widget::clear();web_image_widget::clear();}
 void install(lua_State* L,EntityHost callbacks,bool client){clear();host=callbacks;client_role=client;
     luaL_newmetatable(L,"dst.ShadowManager");lua_newtable(L);const luaL_Reg methods[]={{"SetTexture",set_texture},{"GenerateStaticShadows",generate_static},{nullptr,nullptr}};luaL_register(L,nullptr,methods);lua_setfield(L,-2,"__index");lua_pushcfunction(L,tostring_shadow);lua_setfield(L,-2,"__tostring");lua_pop(L,1);
     lua_getglobal(L,"Entity");lua_pushcfunction(L,add_shadow);lua_setfield(L,-2,"AddShadowManager");lua_pop(L,1);
@@ -69,5 +70,6 @@ void install(lua_State* L,EntityHost callbacks,bool client){clear();host=callbac
     web_map_layers::install(L,callbacks,client);
     web_ui::install(L,callbacks);
     web_text_widget::install(L,callbacks);
+    web_image_widget::install(L,callbacks);
 }
 }

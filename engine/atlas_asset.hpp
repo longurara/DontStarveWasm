@@ -15,6 +15,7 @@ bool bind_texture(const std::string& path,std::string& error);
 void release(const std::string& path);
 const Atlas* get(const std::string& path);
 const Atlas* get_owned(const std::string& path);
+const Element* resolve_element(uint32_t atlas_id,uint32_t element_id,std::string* texture_path=nullptr,bool* texture_ready=nullptr);
 void clear();
 void install(lua_State* L,bool client);
 }
