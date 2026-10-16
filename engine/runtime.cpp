@@ -47,10 +47,10 @@ struct EntityState {
     bool valid = true;
     bool sleeping=false,can_sleep=true,components_allow_sleep=true,sleep_state_pending=true;
     bool has_transform=false,prefab_complete=false;
-    bool visible=true,clickable=true;
+    bool visible=true,clickable=true,in_limbo=false;
     float x = 0, y = 0, z = 0, rotation = 0;
     float sx = 1, sy = 1, sz = 1;
-    uint32_t parent = 0;
+    uint32_t parent = 0, platform = 0;
     std::vector<uint32_t> children;
     std::string name, prefab;
     std::set<std::string> tags;
@@ -239,6 +239,18 @@ int set_parent(lua_State* L){
 int get_parent(lua_State* L){
     auto id=entity(L).parent;
     if(!id){lua_pushnil(L);return 1;}
+    lua_getglobal(L,"MAIN");
+    bool is_main=!lua_isnil(L,-1);
+    lua_pop(L,1);
+    if(is_main){
+        lua_getglobal(L,"Ents");
+        if(lua_istable(L,-1)){
+            lua_rawgeti(L,-1,id);
+            lua_remove(L,-2);
+            return 1;
+        }
+        lua_pop(L,1);
+    }
     lua_getfield(L,LUA_REGISTRYINDEX,"dst.entities");lua_rawgeti(L,-1,id);return 1;
 }
 int show_entity(lua_State* L){
@@ -322,6 +334,14 @@ float normalize_rotation(float radians){
 int set_rotation(lua_State* L) { entity(L).rotation = normalize_rotation(static_cast<float>(luaL_checknumber(L, 2)) * 0.01745329238474369f); return 0; }
 int scale(lua_State* L) { auto& e = entity(L); lua_pushnumber(L, e.sx); lua_pushnumber(L, e.sy); lua_pushnumber(L, e.sz); return 3; }
 int set_scale(lua_State* L) { auto& e = entity(L); e.sx=luaL_checknumber(L,2); e.sy=luaL_checknumber(L,3); e.sz=luaL_checknumber(L,4); return 0; }
+int offset_position(lua_State* L) {
+    auto& e = entity(L);
+    e.x += static_cast<float>(luaL_optnumber(L, 2, 0.0));
+    e.y += static_cast<float>(luaL_optnumber(L, 3, 0.0));
+    e.z += static_cast<float>(luaL_optnumber(L, 4, 0.0));
+    return 0;
+}
+int transform_noop(lua_State*) { return 0; }
 int add_transform(lua_State* L) {
     auto id=entity(L).guid;
     if(web_ui::contains(id))return luaL_error(L,"UNIMPLEMENTED_NATIVE: mixed Transform/UITransform on one entity");
@@ -1079,9 +1099,13 @@ EMSCRIPTEN_KEEPALIVE int dst_init(int role) {
         {"SetParent",set_parent},{"GetParent",get_parent},{"SetName",set_name},{"GetName",get_name},{"SetPrefabName",set_prefab},{"GetPrefabName",get_prefab},
         {"Show",show_entity},{"Hide",hide_entity},{"IsVisible",is_visible},{"SetClickable",set_clickable},{"MoveToFront",move_to_front},{"MoveToBack",move_to_back},
         {"AddTag",add_tag},{"RemoveTag",remove_tag},{"HasTag",has_tag},
-        {"AddTransform",add_transform},{"GetWorldPosition",position},{"GetLocalPosition",local_position},
-        {"SetPosition",set_position},{"GetRotation",rotation},{"SetRotation",set_rotation},
-        {"GetScale",scale},{"SetScale",set_scale},{nullptr,nullptr}};
+        {"AddTransform",add_transform},{"GetWorldPosition",position},{"GetLocalPosition",local_position},{"GetPredictionPosition",position},
+        {"SetPosition",set_position},{"OffsetPosition",offset_position},{"GetRotation",rotation},{"SetRotation",set_rotation},{"LoadRotation",set_rotation},
+        {"GetScale",scale},{"GetWorldScale",scale},{"SetScale",set_scale},
+        {"SetNoFaced",transform_noop},{"SetTwoFaced",transform_noop},{"SetFourFaced",transform_noop},{"SetSixFaced",transform_noop},{"SetEightFaced",transform_noop},{"SetFacing",transform_noop},
+        {"SetPredictedNoFaced",transform_noop},{"SetPredictedTwoFaced",transform_noop},{"SetPredictedFourFaced",transform_noop},{"SetPredictedSixFaced",transform_noop},{"SetPredictedEightFaced",transform_noop},{"ClearPredictedFacingModel",transform_noop},
+        {"SetInterpolateRotation",transform_noop},{"ClearTransformationHistory",transform_noop},{"SetIsOnPlatform",transform_noop},{"SetFromProxy",transform_noop},{"UpdateTransform",transform_noop},
+        {"LoadPostPass",transform_noop},{"LongUpdate",transform_noop},{nullptr,nullptr}};
     register_table("Entity",methods);
     const luaL_Reg lifecycle[]={{"Inspect",inspect_lifecycle},{nullptr,nullptr}};register_table("WebEntity",lifecycle);
     lua_getglobal(state,"Entity");

@@ -1525,6 +1525,18 @@ int entity_get_platform(lua_State* L){
     if(it==entity_net_states.end()||it->second.platform_id==0||!host.alive(it->second.platform_id)){
         lua_pushnil(L);return 1;
     }
+    lua_getglobal(L,"MAIN");
+    bool is_main=!lua_isnil(L,-1);
+    lua_pop(L,1);
+    if(is_main){
+        lua_getglobal(L,"Ents");
+        if(lua_istable(L,-1)){
+            lua_rawgeti(L,-1,it->second.platform_id);
+            lua_remove(L,-2);
+            return 1;
+        }
+        lua_pop(L,1);
+    }
     *static_cast<uint32_t*>(lua_newuserdata(L,sizeof(uint32_t)))=it->second.platform_id;
     luaL_getmetatable(L,"dst.Entity");lua_setmetatable(L,-2);
     return 1;
@@ -2066,6 +2078,14 @@ int vw_get_size(lua_State* L){
     return 2;
 }
 
+int add_physics_waker(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return luaL_error(L,"Cannot add PhysicsWaker to a removed entity");
+    attach_component_userdata(L,id,"dst.PhysicsWaker","PhysicsWaker");
+    return 1;
+}
+int tostring_physics_waker(lua_State* L){check_comp_owner(L,"dst.PhysicsWaker");lua_pushfstring(L,"PhysicsWaker (%p)",lua_touserdata(L,1));return 1;}
+
 }
 
 void retire(uint32_t id){
@@ -2430,6 +2450,11 @@ void install(lua_State* L,web_components::EntityHost callbacks){
     };
     register_component_metatable(L,"dst.VideoWidget","VideoWidget",vw_methods,tostring_video_widget);
 
+    const luaL_Reg pw_methods[]={
+        {"SetTimeBetweenWakeTests",comp_noop},{"StartWakeTests",comp_noop},{"StopWakeTests",comp_noop},{nullptr,nullptr}
+    };
+    register_component_metatable(L,"dst.PhysicsWaker","PhysicsWaker",pw_methods,tostring_physics_waker);
+
     luaL_newmetatable(L,"dst.NetVar");lua_newtable(L);
     const luaL_Reg nv_methods[]={
         {"set",netvar_set},{"set_local",netvar_set_local},{"value",netvar_value},{nullptr,nullptr}
@@ -2468,6 +2493,7 @@ void install(lua_State* L,web_components::EntityHost callbacks){
     lua_pushcfunction(L,add_client_sleepable);lua_setfield(L,-2,"AddClientSleepable");
     lua_pushcfunction(L,add_anim_state);lua_setfield(L,-2,"AddAnimState");
     lua_pushcfunction(L,add_physics);lua_setfield(L,-2,"AddPhysics");
+    lua_pushcfunction(L,add_physics_waker);lua_setfield(L,-2,"AddPhysicsWaker");
     lua_pushcfunction(L,add_light);lua_setfield(L,-2,"AddLight");
     lua_pushcfunction(L,add_follower);lua_setfield(L,-2,"AddFollower");
     lua_pushcfunction(L,add_minimap_entity);lua_setfield(L,-2,"AddMiniMapEntity");

@@ -47,6 +47,10 @@ def main():
     if not (vendor / 'lua-5.1.5' / 'src' / 'lua.h').exists():
         with tarfile.open(lua_archive) as tar:
             tar.extractall(vendor, filter='data')
+    luaconf = vendor / 'lua-5.1.5' / 'src' / 'luaconf.h'
+    luaconf_text = luaconf.read_text()
+    if '#define LUAI_MAXUPVALUES\t60' in luaconf_text:
+        luaconf.write_text(luaconf_text.replace('#define LUAI_MAXUPVALUES\t60', '#define LUAI_MAXUPVALUES\t160'))
     bit_archive=CACHE/('LuaBitOp-'+LOCK['luaBitOp']+'.tar.gz')
     bit_hash=download('https://bitop.luajit.org/download/'+bit_archive.name,bit_archive)
     assert bit_hash==LOCK['luaBitOpSha256'],'LuaBitOp source hash mismatch'

@@ -12,6 +12,9 @@ def main():
     header=ROOT/'vendor'/('rapidxml-'+lock['rapidXml'])/'rapidxml.hpp'
     if not header.exists() or hashlib.sha256(header.read_bytes()).hexdigest()!=lock['rapidXmlHeaderSha256']:
         raise SystemExit('RapidXML header missing or changed; run tools/setup.py')
+    luaconf=ROOT/'vendor/lua-5.1.5/src/luaconf.h'
+    if luaconf.exists() and '#define LUAI_MAXUPVALUES\t60' in luaconf.read_text():
+        luaconf.write_text(luaconf.read_text().replace('#define LUAI_MAXUPVALUES\t60','#define LUAI_MAXUPVALUES\t160'))
     config=json.loads((ROOT/'.cache/tools.json').read_text())
     sdk=Path(config['sdk'])
     env=os.environ.copy()
