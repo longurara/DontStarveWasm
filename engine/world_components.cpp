@@ -142,9 +142,24 @@ struct GroundCreepComponent {
     std::string serialized;
 };
 
+struct MiniMapComponent {
+    std::vector<std::string> atlases;
+    std::string effect_shader_1;
+    std::string effect_shader_2;
+    bool visible=false;
+    bool fog_of_war=false;
+    bool continuous_clear=false;
+    bool draw_forgotten_fow=false;
+    float zoom=1.0f;
+    float offset_x=0.0f;
+    float offset_y=0.0f;
+    std::vector<int> render_layers;
+};
+
 std::map<uint32_t,MapComponent> maps;
 std::map<uint32_t,PathfinderComponent> pathfinders;
 std::map<uint32_t,GroundCreepComponent> creeps;
+std::map<uint32_t,MiniMapComponent> minimaps;
 
 MapComponent* get_map(lua_State* L){
     auto id=*static_cast<uint32_t*>(luaL_checkudata(L,1,"dst.Map"));
@@ -166,6 +181,13 @@ GroundCreepComponent* get_creep(lua_State* L){
     if(!host.alive(id))return nullptr;
     auto it=creeps.find(id);
     return it==creeps.end()?nullptr:&it->second;
+}
+
+MiniMapComponent* get_minimap(lua_State* L){
+    auto id=*static_cast<uint32_t*>(luaL_checkudata(L,1,"dst.MiniMap"));
+    if(!host.alive(id))return nullptr;
+    auto it=minimaps.find(id);
+    return it==minimaps.end()?nullptr:&it->second;
 }
 
 int add_map(lua_State* L){
@@ -213,9 +235,25 @@ int add_ground_creep(lua_State* L){
     lua_pop(L,1);return 1;
 }
 
+int add_minimap(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return luaL_error(L,"Cannot add MiniMap to a removed entity");
+    if(!minimaps.count(id))minimaps.emplace(id,MiniMapComponent{});
+    *static_cast<uint32_t*>(lua_newuserdata(L,sizeof(uint32_t)))=id;
+    luaL_getmetatable(L,"dst.MiniMap");lua_setmetatable(L,-2);
+    lua_getglobal(L,"Ents");
+    if(lua_istable(L,-1)){
+        lua_rawgeti(L,-1,id);
+        if(lua_istable(L,-1)){lua_pushvalue(L,-3);lua_setfield(L,-2,"MiniMap");}
+        lua_pop(L,1);
+    }
+    lua_pop(L,1);return 1;
+}
+
 int tostring_map(lua_State* L){luaL_checkudata(L,1,"dst.Map");lua_pushfstring(L,"Map (%p)",lua_touserdata(L,1));return 1;}
 int tostring_pf(lua_State* L){luaL_checkudata(L,1,"dst.Pathfinder");lua_pushfstring(L,"Pathfinder (%p)",lua_touserdata(L,1));return 1;}
 int tostring_creep(lua_State* L){luaL_checkudata(L,1,"dst.GroundCreep");lua_pushfstring(L,"GroundCreep (%p)",lua_touserdata(L,1));return 1;}
+int tostring_minimap(lua_State* L){luaL_checkudata(L,1,"dst.MiniMap");lua_pushfstring(L,"MiniMap (%p)",lua_touserdata(L,1));return 1;}
 
 // --- Map methods ---
 int map_set_size(lua_State* L){
@@ -876,18 +914,130 @@ int creep_set_max_radius(lua_State* L){
     c->max_radius=static_cast<float>(luaL_checknumber(L,2));
     return 0;
 }
+
+// --- MiniMap methods ---
+int mm_add_atlas(lua_State* L){
+    auto* mm=get_minimap(L);if(!mm)return 0;
+    const char* s=lua_tostring(L,2);
+    if(s)mm->atlases.emplace_back(s);
+    return 0;
+}
+int mm_set_effects(lua_State* L){
+    auto* mm=get_minimap(L);if(!mm)return 0;
+    const char* s1=lua_tostring(L,2);
+    const char* s2=lua_tostring(L,3);
+    if(s1)mm->effect_shader_1=s1;
+    if(s2)mm->effect_shader_2=s2;
+    return 0;
+}
+int mm_toggle_visibility(lua_State* L){
+    auto* mm=get_minimap(L);if(!mm)return 0;
+    mm->visible=!mm->visible;
+    return 0;
+}
+int mm_is_visible(lua_State* L){
+    auto* mm=get_minimap(L);if(!mm)return 0;
+    lua_pushboolean(L,mm->visible);
+    return 1;
+}
+int mm_show_area(lua_State* L){
+    auto* mm=get_minimap(L);if(!mm)return 0;
+    (void)luaL_checknumber(L,2);(void)luaL_checknumber(L,3);
+    (void)luaL_checknumber(L,4);(void)luaL_checknumber(L,5);
+    return 0;
+}
+int mm_enable_fow(lua_State* L){
+    auto* mm=get_minimap(L);if(!mm)return 0;
+    mm->fog_of_war=lua_toboolean(L,2)!=0;
+    return 0;
+}
+int mm_continuously_clear(lua_State* L){
+    auto* mm=get_minimap(L);if(!mm)return 0;
+    mm->continuous_clear=lua_toboolean(L,2)!=0;
+    return 0;
+}
+int mm_clear_revealed(lua_State* L){
+    (void)get_minimap(L);
+    return 0;
+}
+int mm_get_texture_handle(lua_State* L){
+    auto* mm=get_minimap(L);if(!mm)return 0;
+    lua_pushinteger(L,-1);
+    return 1;
+}
+int mm_rebuild_layer(lua_State* L){
+    (void)get_minimap(L);
+    return 0;
+}
+int mm_zoom(lua_State* L){
+    auto* mm=get_minimap(L);if(!mm)return 0;
+    float delta=static_cast<float>(luaL_checknumber(L,2));
+    mm->zoom=std::clamp(mm->zoom+delta,1.0f,20.0f);
+    return 0;
+}
+int mm_get_zoom(lua_State* L){
+    auto* mm=get_minimap(L);if(!mm)return 0;
+    lua_pushnumber(L,mm->zoom);
+    return 1;
+}
+int mm_offset(lua_State* L){
+    auto* mm=get_minimap(L);if(!mm)return 0;
+    mm->offset_x+=static_cast<float>(luaL_checknumber(L,2));
+    mm->offset_y+=static_cast<float>(luaL_checknumber(L,3));
+    return 0;
+}
+int mm_reset_offset(lua_State* L){
+    auto* mm=get_minimap(L);if(!mm)return 0;
+    mm->offset_x=0.0f;
+    mm->offset_y=0.0f;
+    return 0;
+}
+int mm_add_render_layer(lua_State* L){
+    auto* mm=get_minimap(L);if(!mm)return 0;
+    mm->render_layers.push_back(static_cast<int>(luaL_checkinteger(L,2)));
+    return 0;
+}
+int mm_draw_forgotten_fow(lua_State* L){
+    auto* mm=get_minimap(L);if(!mm)return 0;
+    mm->draw_forgotten_fow=lua_toboolean(L,2)!=0;
+    return 0;
+}
+int mm_world_to_map(lua_State* L){
+    auto* mm=get_minimap(L);if(!mm)return 0;
+    float x=static_cast<float>(luaL_checknumber(L,2));
+    float y=static_cast<float>(luaL_checknumber(L,3));
+    float z=static_cast<float>(luaL_checknumber(L,4));
+    (void)z;
+    lua_pushnumber(L,(x+mm->offset_x)/mm->zoom);
+    lua_pushnumber(L,(y+mm->offset_y)/mm->zoom);
+    lua_pushnumber(L,0.0);
+    return 3;
+}
+int mm_map_to_world(lua_State* L){
+    auto* mm=get_minimap(L);if(!mm)return 0;
+    float x=static_cast<float>(luaL_checknumber(L,2));
+    float y=static_cast<float>(luaL_checknumber(L,3));
+    float z=static_cast<float>(luaL_checknumber(L,4));
+    (void)z;
+    lua_pushnumber(L,x*mm->zoom-mm->offset_x);
+    lua_pushnumber(L,y*mm->zoom-mm->offset_y);
+    lua_pushnumber(L,0.0);
+    return 3;
+}
 }
 
 void retire(uint32_t id){
     maps.erase(id);
     pathfinders.erase(id);
     creeps.erase(id);
+    minimaps.erase(id);
 }
 
 void clear(){
     maps.clear();
     pathfinders.clear();
     creeps.clear();
+    minimaps.clear();
 }
 
 void install(lua_State* L,web_components::EntityHost callbacks){
@@ -948,10 +1098,26 @@ void install(lua_State* L,web_components::EntityHost callbacks){
     luaL_register(L,nullptr,creep_methods);lua_setfield(L,-2,"__index");
     lua_pushcfunction(L,tostring_creep);lua_setfield(L,-2,"__tostring");lua_pop(L,1);
 
+    luaL_newmetatable(L,"dst.MiniMap");lua_newtable(L);
+    const luaL_Reg mm_methods[]={
+        {"AddAtlas",mm_add_atlas},{"SetEffects",mm_set_effects},
+        {"ToggleVisibility",mm_toggle_visibility},{"IsVisible",mm_is_visible},
+        {"ShowArea",mm_show_area},{"EnableFogOfWar",mm_enable_fow},
+        {"ContinuouslyClearRevealedAreas",mm_continuously_clear},{"ClearRevealedAreas",mm_clear_revealed},
+        {"GetTextureHandle",mm_get_texture_handle},{"RebuildLayer",mm_rebuild_layer},
+        {"Zoom",mm_zoom},{"GetZoom",mm_get_zoom},{"Offset",mm_offset},{"ResetOffset",mm_reset_offset},
+        {"AddRenderLayer",mm_add_render_layer},{"DrawForgottenFogOfWar",mm_draw_forgotten_fow},
+        {"WorldPosToMapPos",mm_world_to_map},{"MapPosToWorldPos",mm_map_to_world},
+        {nullptr,nullptr}
+    };
+    luaL_register(L,nullptr,mm_methods);lua_setfield(L,-2,"__index");
+    lua_pushcfunction(L,tostring_minimap);lua_setfield(L,-2,"__tostring");lua_pop(L,1);
+
     lua_getglobal(L,"Entity");
     lua_pushcfunction(L,add_map);lua_setfield(L,-2,"AddMap");
     lua_pushcfunction(L,add_pathfinder);lua_setfield(L,-2,"AddPathfinder");
     lua_pushcfunction(L,add_ground_creep);lua_setfield(L,-2,"AddGroundCreep");
+    lua_pushcfunction(L,add_minimap);lua_setfield(L,-2,"AddMiniMap");
     lua_pop(L,1);
 }
 }
