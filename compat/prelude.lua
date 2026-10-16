@@ -18,4 +18,4 @@ MODS_ENABLED = false
 RUN_GLOBAL_INIT = true
 package.path = "/compat/?.lua;/scripts/?.lua"
 require("native_registry")
-Entity.AddNetwork = function() error("UNIMPLEMENTED_NATIVE: Entity.AddNetwork", 2) end
+Entity.AddNetwork = Entity.AddNetwork or function() error("UNIMPLEMENTED_NATIVE: Entity.AddNetwork", 2) end

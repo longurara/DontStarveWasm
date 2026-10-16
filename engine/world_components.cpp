@@ -1,4 +1,5 @@
 #include "world_components.hpp"
+#include "string_hash.hpp"
 #include "tiles.hpp"
 #include <algorithm>
 #include <cmath>
@@ -156,10 +157,68 @@ struct MiniMapComponent {
     std::vector<int> render_layers;
 };
 
+struct WaveComponentState {
+    float u_repeat=0.0f,forward_dist=0.0f,speed=0.0f;
+    float width=0.0f,height=0.0f;
+    std::string texture;
+    std::string effect;
+};
+
+struct NetworkComponentState {
+    std::string client_name;
+    std::string user_id;
+    uint32_t classified_target=0;
+    uint16_t player_age=0;
+    uint32_t user_flags=0;
+    bool server_admin=false;
+    bool consecutive_match=false;
+    bool playing_with_friends=false;
+    bool borrowed=false;
+};
+
+enum class NetVarType : uint8_t {
+    BOOL,TINYBYTE,SMALLBYTE,BYTE,SHORTINT,USHORTINT,INT,UINT,FLOAT,HASH,STRING,ENTITY,BYTEARRAY,SMALLBYTEARRAY,USHORTARRAY
+};
+
+struct NetVarState {
+    uint32_t entity_id=0;
+    std::string var_name;
+    std::string dirty_event;
+    NetVarType type=NetVarType::BOOL;
+    bool dirty=false;
+    bool local_dirty=false;
+    bool bool_val=false;
+    double num_val=0.0;
+    uint32_t hash_val=0;
+    uint32_t ent_val=0;
+    std::string str_val;
+    std::vector<uint16_t> arr_val;
+};
+
+struct EntityNetState {
+    bool pristine=false;
+    bool in_limbo=false;
+    bool selected=false;
+    bool movement_prediction=false;
+    bool is_predicting_movement=false;
+    uint32_t platform_id=0;
+    float aabb_x=0.0f,aabb_y=0.0f;
+    std::vector<uint32_t> netvar_ids;
+};
+
 std::map<uint32_t,MapComponent> maps;
 std::map<uint32_t,PathfinderComponent> pathfinders;
 std::map<uint32_t,GroundCreepComponent> creeps;
 std::map<uint32_t,MiniMapComponent> minimaps;
+std::map<uint32_t,WaveComponentState> waves;
+std::map<uint32_t,NetworkComponentState> networks;
+std::set<uint32_t> shard_networks;
+std::set<uint32_t> shard_clients;
+std::set<uint32_t> server_non_sleepables;
+std::set<uint32_t> client_sleepables;
+std::map<uint32_t,EntityNetState> entity_net_states;
+std::map<uint32_t,NetVarState> netvars;
+uint32_t next_netvar_id=1;
 
 MapComponent* get_map(lua_State* L){
     auto id=*static_cast<uint32_t*>(luaL_checkudata(L,1,"dst.Map"));
@@ -190,70 +249,123 @@ MiniMapComponent* get_minimap(lua_State* L){
     return it==minimaps.end()?nullptr:&it->second;
 }
 
+WaveComponentState* get_wave(lua_State* L){
+    auto id=*static_cast<uint32_t*>(luaL_checkudata(L,1,"dst.WaveComponent"));
+    if(!host.alive(id))return nullptr;
+    auto it=waves.find(id);
+    return it==waves.end()?nullptr:&it->second;
+}
+
+NetworkComponentState* get_network(lua_State* L,uint32_t* out_id=nullptr){
+    auto id=*static_cast<uint32_t*>(luaL_checkudata(L,1,"dst.Network"));
+    if(out_id)*out_id=id;
+    if(!host.alive(id))return nullptr;
+    auto it=networks.find(id);
+    return it==networks.end()?nullptr:&it->second;
+}
+
+void attach_component_userdata(lua_State* L,uint32_t id,const char* mt,const char* field){
+    *static_cast<uint32_t*>(lua_newuserdata(L,sizeof(uint32_t)))=id;
+    luaL_getmetatable(L,mt);lua_setmetatable(L,-2);
+    lua_getglobal(L,"Ents");
+    if(lua_istable(L,-1)){
+        lua_rawgeti(L,-1,id);
+        if(lua_istable(L,-1)){lua_pushvalue(L,-3);lua_setfield(L,-2,field);}
+        lua_pop(L,1);
+    }
+    lua_pop(L,1);
+}
+
 int add_map(lua_State* L){
     uint32_t id=host.id(L,1);
     if(!host.alive(id))return luaL_error(L,"Cannot add Map to a removed entity");
     if(!maps.count(id))maps.emplace(id,MapComponent{});
-    *static_cast<uint32_t*>(lua_newuserdata(L,sizeof(uint32_t)))=id;
-    luaL_getmetatable(L,"dst.Map");lua_setmetatable(L,-2);
-    lua_getglobal(L,"Ents");
-    if(lua_istable(L,-1)){
-        lua_rawgeti(L,-1,id);
-        if(lua_istable(L,-1)){lua_pushvalue(L,-3);lua_setfield(L,-2,"Map");}
-        lua_pop(L,1);
-    }
-    lua_pop(L,1);return 1;
+    attach_component_userdata(L,id,"dst.Map","Map");
+    return 1;
 }
 
 int add_pathfinder(lua_State* L){
     uint32_t id=host.id(L,1);
     if(!host.alive(id))return luaL_error(L,"Cannot add Pathfinder to a removed entity");
     if(!pathfinders.count(id))pathfinders.emplace(id,PathfinderComponent{});
-    *static_cast<uint32_t*>(lua_newuserdata(L,sizeof(uint32_t)))=id;
-    luaL_getmetatable(L,"dst.Pathfinder");lua_setmetatable(L,-2);
-    lua_getglobal(L,"Ents");
-    if(lua_istable(L,-1)){
-        lua_rawgeti(L,-1,id);
-        if(lua_istable(L,-1)){lua_pushvalue(L,-3);lua_setfield(L,-2,"Pathfinder");}
-        lua_pop(L,1);
-    }
-    lua_pop(L,1);return 1;
+    attach_component_userdata(L,id,"dst.Pathfinder","Pathfinder");
+    return 1;
 }
 
 int add_ground_creep(lua_State* L){
     uint32_t id=host.id(L,1);
     if(!host.alive(id))return luaL_error(L,"Cannot add GroundCreep to a removed entity");
     if(!creeps.count(id))creeps.emplace(id,GroundCreepComponent{});
-    *static_cast<uint32_t*>(lua_newuserdata(L,sizeof(uint32_t)))=id;
-    luaL_getmetatable(L,"dst.GroundCreep");lua_setmetatable(L,-2);
-    lua_getglobal(L,"Ents");
-    if(lua_istable(L,-1)){
-        lua_rawgeti(L,-1,id);
-        if(lua_istable(L,-1)){lua_pushvalue(L,-3);lua_setfield(L,-2,"GroundCreep");}
-        lua_pop(L,1);
-    }
-    lua_pop(L,1);return 1;
+    attach_component_userdata(L,id,"dst.GroundCreep","GroundCreep");
+    return 1;
 }
 
 int add_minimap(lua_State* L){
     uint32_t id=host.id(L,1);
     if(!host.alive(id))return luaL_error(L,"Cannot add MiniMap to a removed entity");
     if(!minimaps.count(id))minimaps.emplace(id,MiniMapComponent{});
-    *static_cast<uint32_t*>(lua_newuserdata(L,sizeof(uint32_t)))=id;
-    luaL_getmetatable(L,"dst.MiniMap");lua_setmetatable(L,-2);
-    lua_getglobal(L,"Ents");
-    if(lua_istable(L,-1)){
-        lua_rawgeti(L,-1,id);
-        if(lua_istable(L,-1)){lua_pushvalue(L,-3);lua_setfield(L,-2,"MiniMap");}
-        lua_pop(L,1);
-    }
-    lua_pop(L,1);return 1;
+    attach_component_userdata(L,id,"dst.MiniMap","MiniMap");
+    return 1;
+}
+
+int add_wave(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return luaL_error(L,"Cannot add WaveComponent to a removed entity");
+    if(!waves.count(id))waves.emplace(id,WaveComponentState{});
+    attach_component_userdata(L,id,"dst.WaveComponent","WaveComponent");
+    return 1;
+}
+
+int add_network(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return luaL_error(L,"Cannot add Network to a removed entity");
+    if(!networks.count(id))networks.emplace(id,NetworkComponentState{});
+    attach_component_userdata(L,id,"dst.Network","Network");
+    return 1;
+}
+
+int add_shard_network(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return luaL_error(L,"Cannot add ShardNetwork to a removed entity");
+    shard_networks.insert(id);
+    attach_component_userdata(L,id,"dst.ShardNetwork","ShardNetwork");
+    return 1;
+}
+
+int add_shard_client(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return luaL_error(L,"Cannot add ShardClient to a removed entity");
+    shard_clients.insert(id);
+    attach_component_userdata(L,id,"dst.ShardClient","ShardClient");
+    return 1;
+}
+
+int add_server_non_sleepable(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return luaL_error(L,"Cannot add ServerNonSleepable to a removed entity");
+    server_non_sleepables.insert(id);
+    attach_component_userdata(L,id,"dst.ServerNonSleepable","ServerNonSleepable");
+    return 1;
+}
+
+int add_client_sleepable(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return luaL_error(L,"Cannot add ClientSleepable to a removed entity");
+    client_sleepables.insert(id);
+    attach_component_userdata(L,id,"dst.ClientSleepable","ClientSleepable");
+    return 1;
 }
 
 int tostring_map(lua_State* L){luaL_checkudata(L,1,"dst.Map");lua_pushfstring(L,"Map (%p)",lua_touserdata(L,1));return 1;}
 int tostring_pf(lua_State* L){luaL_checkudata(L,1,"dst.Pathfinder");lua_pushfstring(L,"Pathfinder (%p)",lua_touserdata(L,1));return 1;}
 int tostring_creep(lua_State* L){luaL_checkudata(L,1,"dst.GroundCreep");lua_pushfstring(L,"GroundCreep (%p)",lua_touserdata(L,1));return 1;}
 int tostring_minimap(lua_State* L){luaL_checkudata(L,1,"dst.MiniMap");lua_pushfstring(L,"MiniMap (%p)",lua_touserdata(L,1));return 1;}
+int tostring_wave(lua_State* L){luaL_checkudata(L,1,"dst.WaveComponent");lua_pushfstring(L,"WaveComponent (%p)",lua_touserdata(L,1));return 1;}
+int tostring_network(lua_State* L){luaL_checkudata(L,1,"dst.Network");lua_pushfstring(L,"Network (%p)",lua_touserdata(L,1));return 1;}
+int tostring_shard_network(lua_State* L){luaL_checkudata(L,1,"dst.ShardNetwork");lua_pushfstring(L,"ShardNetwork (%p)",lua_touserdata(L,1));return 1;}
+int tostring_shard_client(lua_State* L){luaL_checkudata(L,1,"dst.ShardClient");lua_pushfstring(L,"ShardClient (%p)",lua_touserdata(L,1));return 1;}
+int tostring_server_non_sleepable(lua_State* L){luaL_checkudata(L,1,"dst.ServerNonSleepable");lua_pushfstring(L,"ServerNonSleepable (%p)",lua_touserdata(L,1));return 1;}
+int tostring_client_sleepable(lua_State* L){luaL_checkudata(L,1,"dst.ClientSleepable");lua_pushfstring(L,"ClientSleepable (%p)",lua_touserdata(L,1));return 1;}
 
 // --- Map methods ---
 int map_set_size(lua_State* L){
@@ -1024,6 +1136,447 @@ int mm_map_to_world(lua_State* L){
     lua_pushnumber(L,0.0);
     return 3;
 }
+
+// --- WaveComponent methods ---
+int wave_set_params(lua_State* L){
+    auto* w=get_wave(L);if(!w)return 0;
+    w->u_repeat=static_cast<float>(luaL_checknumber(L,2));
+    w->forward_dist=static_cast<float>(luaL_checknumber(L,3));
+    w->speed=static_cast<float>(luaL_optnumber(L,4,0.0));
+    return 0;
+}
+int wave_set_size(lua_State* L){
+    auto* w=get_wave(L);if(!w)return 0;
+    w->width=static_cast<float>(luaL_checknumber(L,2));
+    w->height=static_cast<float>(luaL_checknumber(L,3));
+    return 0;
+}
+int wave_set_texture(lua_State* L){
+    auto* w=get_wave(L);if(!w)return 0;
+    const char* s=lua_tostring(L,2);
+    if(s)w->texture=s;
+    return 0;
+}
+int wave_set_effect(lua_State* L){
+    auto* w=get_wave(L);if(!w)return 0;
+    const char* s=lua_tostring(L,2);
+    if(s)w->effect=s;
+    return 0;
+}
+int wave_init(lua_State* L){
+    auto* w=get_wave(L);if(!w)return 0;
+    (void)luaL_optnumber(L,2,0.0);
+    (void)luaL_optnumber(L,3,0.0);
+    return 0;
+}
+int wave_set_motion(lua_State* L){
+    auto* w=get_wave(L);if(!w)return 0;
+    (void)luaL_optnumber(L,2,0.0);
+    (void)luaL_optnumber(L,3,0.0);
+    (void)luaL_optnumber(L,4,0.0);
+    return 0;
+}
+
+// --- Network methods ---
+int net_get_client_name(lua_State* L){
+    auto* n=get_network(L);if(!n)return 0;
+    lua_pushlstring(L,n->client_name.data(),n->client_name.size());
+    return 1;
+}
+int net_get_user_id(lua_State* L){
+    auto* n=get_network(L);if(!n)return 0;
+    lua_pushlstring(L,n->user_id.data(),n->user_id.size());
+    return 1;
+}
+int net_set_classified_target(lua_State* L){
+    auto* n=get_network(L);if(!n)return 0;
+    if(lua_isnoneornil(L,2)){n->classified_target=0;return 0;}
+    if(lua_isuserdata(L,2))n->classified_target=host.id(L,2);
+    else if(lua_istable(L,2)){
+        lua_getfield(L,2,"GUID");
+        n->classified_target=static_cast<uint32_t>(lua_tointeger(L,-1));
+        lua_pop(L,1);
+    }
+    return 0;
+}
+int net_set_player_age(lua_State* L){
+    auto* n=get_network(L);if(!n)return 0;
+    n->player_age=static_cast<uint16_t>(luaL_checkinteger(L,2));
+    return 0;
+}
+int net_get_player_age(lua_State* L){
+    auto* n=get_network(L);if(!n)return 0;
+    lua_pushnumber(L,n->player_age);
+    return 1;
+}
+int net_get_player_colour(lua_State* L){
+    auto* n=get_network(L);if(!n)return 0;
+    lua_createtable(L,4,0);
+    for(int i=1;i<=4;++i){lua_pushnumber(L,1.0);lua_rawseti(L,-2,i);}
+    return 1;
+}
+int net_add_user_flag(lua_State* L){
+    auto* n=get_network(L);if(!n)return 0;
+    n->user_flags|=static_cast<uint32_t>(luaL_checknumber(L,2));
+    return 0;
+}
+int net_remove_user_flag(lua_State* L){
+    auto* n=get_network(L);if(!n)return 0;
+    n->user_flags&=~static_cast<uint32_t>(luaL_checknumber(L,2));
+    return 0;
+}
+int net_get_user_flags(lua_State* L){
+    auto* n=get_network(L);if(!n)return 0;
+    lua_pushnumber(L,n->user_flags);
+    return 1;
+}
+int net_set_player_equip(lua_State* L){(void)get_network(L);return 0;}
+int net_set_player_skin(lua_State* L){(void)get_network(L);return 0;}
+int net_set_player_skill_selection(lua_State* L){(void)get_network(L);return 0;}
+int net_is_server_admin(lua_State* L){
+    auto* n=get_network(L);if(!n)return 0;
+    lua_pushboolean(L,n->server_admin);
+    return 1;
+}
+int net_is_consecutive_match(lua_State* L){
+    auto* n=get_network(L);if(!n)return 0;
+    lua_pushboolean(L,n->consecutive_match);
+    return 1;
+}
+int net_set_consecutive_match(lua_State* L){
+    auto* n=get_network(L);if(!n)return 0;
+    n->consecutive_match=lua_toboolean(L,2)!=0;
+    return 0;
+}
+int net_is_playing_with_friends(lua_State* L){
+    auto* n=get_network(L);if(!n)return 0;
+    lua_pushboolean(L,n->playing_with_friends);
+    return 1;
+}
+int net_is_borrowed(lua_State* L){
+    auto* n=get_network(L);if(!n)return 0;
+    lua_pushboolean(L,n->borrowed);
+    return 1;
+}
+int net_get_network_id(lua_State* L){
+    uint32_t id=0;
+    auto* n=get_network(L,&id);if(!n)return 0;
+    lua_pushinteger(L,static_cast<lua_Integer>(id));
+    return 1;
+}
+
+// --- NetVar methods ---
+NetVarState* get_netvar(lua_State* L){
+    auto id=*static_cast<uint32_t*>(luaL_checkudata(L,1,"dst.NetVar"));
+    auto it=netvars.find(id);
+    return it==netvars.end()?nullptr:&it->second;
+}
+
+int netvar_set_impl(lua_State* L,bool is_local){
+    auto* v=get_netvar(L);if(!v)return 0;
+    bool changed=false;
+    switch(v->type){
+        case NetVarType::BOOL:{
+            bool nv=lua_toboolean(L,2)!=0;
+            changed=(nv!=v->bool_val);
+            v->bool_val=nv;
+            break;
+        }
+        case NetVarType::TINYBYTE:
+        case NetVarType::SMALLBYTE:
+        case NetVarType::BYTE:
+        case NetVarType::SHORTINT:
+        case NetVarType::USHORTINT:
+        case NetVarType::INT:
+        case NetVarType::UINT:
+        case NetVarType::FLOAT:{
+            double nv=luaL_optnumber(L,2,0.0);
+            changed=(nv!=v->num_val);
+            v->num_val=nv;
+            break;
+        }
+        case NetVarType::HASH:{
+            uint32_t nv=0;
+            if(lua_type(L,2)==LUA_TSTRING){
+                const char* s=lua_tostring(L,2);
+                nv=(s&&*s)?web_strings::hash(s):0;
+            }else if(lua_type(L,2)==LUA_TNUMBER){
+                nv=static_cast<uint32_t>(static_cast<int64_t>(lua_tonumber(L,2)));
+            }
+            changed=(nv!=v->hash_val);
+            v->hash_val=nv;
+            break;
+        }
+        case NetVarType::STRING:{
+            size_t len=0;
+            const char* s=lua_tolstring(L,2,&len);
+            std::string nv=s?std::string(s,len):std::string();
+            changed=(nv!=v->str_val);
+            v->str_val=std::move(nv);
+            break;
+        }
+        case NetVarType::ENTITY:{
+            uint32_t nv=0;
+            if(lua_istable(L,2)){
+                lua_getfield(L,2,"GUID");
+                nv=static_cast<uint32_t>(lua_tointeger(L,-1));
+                lua_pop(L,1);
+            }else if(lua_isuserdata(L,2)){
+                nv=host.id(L,2);
+            }
+            changed=(nv!=v->ent_val);
+            v->ent_val=nv;
+            break;
+        }
+        case NetVarType::BYTEARRAY:
+        case NetVarType::SMALLBYTEARRAY:
+        case NetVarType::USHORTARRAY:{
+            std::vector<uint16_t> nv;
+            if(lua_istable(L,2)){
+                size_t n=std::min<size_t>(31,lua_objlen(L,2));
+                nv.reserve(n);
+                for(size_t i=1;i<=n;++i){
+                    lua_rawgeti(L,2,static_cast<int>(i));
+                    nv.push_back(static_cast<uint16_t>(lua_tointeger(L,-1)));
+                    lua_pop(L,1);
+                }
+            }
+            changed=(nv!=v->arr_val);
+            v->arr_val=std::move(nv);
+            break;
+        }
+    }
+    if(is_local){
+        v->local_dirty=true;
+    }else{
+        if(changed||v->local_dirty){
+            v->dirty=true;
+        }
+        v->local_dirty=false;
+    }
+    return 0;
+}
+
+int netvar_set(lua_State* L){return netvar_set_impl(L,false);}
+int netvar_set_local(lua_State* L){return netvar_set_impl(L,true);}
+
+int netvar_value(lua_State* L){
+    auto* v=get_netvar(L);if(!v)return 0;
+    switch(v->type){
+        case NetVarType::BOOL:
+            lua_pushboolean(L,v->bool_val);
+            return 1;
+        case NetVarType::TINYBYTE:
+        case NetVarType::SMALLBYTE:
+        case NetVarType::BYTE:
+        case NetVarType::SHORTINT:
+        case NetVarType::USHORTINT:
+        case NetVarType::INT:
+        case NetVarType::UINT:
+        case NetVarType::FLOAT:
+            lua_pushnumber(L,v->num_val);
+            return 1;
+        case NetVarType::HASH:
+            lua_pushnumber(L,v->hash_val);
+            return 1;
+        case NetVarType::STRING:
+            lua_pushlstring(L,v->str_val.data(),v->str_val.size());
+            return 1;
+        case NetVarType::ENTITY:
+            if(v->ent_val!=0&&host.alive(v->ent_val)){
+                lua_getglobal(L,"Ents");
+                if(lua_istable(L,-1)){
+                    lua_rawgeti(L,-1,v->ent_val);
+                    lua_remove(L,-2);
+                    return 1;
+                }
+                lua_pop(L,1);
+            }
+            lua_pushnil(L);
+            return 1;
+        case NetVarType::BYTEARRAY:
+        case NetVarType::SMALLBYTEARRAY:
+        case NetVarType::USHORTARRAY:{
+            lua_createtable(L,static_cast<int>(v->arr_val.size()),0);
+            for(size_t i=0;i<v->arr_val.size();++i){
+                lua_pushinteger(L,v->arr_val[i]);
+                lua_rawseti(L,-2,static_cast<int>(i+1));
+            }
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int tostring_netvar(lua_State* L){luaL_checkudata(L,1,"dst.NetVar");lua_pushfstring(L,"NetVar (%p)",lua_touserdata(L,1));return 1;}
+
+int create_netvar(lua_State* L){
+    NetVarType type=static_cast<NetVarType>(lua_tointeger(L,lua_upvalueindex(1)));
+    int base=lua_istable(L,1)?2:1;
+    uint32_t entity_id=static_cast<uint32_t>(luaL_checkinteger(L,base));
+    const char* var_name=luaL_checkstring(L,base+1);
+    const char* dirty_ev=lua_isstring(L,base+2)?lua_tostring(L,base+2):"";
+    uint32_t nvid=next_netvar_id++;
+    NetVarState st;
+    st.entity_id=entity_id;
+    st.var_name=var_name?var_name:"";
+    st.dirty_event=dirty_ev?dirty_ev:"";
+    st.type=type;
+    netvars.emplace(nvid,std::move(st));
+    entity_net_states[entity_id].netvar_ids.push_back(nvid);
+    *static_cast<uint32_t*>(lua_newuserdata(L,sizeof(uint32_t)))=nvid;
+    luaL_getmetatable(L,"dst.NetVar");
+    lua_setmetatable(L,-2);
+    return 1;
+}
+
+// --- Entity additional methods ---
+int entity_set_pristine(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return 0;
+    auto& st=entity_net_states[id];
+    st.pristine=true;
+    for(uint32_t nvid:st.netvar_ids){
+        auto it=netvars.find(nvid);
+        if(it!=netvars.end()){
+            it->second.dirty=false;
+            it->second.local_dirty=false;
+        }
+    }
+    return 0;
+}
+
+int entity_flush_local_dirty_netvars(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return 0;
+    auto it=entity_net_states.find(id);
+    if(it==entity_net_states.end())return 0;
+    std::vector<std::string> events;
+    for(uint32_t nvid:it->second.netvar_ids){
+        auto nit=netvars.find(nvid);
+        if(nit!=netvars.end()&&nit->second.dirty){
+            nit->second.dirty=false;
+            if(!nit->second.dirty_event.empty()){
+                if(std::find(events.begin(),events.end(),nit->second.dirty_event)==events.end()){
+                    events.push_back(nit->second.dirty_event);
+                }
+            }
+        }
+    }
+    if(!events.empty()){
+        lua_getglobal(L,"Ents");
+        if(lua_istable(L,-1)){
+            lua_rawgeti(L,-1,id);
+            if(lua_istable(L,-1)){
+                for(const auto& ev:events){
+                    lua_getfield(L,-1,"PushEvent");
+                    if(lua_isfunction(L,-1)){
+                        lua_pushvalue(L,-2);
+                        lua_pushlstring(L,ev.data(),ev.size());
+                        lua_call(L,2,0);
+                    }else{
+                        lua_pop(L,1);
+                    }
+                }
+            }
+            lua_pop(L,1);
+        }
+        lua_pop(L,1);
+    }
+    return 0;
+}
+
+int entity_set_aabb(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return 0;
+    auto& st=entity_net_states[id];
+    st.aabb_x=static_cast<float>(luaL_checknumber(L,2));
+    st.aabb_y=static_cast<float>(luaL_checknumber(L,3));
+    return 0;
+}
+int entity_set_selected(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return 0;
+    entity_net_states[id].selected=lua_toboolean(L,2)!=0;
+    return 0;
+}
+int entity_set_in_limbo(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return 0;
+    entity_net_states[id].in_limbo=lua_toboolean(L,2)!=0;
+    return 0;
+}
+int entity_frustum_check(lua_State* L){
+    uint32_t id=host.id(L,1);
+    lua_pushboolean(L,host.alive(id));
+    return 1;
+}
+int entity_set_platform(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return 0;
+    if(lua_isnoneornil(L,2)){entity_net_states[id].platform_id=0;return 0;}
+    entity_net_states[id].platform_id=host.id(L,2);
+    return 0;
+}
+int entity_get_platform(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id)){lua_pushnil(L);return 1;}
+    auto it=entity_net_states.find(id);
+    if(it==entity_net_states.end()||it->second.platform_id==0||!host.alive(it->second.platform_id)){
+        lua_pushnil(L);return 1;
+    }
+    *static_cast<uint32_t*>(lua_newuserdata(L,sizeof(uint32_t)))=it->second.platform_id;
+    luaL_getmetatable(L,"dst.Entity");lua_setmetatable(L,-2);
+    return 1;
+}
+int entity_get_debug_string(lua_State* L){
+    uint32_t id=host.id(L,1);
+    lua_pushfstring(L,"Entity[%d]",static_cast<int>(id));
+    return 1;
+}
+int entity_enable_movement_prediction(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return 0;
+    entity_net_states[id].movement_prediction=lua_toboolean(L,2)!=0;
+    return 0;
+}
+int entity_can_predict_movement(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id)){lua_pushboolean(L,0);return 1;}
+    lua_pushboolean(L,entity_net_states[id].movement_prediction);
+    return 1;
+}
+int entity_set_is_predicting_movement(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return 0;
+    entity_net_states[id].is_predicting_movement=lua_toboolean(L,2)!=0;
+    return 0;
+}
+int entity_movement_noop(lua_State* L){(void)host.id(L,1);return 0;}
+int entity_get_history_data(lua_State* L){(void)host.id(L,1);return 0;}
+int entity_get_anim_state_data(lua_State* L){(void)host.id(L,1);return 0;}
+int entity_world_to_local_space(lua_State* L){
+    uint32_t id=host.id(L,1);
+    float x=static_cast<float>(luaL_checknumber(L,2));
+    float y=static_cast<float>(luaL_checknumber(L,3));
+    float z=static_cast<float>(luaL_checknumber(L,4));
+    float m[16]={};
+    float ex=0,ey=0,ez=0;
+    if(host.alive(id)&&host.local_matrix&&host.local_matrix(id,m)){ex=m[12];ey=m[13];ez=m[14];}
+    lua_pushnumber(L,x-ex);lua_pushnumber(L,y-ey);lua_pushnumber(L,z-ez);
+    return 3;
+}
+int entity_local_to_world_space(lua_State* L){
+    uint32_t id=host.id(L,1);
+    float x=static_cast<float>(luaL_checknumber(L,2));
+    float y=static_cast<float>(luaL_checknumber(L,3));
+    float z=static_cast<float>(luaL_checknumber(L,4));
+    float m[16]={};
+    float ex=0,ey=0,ez=0;
+    if(host.alive(id)&&host.local_matrix&&host.local_matrix(id,m)){ex=m[12];ey=m[13];ez=m[14];}
+    lua_pushnumber(L,x+ex);lua_pushnumber(L,y+ey);lua_pushnumber(L,z+ez);
+    return 3;
+}
 }
 
 void retire(uint32_t id){
@@ -1031,6 +1584,17 @@ void retire(uint32_t id){
     pathfinders.erase(id);
     creeps.erase(id);
     minimaps.erase(id);
+    waves.erase(id);
+    networks.erase(id);
+    shard_networks.erase(id);
+    shard_clients.erase(id);
+    server_non_sleepables.erase(id);
+    client_sleepables.erase(id);
+    auto it=entity_net_states.find(id);
+    if(it!=entity_net_states.end()){
+        for(uint32_t nvid:it->second.netvar_ids)netvars.erase(nvid);
+        entity_net_states.erase(it);
+    }
 }
 
 void clear(){
@@ -1038,11 +1602,37 @@ void clear(){
     pathfinders.clear();
     creeps.clear();
     minimaps.clear();
+    waves.clear();
+    networks.clear();
+    shard_networks.clear();
+    shard_clients.clear();
+    server_non_sleepables.clear();
+    client_sleepables.clear();
+    entity_net_states.clear();
+    netvars.clear();
+    next_netvar_id=1;
+}
+
+void register_component_metatable(lua_State* L,const char* mt_name,const char* global_name,const luaL_Reg* methods,lua_CFunction tostring_fn){
+    luaL_newmetatable(L,mt_name);
+    lua_getglobal(L,global_name);
+    if(!lua_istable(L,-1)){
+        lua_pop(L,1);
+        lua_newtable(L);
+        lua_pushvalue(L,-1);
+        lua_setglobal(L,global_name);
+    }
+    if(methods)luaL_register(L,nullptr,methods);
+    lua_setfield(L,-2,"__index");
+    if(tostring_fn){
+        lua_pushcfunction(L,tostring_fn);
+        lua_setfield(L,-2,"__tostring");
+    }
+    lua_pop(L,1);
 }
 
 void install(lua_State* L,web_components::EntityHost callbacks){
     clear();host=callbacks;
-    luaL_newmetatable(L,"dst.Map");lua_newtable(L);
     const luaL_Reg map_methods[]={
         {"SetSize",map_set_size},{"SetTile",map_set_tile},{"SetInstantPhysicsRebuild",map_noop},
         {"GetTile",map_get_tile},{"GetTileAtPoint",map_get_tile_at_point},{"GetTileCoordsAtPoint",map_get_tile_coords_at_point},
@@ -1075,30 +1665,24 @@ void install(lua_State* L,web_components::EntityHost callbacks){
         {"SetOceanTextureBlurParameters",map_noop},{"SetMinimapOceanTextureBlurParameters",map_noop},{"SetMinimapOceanMaskBlurParameters",map_noop},
         {nullptr,nullptr}
     };
-    luaL_register(L,nullptr,map_methods);lua_setfield(L,-2,"__index");
-    lua_pushcfunction(L,tostring_map);lua_setfield(L,-2,"__tostring");lua_pop(L,1);
+    register_component_metatable(L,"dst.Map","Map",map_methods,tostring_map);
 
-    luaL_newmetatable(L,"dst.Pathfinder");lua_newtable(L);
     const luaL_Reg pf_methods[]={
         {"IsClear",pf_is_clear},{"AddWall",pf_add_wall},{"RemoveWall",pf_remove_wall},{"HasWall",pf_has_wall},
         {"AddStaticHoppablePlatform",pf_add_platform},{"RemoveStaticHoppablePlatform",pf_remove_platform},{"HasStaticHoppablePlatform",pf_has_platform},
         {"SubmitSearch",pf_submit_search},{"GetSearchStatus",pf_get_search_status},{"GetSearchResult",pf_get_search_result},{"KillSearch",pf_kill_search},
         {"GetPathTileIndexFromPoint",pf_get_path_tile_index},{nullptr,nullptr}
     };
-    luaL_register(L,nullptr,pf_methods);lua_setfield(L,-2,"__index");
-    lua_pushcfunction(L,tostring_pf);lua_setfield(L,-2,"__tostring");lua_pop(L,1);
+    register_component_metatable(L,"dst.Pathfinder","Pathfinder",pf_methods,tostring_pf);
 
-    luaL_newmetatable(L,"dst.GroundCreep");lua_newtable(L);
     const luaL_Reg creep_methods[]={
         {"OnCreep",creep_on_creep},{"SetUpdateInterval",creep_set_update_interval},
         {"TriggerCreepSpawners",creep_trigger_spawners},{"GetTriggeredCreepSpawners",creep_get_triggered_spawners},
         {"AddRenderLayer",creep_add_render_layer},{"GetAsString",creep_get_as_string},{"SetFromString",creep_set_from_string},
         {"FastForward",creep_fast_forward},{"SetMaxRadius",creep_set_max_radius},{nullptr,nullptr}
     };
-    luaL_register(L,nullptr,creep_methods);lua_setfield(L,-2,"__index");
-    lua_pushcfunction(L,tostring_creep);lua_setfield(L,-2,"__tostring");lua_pop(L,1);
+    register_component_metatable(L,"dst.GroundCreep","GroundCreep",creep_methods,tostring_creep);
 
-    luaL_newmetatable(L,"dst.MiniMap");lua_newtable(L);
     const luaL_Reg mm_methods[]={
         {"AddAtlas",mm_add_atlas},{"SetEffects",mm_set_effects},
         {"ToggleVisibility",mm_toggle_visibility},{"IsVisible",mm_is_visible},
@@ -1110,14 +1694,88 @@ void install(lua_State* L,web_components::EntityHost callbacks){
         {"WorldPosToMapPos",mm_world_to_map},{"MapPosToWorldPos",mm_map_to_world},
         {nullptr,nullptr}
     };
-    luaL_register(L,nullptr,mm_methods);lua_setfield(L,-2,"__index");
-    lua_pushcfunction(L,tostring_minimap);lua_setfield(L,-2,"__tostring");lua_pop(L,1);
+    register_component_metatable(L,"dst.MiniMap","MiniMap",mm_methods,tostring_minimap);
+
+    const luaL_Reg wave_methods[]={
+        {"SetWaveParams",wave_set_params},{"SetWaveSize",wave_set_size},
+        {"SetWaveTexture",wave_set_texture},{"SetWaveEffect",wave_set_effect},
+        {"Init",wave_init},{"SetWaveMotion",wave_set_motion},{nullptr,nullptr}
+    };
+    register_component_metatable(L,"dst.WaveComponent","WaveComponent",wave_methods,tostring_wave);
+
+    const luaL_Reg net_methods[]={
+        {"GetClientName",net_get_client_name},{"GetUserID",net_get_user_id},
+        {"SetClassifiedTarget",net_set_classified_target},
+        {"SetPlayerAge",net_set_player_age},{"GetPlayerAge",net_get_player_age},
+        {"GetPlayerColour",net_get_player_colour},
+        {"AddUserFlag",net_add_user_flag},{"RemoveUserFlag",net_remove_user_flag},{"GetUserFlags",net_get_user_flags},
+        {"SetPlayerEquip",net_set_player_equip},{"SetPlayerSkin",net_set_player_skin},{"SetPlayerSkillSelection",net_set_player_skill_selection},
+        {"IsServerAdmin",net_is_server_admin},{"IsConsecutiveMatch",net_is_consecutive_match},{"SetConsecutiveMatch",net_set_consecutive_match},
+        {"IsPlayingWithFriends",net_is_playing_with_friends},{"IsBorrowed",net_is_borrowed},{"GetNetworkID",net_get_network_id},
+        {nullptr,nullptr}
+    };
+    register_component_metatable(L,"dst.Network","Network",net_methods,tostring_network);
+    register_component_metatable(L,"dst.ShardNetwork","ShardNetwork",nullptr,tostring_shard_network);
+    register_component_metatable(L,"dst.ShardClient","ShardClient",nullptr,tostring_shard_client);
+    register_component_metatable(L,"dst.ServerNonSleepable","ServerNonSleepable",nullptr,tostring_server_non_sleepable);
+    register_component_metatable(L,"dst.ClientSleepable","ClientSleepable",nullptr,tostring_client_sleepable);
+
+    luaL_newmetatable(L,"dst.NetVar");lua_newtable(L);
+    const luaL_Reg nv_methods[]={
+        {"set",netvar_set},{"set_local",netvar_set_local},{"value",netvar_value},{nullptr,nullptr}
+    };
+    luaL_register(L,nullptr,nv_methods);lua_setfield(L,-2,"__index");
+    lua_pushcfunction(L,tostring_netvar);lua_setfield(L,-2,"__tostring");lua_pop(L,1);
+
+    const struct {const char* name;NetVarType type;} nv_types[]={
+        {"net_bool",NetVarType::BOOL},{"net_tinybyte",NetVarType::TINYBYTE},{"net_smallbyte",NetVarType::SMALLBYTE},
+        {"net_byte",NetVarType::BYTE},{"net_shortint",NetVarType::SHORTINT},{"net_ushortint",NetVarType::USHORTINT},
+        {"net_int",NetVarType::INT},{"net_uint",NetVarType::UINT},{"net_float",NetVarType::FLOAT},
+        {"net_hash",NetVarType::HASH},{"net_string",NetVarType::STRING},{"net_entity",NetVarType::ENTITY},
+        {"net_bytearray",NetVarType::BYTEARRAY},{"net_smallbytearray",NetVarType::SMALLBYTEARRAY},{"net_ushortarray",NetVarType::USHORTARRAY}
+    };
+    for(const auto& nvt:nv_types){
+        lua_newtable(L);
+        luaL_register(L,nullptr,nv_methods);
+        lua_newtable(L);
+        lua_pushinteger(L,static_cast<int>(nvt.type));
+        lua_pushcclosure(L,create_netvar,1);
+        lua_setfield(L,-2,"__call");
+        lua_setmetatable(L,-2);
+        lua_setglobal(L,nvt.name);
+    }
 
     lua_getglobal(L,"Entity");
     lua_pushcfunction(L,add_map);lua_setfield(L,-2,"AddMap");
     lua_pushcfunction(L,add_pathfinder);lua_setfield(L,-2,"AddPathfinder");
     lua_pushcfunction(L,add_ground_creep);lua_setfield(L,-2,"AddGroundCreep");
     lua_pushcfunction(L,add_minimap);lua_setfield(L,-2,"AddMiniMap");
+    lua_pushcfunction(L,add_wave);lua_setfield(L,-2,"AddWaveComponent");
+    lua_pushcfunction(L,add_network);lua_setfield(L,-2,"AddNetwork");
+    lua_pushcfunction(L,add_shard_network);lua_setfield(L,-2,"AddShardNetwork");
+    lua_pushcfunction(L,add_shard_client);lua_setfield(L,-2,"AddShardClient");
+    lua_pushcfunction(L,add_server_non_sleepable);lua_setfield(L,-2,"AddServerNonSleepable");
+    lua_pushcfunction(L,add_client_sleepable);lua_setfield(L,-2,"AddClientSleepable");
+    lua_pushcfunction(L,entity_set_pristine);lua_setfield(L,-2,"SetPristine");
+    lua_pushcfunction(L,entity_flush_local_dirty_netvars);lua_setfield(L,-2,"FlushLocalDirtyNetVars");
+    lua_pushcfunction(L,entity_set_aabb);lua_setfield(L,-2,"SetAABB");
+    lua_pushcfunction(L,entity_set_selected);lua_setfield(L,-2,"SetSelected");
+    lua_pushcfunction(L,entity_set_in_limbo);lua_setfield(L,-2,"SetInLimbo");
+    lua_pushcfunction(L,entity_frustum_check);lua_setfield(L,-2,"FrustumCheck");
+    lua_pushcfunction(L,entity_frustum_check);lua_setfield(L,-2,"FrustumCheckWithAABB");
+    lua_pushcfunction(L,entity_set_platform);lua_setfield(L,-2,"SetPlatform");
+    lua_pushcfunction(L,entity_get_platform);lua_setfield(L,-2,"GetPlatform");
+    lua_pushcfunction(L,entity_get_debug_string);lua_setfield(L,-2,"GetDebugString");
+    lua_pushcfunction(L,entity_enable_movement_prediction);lua_setfield(L,-2,"EnableMovementPrediction");
+    lua_pushcfunction(L,entity_can_predict_movement);lua_setfield(L,-2,"CanPredictMovement");
+    lua_pushcfunction(L,entity_set_is_predicting_movement);lua_setfield(L,-2,"SetIsPredictingMovement");
+    lua_pushcfunction(L,entity_movement_noop);lua_setfield(L,-2,"FlattenMovementPrediction");
+    lua_pushcfunction(L,entity_movement_noop);lua_setfield(L,-2,"ClearMovementPrediction");
+    lua_pushcfunction(L,entity_get_history_data);lua_setfield(L,-2,"GetHistoryData");
+    lua_pushcfunction(L,entity_get_anim_state_data);lua_setfield(L,-2,"GetAnimStateData");
+    lua_pushcfunction(L,entity_world_to_local_space);lua_setfield(L,-2,"WorldToLocalSpace");
+    lua_pushcfunction(L,entity_local_to_world_space);lua_setfield(L,-2,"LocalToWorldSpace");
+    lua_pushcfunction(L,entity_local_to_world_space);lua_setfield(L,-2,"LocalToWorldSpaceIncParent");
     lua_pop(L,1);
 }
 }

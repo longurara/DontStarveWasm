@@ -20,7 +20,7 @@ function GetTimeForTick(value) return value * GetTickTime() end
 -- Install explicit throwing bindings for known, not-yet-implemented native APIs.
 -- This also permits original Lua to retain references without hiding a call.
 require("native_registry")
-Entity.AddNetwork = function() error("UNIMPLEMENTED_NATIVE: Entity.AddNetwork", 2) end
+Entity.AddNetwork = Entity.AddNetwork or function() error("UNIMPLEMENTED_NATIVE: Entity.AddNetwork", 2) end
 require("class")
 require("util")
 require("vecutil")
