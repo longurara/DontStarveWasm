@@ -27,6 +27,20 @@ std::string server_playstyle;
 std::string server_tags;
 std::string session_identifier;
 std::string world_gen_data;
+std::string server_season;
+std::string game_data;
+std::string quiet_backend_reason;
+std::string client_cache_session_identifier;
+bool is_world_saving=false;
+bool is_world_resetting=false;
+bool is_match_starting=false;
+bool is_client_in_world=false;
+bool allow_incoming_connections=true;
+bool allow_new_players_to_connect=true;
+bool server_paused=false;
+bool server_autopaused=false;
+bool deferred_shutdown_requested=false;
+int current_snapshot=1;
 void ready(lua_State* L){if(!configured)luaL_error(L,"Session parameters must be configured before network queries");}
 std::string persistent_root(){return is_client?"/persistent/client":"/persistent/master";}
 bool valid_segment(const char* s,size_t len){
@@ -37,11 +51,9 @@ bool valid_segment(const char* s,size_t len){
 void ensure_dirs(const std::string& path){
     for(size_t i=1;i<=path.size();++i)if(i==path.size()||path[i]=='/')mkdir(path.substr(0,i).c_str(),0700);
 }
-bool latest_snapshot_in_dir(const std::string& session_dir,const std::string& sid,std::string& out){
-    // Native 0x1402704a0 -> 0x14026f3d0: scan session/<sid>/ for highest
-    // snapshot integer (> 0), ignoring .meta and .User files.
+int max_snapshot_in_dir(const std::string& session_dir){
     DIR* dir=opendir(session_dir.c_str());
-    if(!dir)return false;
+    if(!dir)return 0;
     int max_num=0;
     while(struct dirent* ent=readdir(dir)){
         const char* name=ent->d_name;
@@ -50,6 +62,12 @@ bool latest_snapshot_in_dir(const std::string& session_dir,const std::string& si
         if(num>max_num)max_num=num;
     }
     closedir(dir);
+    return max_num;
+}
+bool latest_snapshot_in_dir(const std::string& session_dir,const std::string& sid,std::string& out){
+    // Native 0x1402704a0 -> 0x14026f3d0: scan session/<sid>/ for highest
+    // snapshot integer (> 0), ignoring .meta and .User files.
+    int max_num=max_snapshot_in_dir(session_dir);
     if(max_num<=0)return false;
     char formatted[16];
     std::snprintf(formatted,sizeof(formatted),"%010u",static_cast<unsigned int>(max_num));
@@ -91,13 +109,19 @@ int start_server(lua_State* L){
 int get_empty_string(lua_State* L){ready(L);lua_pushliteral(L,"");return 1;}
 int get_false(lua_State* L){ready(L);lua_pushboolean(L,0);return 1;}
 int get_true(lua_State* L){ready(L);lua_pushboolean(L,1);return 1;}
+int get_zero(lua_State* L){ready(L);lua_pushinteger(L,0);return 1;}
+int get_empty_table(lua_State* L){ready(L);lua_newtable(L);return 1;}
+int get_nil(lua_State* L){ready(L);lua_pushnil(L);return 1;}
 int get_session_identifier(lua_State* L){ready(L);lua_pushlstring(L,session_identifier.data(),session_identifier.size());return 1;}
 int begin_session(lua_State* L){
     // Native 0x14023a5b0 -> 0x1401f4810
     ready(L);size_t len=0;const char* sid=luaL_checklstring(L,2,&len);
     if(!valid_segment(sid,len))return luaL_error(L,"Invalid session identifier");
     session_identifier.assign(sid,len);
-    ensure_dirs(persistent_root()+"/session/"+session_identifier);
+    std::string dir=persistent_root()+"/session/"+session_identifier;
+    ensure_dirs(dir);
+    int max_num=max_snapshot_in_dir(dir);
+    current_snapshot=max_num>0?max_num+1:1;
     return 0;
 }
 int delete_session(lua_State* L){
@@ -150,6 +174,113 @@ int set_world_gen_data(lua_State* L){
     world_gen_data.assign(s,len>5120?5120:len);return 0;
 }
 int notify_loading_state(lua_State* L){ready(L);(void)luaL_checkinteger(L,2);(void)luaL_optstring(L,3,"");return 0;}
+int set_is_world_saving(lua_State* L){ready(L);is_world_saving=lua_toboolean(L,2)!=0;return 0;}
+int set_is_world_resetting(lua_State* L){ready(L);is_world_resetting=lua_toboolean(L,2)!=0;return 0;}
+int set_is_match_starting(lua_State* L){ready(L);is_match_starting=lua_toboolean(L,2)!=0;return 0;}
+int set_is_client_in_world(lua_State* L){ready(L);is_client_in_world=lua_toboolean(L,2)!=0;return 0;}
+int set_season(lua_State* L){ready(L);server_season=luaL_optstring(L,2,"");return 0;}
+int set_game_data(lua_State* L){ready(L);game_data=luaL_optstring(L,2,"");return 0;}
+int set_allow_incoming(lua_State* L){ready(L);allow_incoming_connections=lua_toboolean(L,2)!=0;return 0;}
+int get_allow_incoming(lua_State* L){ready(L);lua_pushboolean(L,allow_incoming_connections?1:0);return 1;}
+int set_allow_new_players(lua_State* L){ready(L);allow_new_players_to_connect=lua_toboolean(L,2)!=0;return 0;}
+int get_allow_new_players(lua_State* L){ready(L);lua_pushboolean(L,allow_new_players_to_connect?1:0);return 1;}
+int set_server_paused(lua_State* L){ready(L);server_paused=lua_toboolean(L,2)!=0;return 0;}
+int set_autopaused(lua_State* L){ready(L);server_autopaused=lua_toboolean(L,2)!=0;return 0;}
+int is_server_paused(lua_State* L){
+    ready(L);
+    bool check_manual_only=lua_toboolean(L,2)!=0;
+    lua_pushboolean(L,(check_manual_only?server_paused:(server_paused||server_autopaused))?1:0);
+    return 1;
+}
+int get_current_snapshot(lua_State* L){ready(L);lua_pushinteger(L,current_snapshot);return 1;}
+int set_current_snapshot(lua_State* L){ready(L);current_snapshot=static_cast<int>(luaL_checkinteger(L,2));return 0;}
+int increment_snapshot(lua_State* L){ready(L);++current_snapshot;return 0;}
+int get_deferred_shutdown(lua_State* L){ready(L);lua_pushboolean(L,deferred_shutdown_requested?1:0);return 1;}
+int set_deferred_shutdown(lua_State* L){ready(L);deferred_shutdown_requested=lua_toboolean(L,2)!=0;return 0;}
+int set_quiet_backend_reason(lua_State* L){ready(L);quiet_backend_reason=luaL_optstring(L,2,"");return 0;}
+int set_client_cache_sid(lua_State* L){ready(L);client_cache_session_identifier=luaL_optstring(L,2,"");return 0;}
+std::string strip_leading_return(const char* s,size_t len){
+    if(len>=7&&std::memcmp(s,"return ",7)==0)return std::string(s+7,len-7);
+    if(len>=6&&std::memcmp(s,"return",6)==0)return std::string(s+6,len-6);
+    return std::string(s,len);
+}
+int serialize_world_session(lua_State* L){
+    ready(L);
+    std::string payload;
+    if(lua_isstring(L,2)){
+        size_t len=0;const char* s=lua_tolstring(L,2,&len);
+        payload.assign(s,len);
+    }else if(lua_istable(L,2)){
+        payload="return {\n";
+        lua_pushnil(L);
+        while(lua_next(L,2)!=0){
+            if(lua_type(L,-2)==LUA_TSTRING){
+                const char* key=lua_tostring(L,-2);
+                if(lua_type(L,-1)==LUA_TSTRING){
+                    size_t vlen=0;const char* vs=lua_tolstring(L,-1,&vlen);
+                    payload+="[\""+std::string(key)+"\"]="+strip_leading_return(vs,vlen)+",\n";
+                }else if(lua_istable(L,-1)){
+                    payload+="[\""+std::string(key)+"\"]={\n";
+                    lua_pushnil(L);
+                    while(lua_next(L,-2)!=0){
+                        if(lua_type(L,-2)==LUA_TSTRING&&lua_type(L,-1)==LUA_TSTRING){
+                            const char* ekey=lua_tostring(L,-2);
+                            size_t evlen=0;const char* evs=lua_tolstring(L,-1,&evlen);
+                            payload+="[\""+std::string(ekey)+"\"]="+strip_leading_return(evs,evlen)+",\n";
+                        }
+                        lua_pop(L,1);
+                    }
+                    payload+="},\n";
+                }
+            }
+            lua_pop(L,1);
+        }
+        payload+="}\n";
+    }
+    size_t sid_len=0;const char* sid=luaL_optlstring(L,3,session_identifier.c_str(),&sid_len);
+    if(valid_segment(sid,sid_len)){
+        std::string id(sid,sid_len);
+        std::string dir=persistent_root()+"/session/"+id;
+        ensure_dirs(dir);
+        char formatted[16];
+        int snap=current_snapshot>0?current_snapshot:1;
+        std::snprintf(formatted,sizeof(formatted),"%010u",static_cast<unsigned int>(snap));
+        std::string path=dir+"/"+formatted;
+        if(FILE* f=std::fopen(path.c_str(),"wb")){
+            std::fwrite(payload.data(),1,payload.size(),f);
+            std::fclose(f);
+        }
+        size_t meta_len=0;const char* meta=luaL_optlstring(L,6,"",&meta_len);
+        if(meta_len>0){
+            std::string mpath=path+".meta";
+            if(FILE* mf=std::fopen(mpath.c_str(),"wb")){
+                std::fwrite(meta,1,meta_len,mf);
+                std::fclose(mf);
+            }
+        }
+    }
+    if(lua_isfunction(L,5)){
+        lua_pushvalue(L,5);
+        lua_pushboolean(L,1);
+        lua_call(L,1,0);
+    }
+    return 0;
+}
+int deserialize_user_session(lua_State* L){
+    ready(L);
+    if(lua_isfunction(L,3)){
+        lua_pushvalue(L,3);
+        lua_pushboolean(L,0);
+        lua_pushliteral(L,"");
+        lua_call(L,2,0);
+    }else if(lua_isfunction(L,5)){
+        lua_pushvalue(L,5);
+        lua_pushboolean(L,0);
+        lua_pushliteral(L,"");
+        lua_call(L,2,0);
+    }
+    return 0;
+}
 int net_noop(lua_State* L){ready(L);return 0;}
 int shard_false(lua_State* L){lua_pushboolean(L,0);return 1;}
 int shard_get_id(lua_State* L){lua_pushliteral(L,"0");return 1;}
@@ -202,6 +333,10 @@ std::string configure_data(const std::string& json,const char* expected){
     if(!is_client&&!identity.empty())return "Authoritative shard has no local player identity";
     strings=std::move(next_strings);flags=std::move(next_flags);max_players=static_cast<int>(count);default_mode=strings.at("gameMode");
     server_started=false;client_started=false;server_playstyle.clear();server_tags.clear();session_identifier.clear();world_gen_data.clear();
+    server_season.clear();game_data.clear();quiet_backend_reason.clear();client_cache_session_identifier.clear();
+    is_world_saving=false;is_world_resetting=false;is_match_starting=false;is_client_in_world=false;
+    allow_incoming_connections=true;allow_new_players_to_connect=true;server_paused=false;server_autopaused=false;deferred_shutdown_requested=false;
+    current_snapshot=1;
     configured=true;return "";
 }
 }
@@ -219,6 +354,10 @@ int configure(lua_State* L){
 void install(lua_State* L,bool client){
     is_client=client;configured=false;server_started=false;client_started=false;
     strings.clear();flags.clear();max_players=0;default_mode.clear();server_playstyle.clear();server_tags.clear();session_identifier.clear();world_gen_data.clear();
+    server_season.clear();game_data.clear();quiet_backend_reason.clear();client_cache_session_identifier.clear();
+    is_world_saving=false;is_world_resetting=false;is_match_starting=false;is_client_in_world=false;
+    allow_incoming_connections=true;allow_new_players_to_connect=true;server_paused=false;server_autopaused=false;deferred_shutdown_requested=false;
+    current_snapshot=1;
     lua_getglobal(L,"TheNet");
     for(auto [method,key]:std::map<const char*,const char*>{
         {"GetServerGameMode","gameMode"},{"GetServerName","serverName"},{"GetServerDescription","serverDescription"},{"GetServerIntention","serverIntention"},
@@ -231,20 +370,47 @@ void install(lua_State* L,bool client){
     })closure(L,method,key,get_flag);
     for(auto [method,fn]:std::map<const char*,lua_CFunction>{
         {"GetServerMaxPlayers",get_max},{"GetDefaultMaxPlayers",get_max},
-        {"GetUserID",get_user_id},
+        {"GetUserID",get_user_id},{"GetLocalUserName",get_empty_string},{"GetCountryCode",get_empty_string},{"GetItemsBranch",get_empty_string},
         {"GetDefaultGameMode",get_default_mode},{"SetDefaultGameMode",set_default_mode},
         {"GetIsServer",get_is_server},{"GetIsMasterSimulation",get_is_server},
         {"GetIsClient",get_is_client},{"GetIsHosting",get_is_hosting},
+        {"GetIsServerAdmin",get_is_server},{"GetIsServerOwner",get_is_server},{"GetServerHasPresentAdmin",get_is_server},
         {"StartServer",start_server},
         {"GetDefaultServerPassword",get_empty_string},{"GetDefaultClanID",get_empty_string},
         {"GetDefaultClanOnly",get_false},{"GetDefaultClanAdmins",get_false},{"GetDefaultVoteEnabled",get_false},
+        {"GetServerHasPassword",get_false},{"GetServerModsEnabled",get_false},{"GetServerModsDescription",get_empty_string},{"GetServerModNames",get_empty_table},
+        {"GetServerClanID",get_empty_string},{"GetServerClanOnly",get_false},{"GetServerClanAdmins",get_false},{"GetServerEvent",get_false},
         {"GetDefaultEncodeUserPath",get_true},{"TryDefaultEncodeUserPath",get_true},
+        {"GetAutosaverEnabled",get_true},{"IsNetOverlayEnabled",get_false},{"IsConsecutiveMatchForPlayer",get_false},{"IsVoiceActive",get_false},{"HasPendingConnection",get_false},{"IsSearchingServers",get_false},{"CanSendInvitation",get_false},{"IsClanIDValid",get_false},{"IsNetIDPlatformValid",get_true},
         {"GetSessionIdentifier",get_session_identifier},
-        {"BeginSession",begin_session},{"DeleteSession",delete_session},
+        {"BeginSession",begin_session},{"DeleteSession",delete_session},{"DeleteCluster",net_noop},{"DeleteUserSession",net_noop},
         {"GetWorldSessionFile",get_world_session_file},{"GetWorldSessionFileInClusterSlot",get_world_session_file_in_cluster_slot},
+        {"GetUserSessionFile",get_nil},{"GetUserSessionFileInClusterSlot",get_nil},{"GetLocalClientUserSessionFile",get_nil},{"GetPlayerSaveLocationInClusterSlot",get_nil},
+        {"DeserializeUserSession",deserialize_user_session},{"DeserializeUserSessionInClusterSlot",deserialize_user_session},{"DeserializeAllLocalUserSessions",net_noop},
+        {"ListSnapshots",get_empty_table},{"ListSnapshotsInClusterSlot",get_empty_table},
         {"GetServerPlaystyle",get_server_playstyle},{"SetServerPlaystyle",set_server_playstyle},
         {"SetServerTags",set_server_tags},{"SetWorldGenData",set_world_gen_data},{"NotifyLoadingState",notify_loading_state},
-        {"DoneLoadingMap",net_noop},{"IncrementSnapshot",net_noop},{"TruncateSnapshots",net_noop},{"CleanupSessionCache",net_noop}
+        {"SetIsWorldSaving",set_is_world_saving},{"SetIsWorldResetting",set_is_world_resetting},{"SetIsMatchStarting",set_is_match_starting},{"SetIsClientInWorld",set_is_client_in_world},
+        {"SetSeason",set_season},{"SetGameData",set_game_data},
+        {"SetAllowIncomingConnections",set_allow_incoming},{"GetAllowIncomingConnections",get_allow_incoming},
+        {"SetAllowNewPlayersToConnect",set_allow_new_players},{"GetAllowNewPlayersToConnect",get_allow_new_players},{"AllowConnections",net_noop},
+        {"SetServerPaused",set_server_paused},{"SetAutopaused",set_autopaused},{"IsServerPaused",is_server_paused},
+        {"GetCurrentSnapshot",get_current_snapshot},{"SetCurrentSnapshot",set_current_snapshot},{"IncrementSnapshot",increment_snapshot},
+        {"StartWorldSave",net_noop},{"EndWorldSave",net_noop},{"SerializeWorldSession",serialize_world_session},{"SerializeUserSession",net_noop},
+        {"GetClientTable",get_empty_table},{"GetClientTableForUser",get_nil},{"GetClientMetricsForUser",get_nil},{"GetNetIdForUser",get_empty_string},
+        {"GetPlayerCount",get_zero},{"GetAveragePing",get_zero},{"GetNetUpdates",get_zero},{"GetNetworkStatistics",get_empty_table},
+        {"GetBlacklist",get_empty_table},{"SetBlacklist",net_noop},{"LoadPermissionLists",net_noop},
+        {"GetPartyTable",get_empty_table},{"GetPartyChatHistory",get_empty_table},{"GetFriendsList",get_empty_table},{"GetServerListings",get_empty_table},{"GetServerListingFromActualIndex",get_nil},{"GetServerListingReadDirty",get_false},
+        {"GetDeferredServerShutdownRequested",get_deferred_shutdown},{"SetDeferredServerShutdownRequested",set_deferred_shutdown},
+        {"SetQuietBackendErrorsReason",set_quiet_backend_reason},{"SetClientCacheSessionIdentifier",set_client_cache_sid},
+        {"SetCheckVersionOnQuery",net_noop},{"SetLobbyCharacter",net_noop},{"SetPlayerMuted",net_noop},{"UpdatePlayingWithFriends",net_noop},
+        {"Announce",net_noop},{"AnnounceDeath",net_noop},{"AnnounceResurrect",net_noop},{"AnnounceVoteResult",net_noop},{"SystemMessage",net_noop},{"Say",net_noop},{"Talker",net_noop},{"DiceRoll",net_noop},{"PartyChat",net_noop},
+        {"StartVote",net_noop},{"StopVote",net_noop},{"Vote",net_noop},{"Kick",net_noop},{"Ban",net_noop},{"BanForTime",net_noop},
+        {"CallRPC",net_noop},{"SendRPCToServer",net_noop},{"SendModRPCToServer",net_noop},{"CallClientRPC",net_noop},{"SendRPCToClient",net_noop},{"SendModRPCToClient",net_noop},{"CallShardRPC",net_noop},{"SendRPCToShard",net_noop},{"SendModRPCToShard",net_noop},
+        {"SendWorldSaveRequestToMaster",net_noop},{"SendRemoteExecute",net_noop},{"SendSlashCmdToServer",net_noop},{"SendSpawnRequestToServer",net_noop},{"SendResumeRequestToServer",net_noop},{"SendWorldResetRequestToServer",net_noop},{"SendWorldRollbackRequestToServer",net_noop},{"SendLobbyCharacterRequestToServer",net_noop},{"SpawnSeamlessPlayerReplacement",net_noop},
+        {"BeginServerModSetup",net_noop},{"ServerModSetup",net_noop},{"ServerModCollectionSetup",net_noop},{"DownloadServerMods",net_noop},{"ServerModsDownloadCompleted",net_noop},
+        {"Disconnect",net_noop},{"JoinServerResponse",get_false},{"NotifyAuthenticationFailure",net_noop},{"SearchServers",net_noop},{"SearchLANServers",net_noop},{"StopSearchingServers",net_noop},{"DownloadServerDetails",net_noop},{"ReportListing",net_noop},
+        {"DoneLoadingMap",net_noop},{"TruncateSnapshots",net_noop},{"TruncateSnapshotsInClusterSlot",net_noop},{"CleanupSessionCache",net_noop}
     }){lua_pushcfunction(L,fn);lua_setfield(L,-2,method);}
     // Native NetworkProxy is userdata with an __index method table. Preserve
     // the existing methods/fallback while replacing the temporary namespace.
