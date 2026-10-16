@@ -227,6 +227,79 @@ int decode_render_lua(lua_State* L){
     lua_setfield(L,-2,"animations");
     return 1;
 }
+int decode_render_json_lua(lua_State* L){
+    const char* path=luaL_checkstring(L,1);
+    int max_frames=static_cast<int>(luaL_optinteger(L,2,24));
+    if(max_frames<1)max_frames=1;
+    std::string error;std::vector<uint8_t> bytes;
+    if(!web_resource_io::read(path,bytes,error)){lua_pushlstring(L,error.data(),error.size());return lua_error(L);}
+    std::map<std::string,std::vector<uint8_t>> files;
+    if(!web_asset_zip::unpack(bytes,files,error)){lua_pushlstring(L,error.data(),error.size());return lua_error(L);}
+    Bundle out;
+    auto anim=files.find("anim.bin"),bild=files.find("build.bin");
+    if(bild!=files.end()&&!build(bild->second,out)){lua_pushliteral(L,"Invalid BILD");return lua_error(L);}
+    if(anim!=files.end()&&!animation(anim->second,out)){lua_pushliteral(L,"Invalid ANIM");return lua_error(L);}
+    std::string json;
+    json.reserve(131072);
+    char buf[256];
+    json+="{\"name\":\"";json+=out.build;json+="\",\"atlases\":[";
+    for(size_t i=0;i<out.atlases.size();++i){
+        if(i)json+=',';
+        json+='"';json+=out.atlases[i];json+='"';
+    }
+    json+="],\"symbols\":{";
+    bool first_sym=true;
+    for(const auto& [sym_id,sym]:out.symbols){
+        if(!first_sym)json+=',';
+        first_sym=false;
+        std::snprintf(buf,sizeof(buf),"\"%u\":{\"name\":\"",sym_id);
+        json+=buf;json+=sym.name;json+="\",\"frames\":[";
+        for(size_t f=0;f<sym.frames.size();++f){
+            if(f)json+=',';
+            const auto& sf=sym.frames[f];
+            std::snprintf(buf,sizeof(buf),"{\"frame\":%u,\"duration\":%u,\"offset\":%u,\"count\":%u,\"bbox\":[%.4g,%.4g,%.4g,%.4g]}",
+                sf.frame,sf.duration,sf.offset,sf.count,sf.bounds[0],sf.bounds[1],sf.bounds[2],sf.bounds[3]);
+            json+=buf;
+        }
+        json+="]}";
+    }
+    json+="},\"vertices\":[";
+    for(size_t i=0;i<out.vertices.size();++i){
+        if(i)json+=',';
+        const auto& v=out.vertices[i];
+        std::snprintf(buf,sizeof(buf),"[%.5g,%.5g,%.5g,%.6g,%.6g,%.0f]",v[0],v[1],v[2],v[3],v[4],v[5]);
+        json+=buf;
+    }
+    json+="],\"animations\":[";
+    for(size_t c=0;c<out.clips.size();++c){
+        if(c)json+=',';
+        const auto& cl=out.clips[c];
+        std::snprintf(buf,sizeof(buf),"{\"name\":\"%s\",\"facing\":%u,\"bank\":%u,\"rate\":%.4g,\"frames\":[",
+            cl.name.c_str(),cl.facing,cl.bank,cl.rate);
+        json+=buf;
+        size_t total_f=cl.frames.size();
+        size_t step=total_f>static_cast<size_t>(max_frames)?(total_f+max_frames-1)/max_frames:1;
+        bool first_fr=true;
+        for(size_t f=0;f<total_f;f+=step){
+            if(!first_fr)json+=',';
+            first_fr=false;
+            const auto& fr=cl.frames[f];
+            json+="{\"elements\":[";
+            for(size_t e=0;e<fr.elements.size();++e){
+                if(e)json+=',';
+                const auto& el=fr.elements[e];
+                std::snprintf(buf,sizeof(buf),"{\"symbol\":\"%u\",\"frame\":%u,\"depth\":%.4g,\"matrix\":[%.5g,%.5g,%.5g,%.5g,%.5g,%.5g]}",
+                    el.symbol,el.frame,el.depth,el.matrix[0],el.matrix[1],el.matrix[2],el.matrix[3],el.matrix[4],el.matrix[5]);
+                json+=buf;
+            }
+            json+="]}";
+        }
+        json+="]}";
+    }
+    json+="]}";
+    lua_pushlstring(L,json.data(),json.size());
+    return 1;
+}
 int release_lua(lua_State* L){auto path=luaL_checkstring(L,1);auto found=cache.find(web_strings::hash(path));
     if(found!=cache.end()&&found->second.references)return luaL_error(L,"Asset is owned by loaded prefabs");release(path);return 0;}
 }
@@ -248,5 +321,5 @@ void release(const std::string& path){auto found=cache.find(web_strings::hash(pa
     if(!found->second.references){retained-=found->second.value.retained_bytes;cache.erase(found);}}
 const Bundle* get(const std::string& path){auto found=cache.find(web_strings::hash(path));return found==cache.end()?nullptr:&found->second.value;}
 void clear(){cache.clear();retained=0;usage=evictions=0;}
-void install(lua_State* L){clear();lua_newtable(L);const luaL_Reg methods[]={{"Decode",decode_lua},{"DecodeRenderData",decode_render_lua},{"Inspect",inspect},{"Release",release_lua},{nullptr,nullptr}};luaL_register(L,nullptr,methods);lua_setglobal(L,"WebAssets");}
+void install(lua_State* L){clear();lua_newtable(L);const luaL_Reg methods[]={{"Decode",decode_lua},{"DecodeRenderData",decode_render_lua},{"DecodeRenderJson",decode_render_json_lua},{"Inspect",inspect},{"Release",release_lua},{nullptr,nullptr}};luaL_register(L,nullptr,methods);lua_setglobal(L,"WebAssets");}
 }

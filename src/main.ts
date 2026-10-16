@@ -110,7 +110,39 @@ let lastAudioResult: any;
 
 const gameCanvas = element<HTMLCanvasElement>('game-canvas');
 const minimapCanvas = element<HTMLCanvasElement>('minimap-canvas');
-const gameRenderer = new GameRenderer(gameCanvas, minimapCanvas);
+const assetQueue: Array<{ build: string; bank: string }> = [];
+let assetPumpActive = false;
+
+async function pumpAnimAssets() {
+  if (assetPumpActive) return;
+  assetPumpActive = true;
+  try {
+    while (assetQueue.length > 0) {
+      const worker = workers.get('master') ?? workers.get('client');
+      if (!worker) break;
+      const next = assetQueue.shift()!;
+      try {
+        const payload = await worker.request('load-anim-asset', next);
+        gameRenderer.ingestAnimAsset(next.build, next.bank, payload);
+      } catch {
+        gameRenderer.ingestAnimAsset(next.build, next.bank, null);
+      }
+      // Yield 12ms between asset uploads so 30 Hz game ticks stay responsive
+      await new Promise(r => setTimeout(r, 12));
+    }
+  } finally {
+    assetPumpActive = false;
+  }
+}
+
+const gameRenderer = new GameRenderer(gameCanvas, minimapCanvas, (build, bank) => {
+  if (build === 'wilson') {
+    assetQueue.unshift({ build, bank });
+  } else {
+    assetQueue.push({ build, bank });
+  }
+  void pumpAnimAssets();
+});
 
 const ITEM_ICONS: Record<string, string> = {
   flint: '🪨 Đá lửa',

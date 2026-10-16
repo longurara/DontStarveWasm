@@ -235,6 +235,76 @@ async function handle(data: any) {
         evaluate(`return _WEB_Restore(${JSON.stringify(JSON.stringify(data.snapshot))})`);
         engine._dst_restore_clock(data.snapshot.tick);
         result = JSON.parse(evaluate('return _WEB_Snapshot()')); break;
+      case 'load-anim-asset': {
+        if (!ready || !resources) throw new Error('Engine or resources not initialized');
+        const build = String(data.build || '').trim();
+        const bank = String(data.bank || '').trim();
+        if (!build) { result = null; break; }
+        const buildZip = `anim/${build}.zip`;
+        if (!resources.exists(buildZip)) { result = null; break; }
+
+        const capturedMip0 = new Map<number, { width: number; height: number; rgba: ArrayBuffer }>();
+        engine.nativeTextureBackendReady = () => true;
+        engine.hasNativeTexture = (id: number) => capturedMip0.has(id >>> 0);
+        engine.beginNativeTexture = () => {};
+        engine.uploadNativeTexture = (id: number, level: number, width: number, height: number, bytes: Uint8Array) => {
+          if (level === 0) {
+            capturedMip0.set(id >>> 0, { width, height, rgba: bytes.slice().buffer });
+          }
+        };
+        engine.finishNativeTexture = () => {};
+        engine.releaseNativeTexture = (id: number) => capturedMip0.delete(id >>> 0);
+
+        const model = JSON.parse(await evaluations.evaluateAsync(`return WebAssets.DecodeRenderJson("${buildZip}", 20)`, 50000000));
+        const extraBankZips: string[] = [];
+        if (build === 'wilson') {
+          extraBankZips.push('anim/player_basic.zip', 'anim/player_idles.zip', 'anim/player_actions.zip');
+        } else if (bank && bank !== build) {
+          for (const candidate of [`anim/${bank}.zip`, `anim/ds_${bank}_basic.zip`, `anim/${bank}_normal.zip`, `anim/${bank}_short.zip`]) {
+            if (resources.exists(candidate)) {
+              extraBankZips.push(candidate);
+              break;
+            }
+          }
+        }
+        for (const bZip of extraBankZips) {
+          if (resources.exists(bZip)) {
+            try {
+              const bankData = JSON.parse(await evaluations.evaluateAsync(`return WebAssets.DecodeRenderJson("${bZip}", 20)`, 50000000));
+              if (Array.isArray(bankData?.animations)) {
+                model.animations.push(...bankData.animations);
+              }
+            } catch {} finally {
+              try { evaluate(`WebAssets.Release(${JSON.stringify(bZip)})`); } catch {}
+            }
+          }
+        }
+
+        const atlases: Array<{ name: string; width: number; height: number; rgba: ArrayBuffer }> = [];
+        try {
+          if (Array.isArray(model.atlases) && model.atlases.length > 0) {
+            for (const atlasName of model.atlases) {
+              const info = JSON.parse(
+                await evaluations.evaluateAsync(
+                  `return require("json").encode_compliant(WebTextures.UploadAnimation("${buildZip}", ${JSON.stringify(atlasName)}))`,
+                  50000000,
+                ),
+              );
+              const mip = capturedMip0.get(info.id >>> 0);
+              if (mip) {
+                atlases.push({ name: atlasName, width: mip.width, height: mip.height, rgba: mip.rgba });
+                transfers.push(mip.rgba);
+                capturedMip0.delete(info.id >>> 0);
+              }
+              try { evaluate(`WebTextures.Release(${JSON.stringify(buildZip + '#' + atlasName)})`); } catch {}
+            }
+          }
+        } finally {
+          try { evaluate(`WebAssets.Release(${JSON.stringify(buildZip)})`); } catch {}
+        }
+        result = { build, bank, model, atlases };
+        break;
+      }
       case 'start-game': {
         if (!ready) throw new Error('Engine is not initialized');
         // 1. Mount remaining original Lua script packs if not yet mounted
@@ -261,6 +331,17 @@ async function handle(data: any) {
         engine.FS.writeFile('/persistent/master/shardindex', new Uint8Array(shardIndex));
         engine.FS.writeFile('/persistent/master/session/15CD1F748D1D1C77/0000000183', new Uint8Array(sessionSnap));
         engine.FS.writeFile('/persistent/master/session/15CD1F748D1D1C77/0000000183.meta', new Uint8Array(sessionMeta));
+
+        // 3. Reinitialize a clean Lua VM with compat/prelude.lua so main.lua runs with MODS_ROOT and native globals
+        engine._dst_close();
+        if (engine._dst_init(['client', 'master', 'caves'].indexOf(role))) {
+          throw new Error('Lua re-initialization failed');
+        }
+        engine._dst_platform_storage(1);
+        if (resources) resources.install(engine);
+        evaluations = engineEvaluator(engine, () => ready);
+        evaluate('dofile("/compat/prelude.lua")');
+        configureSession(engine, sessionParameters(contentManifest, {}), contentManifest);
 
         engine._dst_ui_viewport(data.width || 1280, data.height || 720);
         evaluate(`

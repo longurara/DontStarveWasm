@@ -220,9 +220,507 @@ export function defaultActionForEntity(e: SceneEntity, equippedHand: string): { 
   return { code: 'INSPECT', label: 'Xem xét (Inspect)' };
 }
 
+export interface LoadedAnimAsset {
+  build: string;
+  bank: string;
+  model: {
+    name?: string;
+    atlases: string[];
+    symbols: Record<
+      string,
+      {
+        name?: string;
+        frames: Array<{ frame: number; duration: number; bbox: number[]; offset: number; count: number }>;
+      }
+    >;
+    vertices: Array<[number, number, number, number, number, number]>;
+    animations: Array<{
+      name: string;
+      facing: number;
+      rate: number;
+      numFrames?: number;
+      frames: Array<{
+        bbox?: number[];
+        elements: Array<{
+          symbol: number;
+          frame: number;
+          depth: number;
+          matrix: [number, number, number, number, number, number];
+          mult: [number, number, number, number];
+        }>;
+      }>;
+    }>;
+  };
+  atlases: Array<{ name: string; width: number; height: number; rgba: ArrayBuffer }>;
+}
+
+interface CachedSpriteFrame {
+  canvas: HTMLCanvasElement;
+  anchorX: number;
+  anchorY: number;
+  width: number;
+  height: number;
+}
+
+interface GpuAnimBundle {
+  build: string;
+  bank: string;
+  model: LoadedAnimAsset['model'];
+  textures: WebGLTexture[];
+}
+
+export const PREFAB_ASSET_DEFAULTS: Record<string, { build: string; bank: string; anim: string }> = {
+  wilson: { build: 'wilson', bank: 'wilson', anim: 'idle_loop' },
+  multiplayer_portal: { build: 'portal_stone', bank: 'portal_dst', anim: 'idle_loop' },
+  evergreen: { build: 'evergreen_new', bank: 'evergreen_short', anim: 'sway1_loop_normal' },
+  evergreen_sparse: { build: 'evergreen_new_2', bank: 'evergreen_short', anim: 'sway1_loop_normal' },
+  twiggytree: { build: 'twiggy_build', bank: 'twiggy', anim: 'sway1_loop_tall' },
+  marsh_tree: { build: 'marsh_tree', bank: 'marsh_tree', anim: 'sway1_loop' },
+  rock1: { build: 'rock', bank: 'rock', anim: 'full' },
+  rock2: { build: 'rock2', bank: 'rock2', anim: 'full' },
+  rock_flintless: { build: 'rock_flintless', bank: 'rock_flintless', anim: 'full' },
+  flint: { build: 'flint', bank: 'flint', anim: 'idle' },
+  twigs: { build: 'twigs', bank: 'twigs', anim: 'idle' },
+  cutgrass: { build: 'cutgrass', bank: 'cutgrass', anim: 'idle' },
+  berries: { build: 'berries', bank: 'berries', anim: 'idle' },
+  berries_juicy: { build: 'berries_juicy', bank: 'berries_juicy', anim: 'idle' },
+  log: { build: 'log', bank: 'log', anim: 'idle' },
+  rocks: { build: 'rocks', bank: 'rocks', anim: 'idle' },
+  goldnugget: { build: 'goldnugget', bank: 'goldnugget', anim: 'idle' },
+  nitre: { build: 'nitre', bank: 'nitre', anim: 'idle' },
+  berrybush: { build: 'berrybush', bank: 'berrybush', anim: 'idle' },
+  berrybush2: { build: 'berrybush2', bank: 'berrybush2', anim: 'idle' },
+  berrybush_juicy: { build: 'berrybush_juicy', bank: 'berrybush_juicy', anim: 'idle' },
+  grass: { build: 'grass1', bank: 'grass', anim: 'idle' },
+  sapling: { build: 'sapling', bank: 'sapling', anim: 'sway' },
+  flower: { build: 'flowers', bank: 'flowers', anim: 'f1' },
+  carrot_planted: { build: 'carrot', bank: 'carrot', anim: 'planted' },
+  carrot: { build: 'carrot', bank: 'carrot', anim: 'idle' },
+  red_mushroom: { build: 'mushrooms', bank: 'mushrooms', anim: 'red' },
+  green_mushroom: { build: 'mushrooms', bank: 'mushrooms', anim: 'green' },
+  blue_mushroom: { build: 'mushrooms', bank: 'mushrooms', anim: 'blue' },
+  axe: { build: 'axe', bank: 'axe', anim: 'idle' },
+  pickaxe: { build: 'pickaxe', bank: 'pickaxe', anim: 'idle' },
+  torch: { build: 'torch', bank: 'torch', anim: 'idle' },
+  spear: { build: 'spear', bank: 'spear', anim: 'idle' },
+  campfire: { build: 'campfire', bank: 'campfire', anim: 'idle' },
+  firepit: { build: 'firepit', bank: 'firepit', anim: 'idle' },
+  researchlab: { build: 'researchlab', bank: 'researchlab', anim: 'idle' },
+  homesign: { build: 'sign_home', bank: 'sign_home', anim: 'idle' },
+  rabbit: { build: 'ds_rabbit_basic', bank: 'rabbit', anim: 'idle' },
+  rabbithole: { build: 'rabbit_hole', bank: 'rabbithole', anim: 'idle' },
+  pigman: { build: 'pig_build', bank: 'pigman', anim: 'idle_loop' },
+  pighouse: { build: 'pig_house', bank: 'pig_house', anim: 'idle' },
+  spider: { build: 'spider_build', bank: 'spider', anim: 'idle' },
+  spiderden: { build: 'spider_cocoon', bank: 'spider_cocoon', anim: 'cocoon_small' },
+  beefalo: { build: 'beefalo_build', bank: 'beefalo', anim: 'idle_loop' },
+};
+
+const HIDDEN_SYMBOLS = new Set([
+  'arm_carry',
+  'swap_object',
+  'swap_hat',
+  'hat',
+  'hat_hair',
+  'swap_body',
+  'swap_body_tall',
+]);
+
+class OriginalAnimCompositor {
+  private glCanvas: HTMLCanvasElement;
+  private gl: WebGL2RenderingContext | null = null;
+  private program: WebGLProgram | null = null;
+  private buffer: WebGLBuffer | null = null;
+  private posLoc = -1;
+  private uvLoc = -1;
+  private colLoc = -1;
+  private matLoc: WebGLUniformLocation | null = null;
+  private samplerLoc: WebGLUniformLocation | null = null;
+
+  private bundles = new Map<string, GpuAnimBundle | 'pending' | 'unavailable'>();
+  private frameCache = new Map<string, CachedSpriteFrame | null>();
+  public loadedCount = 0;
+
+  private static readonly SIZE = 384;
+  private static readonly ANCHOR_X = 192;
+  private static readonly ANCHOR_Y = 308;
+  private static readonly BILD_SCALE = 0.5;
+
+  constructor(private onRequestAsset?: (build: string, bank: string) => void) {
+    this.glCanvas = document.createElement('canvas');
+    this.glCanvas.width = OriginalAnimCompositor.SIZE;
+    this.glCanvas.height = OriginalAnimCompositor.SIZE;
+    const gl = this.glCanvas.getContext('webgl2', {
+      alpha: true,
+      premultipliedAlpha: true,
+      antialias: true,
+      preserveDrawingBuffer: true,
+    });
+    if (!gl) return;
+    this.gl = gl;
+    this.initPipeline(gl);
+  }
+
+  private initPipeline(gl: WebGL2RenderingContext) {
+    const vsSource = `#version 300 es
+      in vec2 a_pos;
+      in vec2 a_uv;
+      in vec4 a_color;
+      uniform mat4 u_matrix;
+      out vec2 v_uv;
+      out vec4 v_color;
+      void main() {
+        gl_Position = u_matrix * vec4(a_pos, 0.0, 1.0);
+        v_uv = a_uv;
+        v_color = a_color;
+      }
+    `;
+    const fsSource = `#version 300 es
+      precision mediump float;
+      in vec2 v_uv;
+      in vec4 v_color;
+      uniform sampler2D u_tex;
+      out vec4 outColor;
+      void main() {
+        vec4 tex = texture(u_tex, v_uv);
+        outColor = vec4(tex.rgb * v_color.rgb * v_color.a, tex.a * v_color.a);
+      }
+    `;
+    const compile = (type: number, src: string) => {
+      const sh = gl.createShader(type)!;
+      gl.shaderSource(sh, src);
+      gl.compileShader(sh);
+      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+        gl.deleteShader(sh);
+        return null;
+      }
+      return sh;
+    };
+    const vs = compile(gl.VERTEX_SHADER, vsSource);
+    const fs = compile(gl.FRAGMENT_SHADER, fsSource);
+    if (!vs || !fs) return;
+    const prog = gl.createProgram()!;
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return;
+    this.program = prog;
+    this.buffer = gl.createBuffer();
+    this.posLoc = gl.getAttribLocation(prog, 'a_pos');
+    this.uvLoc = gl.getAttribLocation(prog, 'a_uv');
+    this.colLoc = gl.getAttribLocation(prog, 'a_color');
+    this.matLoc = gl.getUniformLocation(prog, 'u_matrix');
+    this.samplerLoc = gl.getUniformLocation(prog, 'u_tex');
+  }
+
+  static key(build: string, bank: string): string {
+    return `${build}::${bank}`;
+  }
+
+  ingestAsset(build: string, bank: string, payload: LoadedAnimAsset | null) {
+    const key = OriginalAnimCompositor.key(build, bank);
+    const gl = this.gl;
+    if (
+      !gl ||
+      !this.program ||
+      !payload ||
+      !payload.model ||
+      !Array.isArray(payload.atlases) ||
+      payload.atlases.length === 0 ||
+      !Array.isArray(payload.model.vertices) ||
+      payload.model.vertices.length === 0 ||
+      !Array.isArray(payload.model.animations) ||
+      payload.model.animations.length === 0
+    ) {
+      this.bundles.set(key, 'unavailable');
+      return;
+    }
+
+    const textures: WebGLTexture[] = [];
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+
+    for (const atlas of payload.atlases) {
+      const tex = gl.createTexture();
+      if (!tex) continue;
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.RGBA8,
+        atlas.width,
+        atlas.height,
+        0,
+        gl.RGBA,
+        gl.UNSIGNED_BYTE,
+        new Uint8Array(atlas.rgba),
+      );
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      textures.push(tex);
+    }
+
+    if (textures.length === 0) {
+      this.bundles.set(key, 'unavailable');
+      return;
+    }
+
+    this.bundles.set(key, {
+      build,
+      bank,
+      model: payload.model,
+      textures,
+    });
+    this.loadedCount++;
+  }
+
+  private resolveClip(
+    anims: LoadedAnimAsset['model']['animations'],
+    animName: string,
+    entityFacing: number,
+  ): { clipIndex: number; flipX: boolean } | null {
+    if (!anims.length) return null;
+    // AnimState facing: 0=RIGHT, 1=UP, 2=LEFT, 3=DOWN
+    // Klei ANIM facing bitmask: 1=RIGHT, 2=UP, 4=LEFT, 8=DOWN, 5=SIDE, 255=ALL
+    const desiredMask = entityFacing === 1 ? 2 : entityFacing === 3 ? 8 : entityFacing === 2 ? 4 : 1;
+
+    const candidates = [
+      animName,
+      animName.endsWith('_loop') ? animName.slice(0, -5) : `${animName}_loop`,
+      `${animName}_normal`,
+      'idle_loop',
+      'sway1_loop_normal',
+      'sway1_loop',
+      'idle',
+      'full',
+      'f1',
+    ];
+
+    let matchedIdx = -1;
+    for (const target of candidates) {
+      if (!target) continue;
+      // First pass: exact name + matching facing bit
+      for (let i = 0; i < anims.length; ++i) {
+        const a = anims[i];
+        if (a.name === target && a.frames.length > 0 && ((a.facing & desiredMask) !== 0 || a.facing === 255)) {
+          matchedIdx = i;
+          break;
+        }
+      }
+      if (matchedIdx >= 0) break;
+      // Second pass: exact name with any facing
+      for (let i = 0; i < anims.length; ++i) {
+        const a = anims[i];
+        if (a.name === target && a.frames.length > 0) {
+          matchedIdx = i;
+          break;
+        }
+      }
+      if (matchedIdx >= 0) break;
+    }
+
+    if (matchedIdx < 0) {
+      // Substring match
+      for (let i = 0; i < anims.length; ++i) {
+        if (anims[i].frames.length > 0 && anims[i].name.includes(animName)) {
+          matchedIdx = i;
+          break;
+        }
+      }
+    }
+    if (matchedIdx < 0) {
+      matchedIdx = anims.findIndex(a => a.frames.length > 0);
+    }
+    if (matchedIdx < 0) return null;
+
+    const clip = anims[matchedIdx];
+    const flipX = entityFacing === 2 && clip.facing !== 4;
+    return { clipIndex: matchedIdx, flipX };
+  }
+
+  private renderFrameToCache(bundle: GpuAnimBundle, clipIndex: number, frameIdx: number): CachedSpriteFrame | null {
+    const gl = this.gl;
+    const prog = this.program;
+    if (!gl || !prog || !this.buffer) return null;
+
+    const clip = bundle.model.animations[clipIndex];
+    const frame = clip?.frames[frameIdx];
+    if (!frame || !frame.elements || frame.elements.length === 0) return null;
+
+    const W = OriginalAnimCompositor.SIZE;
+    const H = OriginalAnimCompositor.SIZE;
+    const ax = OriginalAnimCompositor.ANCHOR_X;
+    const ay = OriginalAnimCompositor.ANCHOR_Y;
+    const sc = OriginalAnimCompositor.BILD_SCALE;
+
+    const elements = [...frame.elements].sort((a, b) => b.depth - a.depth);
+    const batches = new Map<number, number[]>();
+    let minX = W;
+    let minY = H;
+    let maxX = 0;
+    let maxY = 0;
+    let totalVerts = 0;
+
+    for (const item of elements) {
+      const symbol = bundle.model.symbols[String(item.symbol)];
+      if (!symbol || !symbol.frames || symbol.frames.length === 0) continue;
+      if (symbol.name && HIDDEN_SYMBOLS.has(symbol.name.toLowerCase())) continue;
+
+      const sf =
+        symbol.frames.find(f => item.frame >= f.frame && item.frame < f.frame + f.duration) ??
+        symbol.frames[symbol.frames.length - 1];
+      if (!sf || sf.count <= 0) continue;
+
+      const [a, b, c, d, tx, ty] = item.matrix;
+      const [mr, mg, mb, ma] = item.mult ?? [1, 1, 1, 1];
+      const end = Math.min(bundle.model.vertices.length, sf.offset + sf.count);
+
+      for (let i = sf.offset; i < end; ++i) {
+        const vtx = bundle.model.vertices[i];
+        if (!vtx) continue;
+        const [x, y, _z, u, v, atlas] = vtx;
+        const px = ax + (a * x + b * y + tx) * sc;
+        const py = ay + (c * x + d * y + ty) * sc;
+        if (px < minX) minX = px;
+        if (px > maxX) maxX = px;
+        if (py < minY) minY = py;
+        if (py > maxY) maxY = py;
+
+        const texIdx = Math.max(0, Math.min(bundle.textures.length - 1, Math.round(atlas || 0)));
+        let arr = batches.get(texIdx);
+        if (!arr) {
+          arr = [];
+          batches.set(texIdx, arr);
+        }
+        arr.push(px, py, u, v, mr, mg, mb, ma);
+        totalVerts++;
+      }
+    }
+
+    if (totalVerts < 3) return null;
+
+    const cropX = Math.max(0, Math.floor(minX) - 3);
+    const cropY = Math.max(0, Math.floor(minY) - 3);
+    const cropR = Math.min(W, Math.ceil(maxX) + 3);
+    const cropB = Math.min(H, Math.ceil(maxY) + 3);
+    const cropW = cropR - cropX;
+    const cropH = cropB - cropY;
+    if (cropW < 2 || cropH < 2) return null;
+
+    gl.viewport(0, 0, W, H);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(prog);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.buffer);
+
+    const stride = 8 * 4;
+    if (this.posLoc >= 0) {
+      gl.enableVertexAttribArray(this.posLoc);
+      gl.vertexAttribPointer(this.posLoc, 2, gl.FLOAT, false, stride, 0);
+    }
+    if (this.uvLoc >= 0) {
+      gl.enableVertexAttribArray(this.uvLoc);
+      gl.vertexAttribPointer(this.uvLoc, 2, gl.FLOAT, false, stride, 8);
+    }
+    if (this.colLoc >= 0) {
+      gl.enableVertexAttribArray(this.colLoc);
+      gl.vertexAttribPointer(this.colLoc, 4, gl.FLOAT, false, stride, 16);
+    }
+
+    gl.uniformMatrix4fv(
+      this.matLoc,
+      false,
+      new Float32Array([2 / W, 0, 0, 0, 0, -2 / H, 0, 0, 0, 0, 1, 0, -1, 1, 0, 1]),
+    );
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+
+    for (const [texIdx, geom] of batches) {
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, bundle.textures[texIdx]);
+      gl.uniform1i(this.samplerLoc, 0);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(geom), gl.DYNAMIC_DRAW);
+      gl.drawArrays(gl.TRIANGLES, 0, geom.length / 8);
+    }
+
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = cropW;
+    outCanvas.height = cropH;
+    const outCtx = outCanvas.getContext('2d');
+    if (!outCtx) return null;
+    outCtx.drawImage(this.glCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+    return {
+      canvas: outCanvas,
+      anchorX: ax - cropX,
+      anchorY: ay - cropY,
+      width: cropW,
+      height: cropH,
+    };
+  }
+
+  getEntitySprite(
+    entity: SceneEntity,
+    playerHud: PlayerHudSnapshot,
+    now: number,
+  ): { frame: CachedSpriteFrame; flipX: boolean } | null {
+    if (!this.gl || !this.program) return null;
+    const def = PREFAB_ASSET_DEFAULTS[entity.prefab];
+    const build = entity.build || def?.build || '';
+    const bank = entity.bank || def?.bank || build;
+    if (!build) return null;
+
+    const key = OriginalAnimCompositor.key(build, bank);
+    const state = this.bundles.get(key);
+    if (!state) {
+      this.bundles.set(key, 'pending');
+      this.onRequestAsset?.(build, bank);
+      return null;
+    }
+    if (state === 'pending' || state === 'unavailable') return null;
+
+    let animName = entity.anim || def?.anim || 'idle';
+    if (entity.kind === 'player' || entity.prefab === 'wilson') {
+      if (playerHud.sgState?.includes('run')) animName = 'run_loop';
+      else if (playerHud.sgState?.includes('chop')) animName = 'chop_loop';
+      else if (playerHud.sgState?.includes('mine')) animName = 'pickaxe_loop';
+      else if (!entity.anim || entity.anim === 'idle') animName = 'idle_loop';
+    }
+
+    const resolved = this.resolveClip(state.model.animations, animName, entity.facing ?? 3);
+    if (!resolved) return null;
+
+    const clip = state.model.animations[resolved.clipIndex];
+    const numSampled = clip.frames.length;
+    const frameIdx =
+      numSampled <= 1
+        ? 0
+        : Math.floor((now * 0.014 + (entity.guid % 19) * 0.65) % numSampled);
+
+    const cacheKey = `${key}#${resolved.clipIndex}#${frameIdx}`;
+    let cached = this.frameCache.get(cacheKey);
+    if (cached === undefined) {
+      if (this.frameCache.size > 380) {
+        const oldest = this.frameCache.keys().next().value;
+        if (oldest !== undefined) this.frameCache.delete(oldest);
+      }
+      cached = this.renderFrameToCache(state, resolved.clipIndex, frameIdx);
+      this.frameCache.set(cacheKey, cached);
+    }
+    if (!cached) return null;
+    return { frame: cached, flipX: resolved.flipX };
+  }
+}
+
 export class GameRenderer {
   private ctx: CanvasRenderingContext2D;
   private miniCtx: CanvasRenderingContext2D | null;
+  private animCompositor: OriginalAnimCompositor;
   private prevSnapshot: GameSceneSnapshot | null = null;
   private currSnapshot: GameSceneSnapshot | null = null;
   private lastSnapshotPerf = 0;
@@ -235,11 +733,21 @@ export class GameRenderer {
   constructor(
     private canvas: HTMLCanvasElement,
     minimapCanvas?: HTMLCanvasElement | null,
+    onRequestAsset?: (build: string, bank: string) => void,
   ) {
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) throw new Error('2D canvas context unavailable');
     this.ctx = ctx;
     this.miniCtx = minimapCanvas ? minimapCanvas.getContext('2d') : null;
+    this.animCompositor = new OriginalAnimCompositor(onRequestAsset);
+  }
+
+  ingestAnimAsset(build: string, bank: string, payload: LoadedAnimAsset | null) {
+    this.animCompositor.ingestAsset(build, bank, payload);
+  }
+
+  get loadedOriginalAssetCount(): number {
+    return this.animCompositor.loadedCount;
   }
 
   pushSnapshot(snapshot: GameSceneSnapshot) {
@@ -553,6 +1061,37 @@ export class GameRenderer {
     const s = Math.max(8, scale);
     ctx.save();
     ctx.translate(sx, sy);
+
+    const originalSprite = this.animCompositor.getEntitySprite(entity, snap.player, now);
+    if (originalSprite) {
+      const { frame, flipX } = originalSprite;
+      const ratio = (s / 54) * Math.max(0.5, Math.min(2.2, Math.abs(entity.sx || 1)));
+      const shouldFlip = flipX !== ((entity.sx ?? 1) < 0);
+      ctx.save();
+      if (shouldFlip) ctx.scale(-1, 1);
+      ctx.drawImage(
+        frame.canvas,
+        -frame.anchorX * ratio,
+        -frame.anchorY * ratio,
+        frame.width * ratio,
+        frame.height * ratio,
+      );
+      ctx.restore();
+
+      if (entity.kind === 'player' || entity.prefab === 'wilson') {
+        if (s > 12) {
+          const topY = -Math.max(s * 2.15, frame.anchorY * ratio + 6);
+          ctx.font = '600 11px "Segoe UI", system-ui, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = 'rgba(14, 18, 13, 0.72)';
+          ctx.fillRect(-28, topY - 11, 56, 15);
+          ctx.fillStyle = '#f2d379';
+          ctx.fillText('Wilson', 0, topY);
+        }
+      }
+      ctx.restore();
+      return;
+    }
 
     if (entity.kind === 'player' || entity.prefab === 'wilson') {
       this.drawWilson(ctx, s, entity, snap.player, now);
