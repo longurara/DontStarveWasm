@@ -65,6 +65,15 @@ int record_signature(lua_State* L){
     transcript=web_crypto::sha256(transcript);signature=supplied;signature_recorded=true;return 0;
 }
 int ownership(lua_State* L){self(L);auto item=text(L,2);lua_pushboolean(L,free_items.count(item)>0);return 1;}
+int client_ownership(lua_State* L){self(L);auto item=lua_isstring(L,3)?text(L,3):std::string();lua_pushboolean(L,free_items.count(item)>0);return 1;}
+int ownership_latest(lua_State* L){self(L);auto item=text(L,2);lua_pushboolean(L,free_items.count(item)>0);lua_pushnumber(L,0);return 2;}
+int is_downloading(lua_State* L){self(L);lua_pushboolean(L,0);lua_pushnumber(L,0);return 2;}
+int inv_true(lua_State* L){self(L);lua_pushboolean(L,1);return 1;}
+int inv_false(lua_State* L){self(L);lua_pushboolean(L,0);return 1;}
+int inv_zero(lua_State* L){self(L);lua_pushnumber(L,0);return 1;}
+int inv_nil(lua_State* L){self(L);lua_pushnil(L);return 1;}
+int inv_empty_table(lua_State* L){self(L);lua_newtable(L);return 1;}
+int inv_noop(lua_State* L){self(L);return 0;}
 int lookup(lua_State* L){
     self(L);double value=luaL_checknumber(L,2);
     if(!std::isfinite(value))return luaL_error(L,"Invalid skin hash");
@@ -92,9 +101,25 @@ void install(lua_State* L){
         {"AddSkinLinkInput",add_link},{"AddEmoji",add_emoji},{"AddSkinDLCInput",add_dlc},{"AddItemIDPairing",add_item_id},
         {"AddFreeItemForEveryone",add_free},{"ValidateWithSignature",record_signature},{"AddCookBookKey",add_key},
         {"AddPlantRegistryKey",add_key},{"AddGenericKVKey",add_key},{"AddSkillTreeKey",add_key},
-        {"CheckOwnership",ownership},{"LookupSkinname",lookup},{nullptr,nullptr}};
+        {"CheckOwnership",ownership},{"CheckClientOwnership",client_ownership},{"CheckOwnershipGetLatest",ownership_latest},
+        {"LookupSkinname",lookup},{"HasSupportForOfflineSkins",inv_true},{"HasDownloadedInventory",inv_true},
+        {"IsDownloadingInventory",is_downloading},{"ForceLoadOfflineCache",inv_noop},{"CancelGetAllItems",inv_noop},
+        {"RefreshDLCSkinOwnership",inv_noop},{"SetItemOpened",inv_noop},{"SetLocalVanityItems",inv_noop},
+        {"SetAchievementTempUnlocked",inv_noop},{"SetStorageValueMulti",inv_noop},{"SetCookBookValue",inv_noop},
+        {"SetPlantRegistryValue",inv_noop},{"SetGenericKVValue",inv_noop},{"SetSkillTreeValue",inv_noop},{"SetScrapbookValue",inv_noop},
+        {"GetClientGiftCount",inv_zero},{"GetOwnedItemCount",inv_zero},{"GetOwnedItemCountForCommerce",inv_zero},
+        {"GetCurrencyAmount",inv_zero},{"GetVirtualIAPCurrencyAmount",inv_zero},{"GetKleiPointsAmount",inv_zero},
+        {"GetWXP",inv_zero},{"GetWXPLevel",inv_zero},{"GetAutoBoxItem",inv_nil},{"IsAchievementUnlocked",inv_false},
+        {"GetUnopenedEntitlementItems",inv_empty_table},{"GetUnopenedItems",inv_empty_table},{"GetFullInventory",inv_empty_table},
+        {"GetUnlockableItems",inv_empty_table},{"GetClientUnlockableItems",inv_empty_table},{"GetAllUnlockedAchievements",inv_empty_table},
+        {"GetLocalCookBook",inv_empty_table},{"GetLocalPlantRegistry",inv_empty_table},{"GetLocalGenericKV",inv_empty_table},
+        {"GetLocalSkillTree",inv_empty_table},{"GetLocalScrapbook",inv_empty_table},{nullptr,nullptr}};
     luaL_register(L,nullptr,methods);
-    for(int i=0;i<16;++i){auto name="AddScrapbook"+std::to_string(i)+"Key";lua_pushcfunction(L,add_key);lua_setfield(L,-2,name.c_str());}
+    for(int i=0;i<16;++i){
+        auto name="AddScrapbook"+std::to_string(i)+"Key";lua_pushcfunction(L,add_key);lua_setfield(L,-2,name.c_str());
+        auto get_name="GetLocalScrapbook"+std::to_string(i);lua_pushcfunction(L,inv_empty_table);lua_setfield(L,-2,get_name.c_str());
+        auto set_name="SetScrapbook"+std::to_string(i)+"Value";lua_pushcfunction(L,inv_noop);lua_setfield(L,-2,set_name.c_str());
+    }
     lua_newtable(L);lua_pushcfunction(L,unknown);lua_setfield(L,-2,"__index");lua_setmetatable(L,-2);
     lua_setfield(L,-2,"__index");lua_pop(L,1);
     lua_newuserdata(L,1);luaL_getmetatable(L,"dst.InventoryProxy");lua_setmetatable(L,-2);lua_setglobal(L,"TheInventory");
