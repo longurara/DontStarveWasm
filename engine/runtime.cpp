@@ -500,6 +500,42 @@ int sound_volume(lua_State* L){
     if(runtime_role=="client")return luaL_error(L,"UNIMPLEMENTED_NATIVE: client audio bus volume backend");
     lua_pushnumber(L,0);return 1;
 }
+std::map<std::pair<std::string,std::string>,std::string> sim_settings;
+std::string lower_ascii(const char* s,size_t len){
+    std::string out(s,len);
+    for(char& c:out)if(c>='A'&&c<='Z')c=static_cast<char>(c-'A'+'a');
+    return out;
+}
+int sim_get_setting(lua_State* L){
+    size_t slen=0,klen=0;
+    const char* sec=luaL_checklstring(L,2,&slen);
+    const char* key=luaL_checklstring(L,3,&klen);
+    auto it=sim_settings.find({lower_ascii(sec,slen),lower_ascii(key,klen)});
+    if(it==sim_settings.end())return 0;
+    lua_pushlstring(L,it->second.data(),it->second.size());
+    return 1;
+}
+int sim_set_setting(lua_State* L){
+    size_t slen=0,klen=0,vlen=0;
+    const char* sec=luaL_checklstring(L,2,&slen);
+    const char* key=luaL_checklstring(L,3,&klen);
+    const char* val=luaL_checklstring(L,4,&vlen);
+    if(slen>256||klen>256||vlen>4096||sim_settings.size()>=4096)return luaL_error(L,"Sim setting exceeds budget");
+    sim_settings[{lower_ascii(sec,slen),lower_ascii(key,klen)}]=std::string(val,vlen);
+    return 0;
+}
+int sim_get_data_collection(lua_State* L){lua_pushboolean(L,0);return 1;}
+int sim_set_data_collection(lua_State* L){(void)lua_toboolean(L,2);lua_pushboolean(L,0);return 1;}
+int sim_is_data_collection_disabled(lua_State* L){lua_pushboolean(L,1);return 1;}
+int inspect_sim_settings(lua_State* L){
+    lua_newtable(L);
+    for(const auto& kv:sim_settings){
+        std::string full=kv.first.first+"."+kv.first.second;
+        lua_pushlstring(L,kv.second.data(),kv.second.size());
+        lua_setfield(L,-2,full.c_str());
+    }
+    return 1;
+}
 int clear_file_aliases(lua_State* L){
     lua_pushliteral(L,"MODS_ENABLED");lua_rawget(L,LUA_GLOBALSINDEX);bool mods=lua_toboolean(L,-1);lua_pop(L,1);
     if(mods)return luaL_error(L,"UNIMPLEMENTED_NATIVE: mod filesystem aliases");
@@ -570,7 +606,7 @@ EMSCRIPTEN_KEEPALIVE int dst_init(int role) {
     lua_getglobal(state,"os"); lua_pushnil(state); lua_setfield(state,-2,"execute");
     lua_pushnil(state); lua_setfield(state,-2,"exit"); lua_pop(state,1);
     lua_getglobal(state,"package"); lua_pushnil(state); lua_setfield(state,-2,"loadlib"); lua_pop(state,1);
-    entities.clear();resource_catalog.clear();texture_groups.clear(); tick=0; next_guid=1; profiler_depth=0;seed_rng(0);server_language="en";
+    entities.clear();resource_catalog.clear();texture_groups.clear();sim_settings.clear(); tick=0; next_guid=1; profiler_depth=0;seed_rng(0);server_language="en";
     runtime_role=role==0?"client":role==1?"master":"caves";
     lua_getglobal(state,"math");
     lua_pushcfunction(state,math_randomseed);lua_setfield(state,-2,"randomseed");
@@ -612,12 +648,15 @@ EMSCRIPTEN_KEEPALIVE int dst_init(int role) {
         {"GetTime",get_time},{"GetTickTime",get_tick_time},{"GetNumberOfEntities",get_entity_count},{"GetNumLaunches",get_num_launches},
         {"GetStashedPlayInstance",get_stashed_play_instance},{"StashPlayInstance",stash_play_instance},
         {"SendProfileStats",local_profile_stats},
+        {"GetSetting",sim_get_setting},{"SetSetting",sim_set_setting},{"GetLocalSetting",sim_get_setting},
+        {"GetDataCollectionSetting",sim_get_data_collection},{"SetDataCollectionSetting",sim_set_data_collection},{"IsDataCollectionDisabled",sim_is_data_collection_disabled},
         {"ProfilerPush",profiler_push},{"ProfilerPop",profiler_pop},{"ShouldInitDebugger",debugger_disabled},
         {"SetReverbPreset",set_reverb},{"GetFileModificationTime",file_mtime},{"LuaPrint",lua_print},
         {"AddTextureToStreamingGroup",texture_group},{"ClearFileSystemAliases",clear_file_aliases},{"SendHardwareStats",send_hardware_stats},{nullptr,nullptr}};
     // Runtime source-line annotation hook has no behavior in the retail build.
     register_table("TheSim",sim);
     const luaL_Reg profile_stats[]={{"Inspect",inspect_profile_stats},{nullptr,nullptr}};register_table("WebProfileStats",profile_stats);
+    const luaL_Reg settings_inspect[]={{"Inspect",inspect_sim_settings},{nullptr,nullptr}};register_table("WebSettings",settings_inspect);
     lua_getglobal(state,"TheSim");
     for(const char* name:{"SetSoundVolume","SetLowPassFilter","SetHighPassFilter","ClearDSP","TurnOffReverb"}){
         lua_pushstring(state,name);lua_pushcclosure(state,headless_sound,1);lua_setfield(state,-2,name);
