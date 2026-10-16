@@ -24,6 +24,8 @@ test('original prefab global/event definitions marshal into the native registry 
   evaluate('TheSim:AddBatchVerifyFileExists("web-port/definitely-missing")');
   assert.deepEqual(JSON.parse(evaluate('return json.encode(WebPrefabs.VerifyBatch().missing)')),['web-port/definitely-missing']);
   assert.throws(()=>evaluate('TheSim:LoadPrefabs({"global"})'),/ASYNC_RESOURCE_REQUIRED/,'metadata registration does not eagerly materialize native resource bytes');
+  evaluate('TheSim:StartFileExistsAsync();TheSim:UnregisterAllPrefabs()');
+  assert.equal(evaluate('return tostring(WebPrefabs.Inspect("global")~=nil and WebPrefabs.Inspect("event_deps")==nil)'),'true');
 });
 
 test('original achievements register metadata without platform account calls',async t=>{

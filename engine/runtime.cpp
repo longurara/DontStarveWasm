@@ -569,6 +569,19 @@ int sim_update_device_caps(lua_State* L){
     int b=static_cast<int>(luaL_checknumber(L,3));
     lua_pushnumber(L,a);lua_pushnumber(L,b);return 2;
 }
+int sim_render_one_frame(lua_State*){web_ui::refresh();return 0;}
+int create_table_fn(lua_State* L){
+    int narr=static_cast<int>(luaL_optinteger(L,1,0));
+    int nrec=static_cast<int>(luaL_optinteger(L,2,0));
+    lua_createtable(L,narr,nrec);return 1;
+}
+int visit_url_fn(lua_State* L){luaL_checkstring(L,1);return 0;}
+int anglediff_fn(lua_State* L){
+    float a2=static_cast<float>(luaL_checknumber(L,2))*0.01745329238474369f;
+    float a1=static_cast<float>(luaL_checknumber(L,1))*0.01745329238474369f;
+    float diff=normalize_rotation(a1-a2);
+    lua_pushnumber(L,static_cast<double>(diff/0.01745329238474369f));return 1;
+}
 int inspect_sim_settings(lua_State* L){
     lua_newtable(L);
     for(const auto& kv:sim_settings){
@@ -655,6 +668,16 @@ EMSCRIPTEN_KEEPALIVE int dst_init(int role) {
     lua_pushcfunction(state,math_random);lua_setfield(state,-2,"random");lua_pop(state,1);
     const luaL_Reg rng[]={{"GetState",get_rng},{"SetState",set_rng},{nullptr,nullptr}};register_table("WebRNG",rng);
     lua_pushstring(state,role==0?"client":role==1?"master":"caves"); lua_setglobal(state,"WEB_ROLE");
+    lua_pushboolean(state,0); lua_setglobal(state,"PRINT_TEXTURE_INFO");
+    lua_pushboolean(state,1); lua_setglobal(state,"CONSOLE_ENABLED");
+    lua_pushliteral(state,"Steam"); lua_setglobal(state,"DIST_PLATFORM");
+    lua_pushliteral(state,"NONE"); lua_setglobal(state,"APP_REGION");
+    lua_pushliteral(state,"2026-04-08"); lua_setglobal(state,"APP_BUILD_DATE");
+    lua_pushliteral(state,"01:32:15"); lua_setglobal(state,"APP_BUILD_TIME");
+    lua_pushliteral(state,"/"); lua_setglobal(state,"CWD");
+    lua_pushcfunction(state,create_table_fn); lua_setglobal(state,"createTable");
+    lua_pushcfunction(state,visit_url_fn); lua_setglobal(state,"VisitURL");
+    lua_pushcfunction(state,anglediff_fn); lua_setglobal(state,"anglediff");
     lua_pushcfunction(state,native_print); lua_setglobal(state,"print");
     lua_pushcfunction(state,wall_time);lua_setglobal(state,"walltime");
     lua_pushcfunction(state,require_event_file);lua_setglobal(state,"requireeventfile");
@@ -699,7 +722,7 @@ EMSCRIPTEN_KEEPALIVE int dst_init(int role) {
         {"GetUsersName",sim_get_users_name},{"GetSteamIDNumber",sim_get_steam_id_number},{"GetSteamBetaBranchName",sim_get_steam_beta_branch_name},
         {"LogBulkMetric",sim_log_bulk_metric},{"SetMOTDTarget",sim_set_motd_target},{"GetMOTDQueryURL",sim_get_motd_query_url},
         {"HasMOTDImage",sim_has_motd_image},{"DownloadMOTDImage",sim_download_motd_image},{"LoadMOTDImage",sim_load_motd_image},{"DownloadMOTDImages",sim_download_motd_images},
-        {"UpdateDeviceCaps",sim_update_device_caps},
+        {"UpdateDeviceCaps",sim_update_device_caps},{"RenderOneFrame",sim_render_one_frame},
         {"ProfilerPush",profiler_push},{"ProfilerPop",profiler_pop},{"ShouldInitDebugger",debugger_disabled},
         {"SetReverbPreset",set_reverb},{"GetFileModificationTime",file_mtime},{"LuaPrint",lua_print},
         {"AddTextureToStreamingGroup",texture_group},{"ClearFileSystemAliases",clear_file_aliases},{"SendHardwareStats",send_hardware_stats},{nullptr,nullptr}};

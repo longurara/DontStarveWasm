@@ -145,6 +145,22 @@ int unload_prefabs(lua_State* L){
     int table=lua_gettop(L);luaL_checktype(L,table,LUA_TTABLE);lua_pushnil(L);
     while(lua_next(L,table)){if(lua_type(L,-1)==LUA_TSTRING)unload(string(L,-1));lua_pop(L,1);}return 0;
 }
+bool ends_with_global(const std::string& name){
+    return name.size()>=6&&name.compare(name.size()-6,6,"global")==0;
+}
+int unregister_all_prefabs(lua_State*){
+    // Native 0x14000beb0: unload and erase all registered prefabs except those
+    // whose name ends with "global".
+    std::vector<std::string> remove_names;
+    for(const auto& kv:definitions)if(!ends_with_global(kv.first))remove_names.push_back(kv.first);
+    for(const auto& name:remove_names){
+        while(loaded[name]>0)unload(name);
+        loaded.erase(name);
+        definitions.erase(name);
+    }
+    return 0;
+}
+int start_file_exists_async(lua_State*){return 0;}
 int loaded_info(lua_State* L){
     lua_newtable(L);for(const auto& value:loaded)if(value.second){lua_pushnumber(L,value.second);lua_setfield(L,-2,value.first.c_str());}return 1;
 }
@@ -183,7 +199,9 @@ int inspect(lua_State* L){
 void install(lua_State* L,Exists exists,bool client){
     definitions.clear();verification_queue.clear();loaded.clear();resource_exists=exists;client_role=client;
     lua_getglobal(L,"TheSim");lua_pushcfunction(L,register_prefab);lua_setfield(L,-2,"RegisterPrefab");
+    lua_pushcfunction(L,unregister_all_prefabs);lua_setfield(L,-2,"UnregisterAllPrefabs");
     lua_pushcfunction(L,add_verify);lua_setfield(L,-2,"AddBatchVerifyFileExists");
+    lua_pushcfunction(L,start_file_exists_async);lua_setfield(L,-2,"StartFileExistsAsync");
     lua_pushcfunction(L,load_prefabs);lua_setfield(L,-2,"LoadPrefabs");lua_pushcfunction(L,unload_prefabs);lua_setfield(L,-2,"UnloadPrefabs");lua_pop(L,1);
     lua_newtable(L);lua_pushcfunction(L,inspect);lua_setfield(L,-2,"Inspect");lua_pushcfunction(L,verify);lua_setfield(L,-2,"VerifyBatch");lua_setglobal(L,"WebPrefabs");
     lua_getglobal(L,"WebPrefabs");lua_pushcfunction(L,loaded_info);lua_setfield(L,-2,"Loaded");
