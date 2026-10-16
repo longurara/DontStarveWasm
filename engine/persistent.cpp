@@ -255,10 +255,43 @@ int get_user_preset_files(lua_State* L){
 }
 // Native 0x14011ecf0, 0x14011c370, 0x14011c3a0
 int always_true(lua_State* L){lua_pushboolean(L,1);return 1;}
+std::string save_buffer;
+// Native 0x14011d8c0 -> 0x1403d65b0: InitSaveString
+int init_save_string(lua_State*){
+    save_buffer.clear();
+    save_buffer.reserve(1024);
+    return 0;
+}
+// Native 0x14011d8a0 -> 0x1403d64e0: AppendSaveString
+int append_save_string(lua_State* L){
+    size_t len=0;
+    const char* str=lua_tolstring(L,2,&len);
+    if(str&&len>0)save_buffer.append(str,len);
+    return 0;
+}
+// Native 0x14011d8e0 -> 0x1403d65f0: RemoveLastCommaSaveString
+int remove_last_comma_save_string(lua_State*){
+    if(!save_buffer.empty()&&save_buffer.back()==',')save_buffer.pop_back();
+    return 0;
+}
+// Native 0x14011d900 -> 0x1403d6610: GetSaveString
+int get_save_string(lua_State* L){
+    if(lua_toboolean(L,2)){
+        std::string b64;
+        zip_and_encode_raw(save_buffer,b64);
+        lua_pushlstring(L,b64.data(),b64.size());
+    }else{
+        lua_pushlstring(L,save_buffer.data(),save_buffer.size());
+    }
+    save_buffer.clear();
+    save_buffer.shrink_to_fit();
+    return 1;
+}
 }
 void install(lua_State* L,const std::string& role){
     root="/persistent/"+role;directories(root+"/");
     dirty=false;
+    save_buffer.clear();
     lua_getglobal(L,"TheSim");
     for(auto binding:std::vector<std::pair<const char*,lua_CFunction>>{
         {"GetPersistentString",get},
@@ -273,7 +306,11 @@ void install(lua_State* L,const std::string& role){
         {"GetUserPresetFiles",get_user_preset_files},
         {"HasEnoughFreeDiskSpace",always_true},
         {"CanWriteConfigurationDirectory",always_true},
-        {"CanReadConfigurationDirectory",always_true}
+        {"CanReadConfigurationDirectory",always_true},
+        {"InitSaveString",init_save_string},
+        {"AppendSaveString",append_save_string},
+        {"RemoveLastCommaSaveString",remove_last_comma_save_string},
+        {"GetSaveString",get_save_string}
     }){
         lua_pushcfunction(L,binding.second);lua_setfield(L,-2,binding.first);
     }
