@@ -42,3 +42,15 @@ test('persistent reads reject truncated encoded files and cannot leave their sha
   evaluate('TheSim:SetPersistentString("exists","test",true);local called=false;TheSim:CheckPersistentStringExists("exists",function(ok)assert(ok);called=true end);assert(called);TheSim:ErasePersistentString("exists",function(ok)assert(ok)end);TheSim:CheckPersistentStringExists("exists",function(ok)assert(not ok)end)');
   assert.throws(()=>engine.FS.stat('/persistent/master/exists'));
 });
+
+test('DecodeKleiData, ZipAndEncodeString, GetUserPresetFiles and cluster slot persistence match native contracts',async t=>{
+  const {engine,evaluate}=await loadEngine({role:0});t.after(()=>engine._dst_close());
+  assert.equal(evaluate('return TheSim:DecodeKleiData("KLEI     1DYml0Y2g=")'),'bitch');
+  assert.equal(evaluate('local z=TheSim:ZipAndEncodeString("hello world");return TheSim:DecodeAndUnzipString(z)'),'hello world');
+  assert.equal(evaluate('local wsp,wgp=TheSim:GetUserPresetFiles();return tostring(#wsp)..","..tostring(#wgp)'),'0,0');
+  evaluate('TheSim:SetPersistentString("world_presets/CUSTOM_A.wsp","data",false);TheSim:SetPersistentString("world_presets/CUSTOM_B.wgp","data",false);TheSim:SetPersistentString("world_presets/OTHER.txt","data",false)');
+  assert.equal(evaluate('local wsp,wgp=TheSim:GetUserPresetFiles();return wsp[1]..","..wgp[1]'),'CUSTOM_A,CUSTOM_B');
+  assert.equal(evaluate('TheSim:SetPersistentStringInClusterSlot(1,"Master","save/test_slot","slot_payload",true);local out;TheSim:GetPersistentStringInClusterSlot(1,"Master","save/test_slot",function(ok,s)assert(ok);out=s end);return out'),'slot_payload');
+  assert.equal(evaluate('return tostring(TheSim:HasEnoughFreeDiskSpace())..","..tostring(TheSim:CanWriteConfigurationDirectory())..","..tostring(TheSim:CanReadConfigurationDirectory())'),'true,true,true');
+});
+
