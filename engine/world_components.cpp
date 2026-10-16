@@ -1577,6 +1577,495 @@ int entity_local_to_world_space(lua_State* L){
     lua_pushnumber(L,x+ex);lua_pushnumber(L,y+ey);lua_pushnumber(L,z+ez);
     return 3;
 }
+// ============================================================================
+// Entity Simulation & Rendering Components
+// ============================================================================
+
+struct AnimStateData {
+    std::string bank;
+    std::string build;
+    std::string skin_build;
+    std::string anim;
+    int layer=4;
+    int sort_order=0;
+    int facing=3;
+    bool inherits_sort_key=true;
+    float mult_colour[4]={1.0f,1.0f,1.0f,1.0f};
+    float add_colour[4]={0.0f,0.0f,0.0f,0.0f};
+    float hue=0.0f,saturation=1.0f,brightness=1.0f;
+    float anim_time=0.0f,anim_length=1.0f;
+    int num_frames=30,current_frame=0;
+    std::map<std::string,std::string> symbol_overrides;
+};
+std::map<uint32_t,AnimStateData> anim_states;
+
+struct PhysicsData {
+    float vx=0.0f,vy=0.0f,vz=0.0f;
+    float mx=0.0f,my=0.0f,mz=0.0f;
+    float radius=0.5f,height=1.0f,mass=1.0f;
+    uint32_t collision_group=0,collision_mask=0;
+    bool active=true,passable=false;
+};
+std::map<uint32_t,PhysicsData> physics_states;
+
+struct LightData {
+    bool enabled=false;
+    bool disable_on_scene_removal=true;
+    float radius=1.0f,falloff=0.5f,intensity=0.5f;
+    float r=1.0f,g=1.0f,b=1.0f;
+};
+std::map<uint32_t,LightData> light_states;
+
+struct ImageCompData {
+    float w=0.0f,h=0.0f;
+};
+std::map<uint32_t,ImageCompData> image_comp_states;
+
+struct TextEditCompData {
+    std::string text;
+    int cursor_pos=0;
+};
+std::map<uint32_t,TextEditCompData> text_edit_states;
+
+struct VideoCompData {
+    float w=100.0f,h=100.0f;
+};
+std::map<uint32_t,VideoCompData> video_states;
+
+std::set<uint32_t> followers;
+std::set<uint32_t> minimap_entities;
+std::set<uint32_t> dynamic_shadows;
+std::set<uint32_t> static_shadows;
+std::set<uint32_t> light_watchers;
+std::set<uint32_t> ground_creep_entities;
+std::set<uint32_t> map_explorers;
+std::set<uint32_t> debug_renders;
+std::set<uint32_t> particle_emitters;
+std::set<uint32_t> vfx_effects;
+std::set<uint32_t> labels;
+
+int comp_noop(lua_State*){return 0;}
+int comp_true(lua_State* L){lua_pushboolean(L,1);return 1;}
+int comp_false(lua_State* L){lua_pushboolean(L,0);return 1;}
+int comp_zero(lua_State* L){lua_pushnumber(L,0);return 1;}
+int comp_one(lua_State* L){lua_pushnumber(L,1.0);return 1;}
+int comp_empty_str(lua_State* L){lua_pushliteral(L,"");return 1;}
+
+uint32_t check_comp_owner(lua_State* L,const char* mt){
+    return *static_cast<uint32_t*>(luaL_checkudata(L,1,mt));
+}
+
+int add_simple_comp(lua_State* L,std::set<uint32_t>& store,const char* mt,const char* field,const char* err){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return luaL_error(L,err);
+    store.insert(id);
+    attach_component_userdata(L,id,mt,field);
+    return 1;
+}
+
+// AnimState
+AnimStateData* get_anim(lua_State* L){
+    uint32_t id=check_comp_owner(L,"dst.AnimState");
+    auto it=anim_states.find(id);
+    return (host.alive(id)&&it!=anim_states.end())?&it->second:nullptr;
+}
+int add_anim_state(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return luaL_error(L,"Cannot add AnimState to a removed entity");
+    anim_states.try_emplace(id);
+    attach_component_userdata(L,id,"dst.AnimState","AnimState");
+    return 1;
+}
+int tostring_anim_state(lua_State* L){check_comp_owner(L,"dst.AnimState");lua_pushfstring(L,"AnimState (%p)",lua_touserdata(L,1));return 1;}
+int anim_play(lua_State* L){if(auto* a=get_anim(L)){a->anim=luaL_optstring(L,2,"");a->anim_time=0.0f;a->current_frame=0;}return 0;}
+int anim_set_bank(lua_State* L){if(auto* a=get_anim(L))a->bank=luaL_optstring(L,2,"");return 0;}
+int anim_set_bank_and_play(lua_State* L){if(auto* a=get_anim(L)){a->bank=luaL_optstring(L,2,"");a->anim=luaL_optstring(L,3,"");a->anim_time=0.0f;a->current_frame=0;}return 0;}
+int anim_set_build(lua_State* L){if(auto* a=get_anim(L)){a->build=luaL_optstring(L,2,"");a->skin_build.clear();}return 0;}
+int anim_set_skin(lua_State* L){if(auto* a=get_anim(L)){a->skin_build=luaL_optstring(L,2,"");a->build=luaL_optstring(L,3,a->build.c_str());}return 0;}
+int anim_set_layer(lua_State* L){if(auto* a=get_anim(L))a->layer=static_cast<int>(luaL_optinteger(L,2,4));return 0;}
+int anim_get_layer(lua_State* L){auto* a=get_anim(L);lua_pushinteger(L,a?a->layer:4);return 1;}
+int anim_set_sort_order(lua_State* L){if(auto* a=get_anim(L))a->sort_order=static_cast<int>(luaL_optinteger(L,2,0));return 0;}
+int anim_get_sort_order(lua_State* L){auto* a=get_anim(L);lua_pushinteger(L,a?a->sort_order:0);return 1;}
+int anim_set_inherits_sort_key(lua_State* L){if(auto* a=get_anim(L))a->inherits_sort_key=lua_toboolean(L,2)!=0;return 0;}
+int anim_get_inherits_sort_key(lua_State* L){auto* a=get_anim(L);lua_pushboolean(L,a?a->inherits_sort_key:1);return 1;}
+int anim_set_mult_colour(lua_State* L){
+    if(auto* a=get_anim(L)){
+        a->mult_colour[0]=static_cast<float>(luaL_optnumber(L,2,1.0));
+        a->mult_colour[1]=static_cast<float>(luaL_optnumber(L,3,1.0));
+        a->mult_colour[2]=static_cast<float>(luaL_optnumber(L,4,1.0));
+        a->mult_colour[3]=static_cast<float>(luaL_optnumber(L,5,1.0));
+    }
+    return 0;
+}
+int anim_get_mult_colour(lua_State* L){
+    auto* a=get_anim(L);
+    for(int i=0;i<4;++i)lua_pushnumber(L,a?a->mult_colour[i]:1.0f);
+    return 4;
+}
+int anim_set_add_colour(lua_State* L){
+    if(auto* a=get_anim(L)){
+        a->add_colour[0]=static_cast<float>(luaL_optnumber(L,2,0.0));
+        a->add_colour[1]=static_cast<float>(luaL_optnumber(L,3,0.0));
+        a->add_colour[2]=static_cast<float>(luaL_optnumber(L,4,0.0));
+        a->add_colour[3]=static_cast<float>(luaL_optnumber(L,5,0.0));
+    }
+    return 0;
+}
+int anim_get_add_colour(lua_State* L){
+    auto* a=get_anim(L);
+    for(int i=0;i<4;++i)lua_pushnumber(L,a?a->add_colour[i]:0.0f);
+    return 4;
+}
+int anim_set_hue(lua_State* L){if(auto* a=get_anim(L))a->hue=static_cast<float>(luaL_optnumber(L,2,0.0));return 0;}
+int anim_get_hue(lua_State* L){auto* a=get_anim(L);lua_pushnumber(L,a?a->hue:0.0f);return 1;}
+int anim_set_saturation(lua_State* L){if(auto* a=get_anim(L))a->saturation=static_cast<float>(luaL_optnumber(L,2,1.0));return 0;}
+int anim_get_saturation(lua_State* L){auto* a=get_anim(L);lua_pushnumber(L,a?a->saturation:1.0f);return 1;}
+int anim_set_brightness(lua_State* L){if(auto* a=get_anim(L))a->brightness=static_cast<float>(luaL_optnumber(L,2,1.0));return 0;}
+int anim_get_brightness(lua_State* L){auto* a=get_anim(L);lua_pushnumber(L,a?a->brightness:1.0f);return 1;}
+int anim_override_symbol(lua_State* L){
+    if(auto* a=get_anim(L)){
+        const char* sym=luaL_optstring(L,2,"");
+        const char* build=luaL_optstring(L,3,"");
+        if(sym[0])a->symbol_overrides[sym]=build;
+    }
+    return 0;
+}
+int anim_clear_override_symbol(lua_State* L){
+    if(auto* a=get_anim(L)){
+        const char* sym=luaL_optstring(L,2,"");
+        a->symbol_overrides.erase(sym);
+    }
+    return 0;
+}
+int anim_clear_all_override_symbols(lua_State* L){if(auto* a=get_anim(L))a->symbol_overrides.clear();return 0;}
+int anim_get_symbol_override(lua_State* L){
+    auto* a=get_anim(L);
+    const char* sym=luaL_optstring(L,2,"");
+    if(a){
+        auto it=a->symbol_overrides.find(sym);
+        if(it!=a->symbol_overrides.end()){lua_pushlstring(L,it->second.data(),it->second.size());return 1;}
+    }
+    lua_pushnil(L);return 1;
+}
+int anim_is_symbol_overridden(lua_State* L){
+    auto* a=get_anim(L);
+    const char* sym=luaL_optstring(L,2,"");
+    lua_pushboolean(L,a&&a->symbol_overrides.count(sym)>0);
+    return 1;
+}
+int anim_compare_symbol_builds(lua_State* L){
+    auto* a=get_anim(L);
+    const char* sym=luaL_optstring(L,2,"");
+    const char* build=luaL_optstring(L,3,"");
+    if(!a){lua_pushboolean(L,0);return 1;}
+    auto it=a->symbol_overrides.find(sym);
+    const std::string& actual=(it!=a->symbol_overrides.end())?it->second:a->build;
+    lua_pushboolean(L,actual==build);
+    return 1;
+}
+int anim_get_symbol_position(lua_State* L){
+    uint32_t id=check_comp_owner(L,"dst.AnimState");
+    float ox=static_cast<float>(luaL_optnumber(L,3,0.0));
+    float oy=static_cast<float>(luaL_optnumber(L,4,0.0));
+    float oz=static_cast<float>(luaL_optnumber(L,5,0.0));
+    float m[16]={};
+    if(host.local_matrix&&host.local_matrix(id,m)){
+        lua_pushnumber(L,m[3]+ox);lua_pushnumber(L,m[7]+oy);lua_pushnumber(L,m[11]+oz);
+    }else{
+        lua_pushnumber(L,ox);lua_pushnumber(L,oy);lua_pushnumber(L,oz);
+    }
+    return 3;
+}
+int anim_get_visual_bb(lua_State* L){
+    lua_pushnumber(L,-0.5);lua_pushnumber(L,0.0);lua_pushnumber(L,-0.5);
+    lua_pushnumber(L,0.5);lua_pushnumber(L,1.0);lua_pushnumber(L,0.5);
+    return 6;
+}
+int anim_get_symbol_mult_colour(lua_State* L){
+    lua_pushnumber(L,1.0);lua_pushnumber(L,1.0);lua_pushnumber(L,1.0);lua_pushnumber(L,1.0);
+    return 4;
+}
+int anim_get_symbol_add_colour(lua_State* L){
+    lua_pushnumber(L,0.0);lua_pushnumber(L,0.0);lua_pushnumber(L,0.0);lua_pushnumber(L,0.0);
+    return 4;
+}
+int anim_get_symbol_hsb(lua_State* L){
+    lua_pushnumber(L,0.0);lua_pushnumber(L,1.0);lua_pushnumber(L,1.0);
+    return 3;
+}
+int anim_is_current_animation(lua_State* L){
+    auto* a=get_anim(L);
+    const char* name=luaL_optstring(L,2,"");
+    lua_pushboolean(L,a&&a->anim==name);
+    return 1;
+}
+int anim_get_current_anim_hash(lua_State* L){
+    auto* a=get_anim(L);
+    lua_pushnumber(L,a?web_strings::hash(a->anim.c_str()):0);
+    return 1;
+}
+int anim_get_current_anim_length(lua_State* L){auto* a=get_anim(L);lua_pushnumber(L,a?a->anim_length:1.0f);return 1;}
+int anim_get_current_anim_time(lua_State* L){auto* a=get_anim(L);lua_pushnumber(L,a?a->anim_time:0.0f);return 1;}
+int anim_get_current_anim_num_frames(lua_State* L){auto* a=get_anim(L);lua_pushinteger(L,a?a->num_frames:30);return 1;}
+int anim_get_current_anim_frame(lua_State* L){auto* a=get_anim(L);lua_pushinteger(L,a?a->current_frame:0);return 1;}
+int anim_get_current_bank_name(lua_State* L){auto* a=get_anim(L);lua_pushstring(L,a?a->bank.c_str():"");return 1;}
+int anim_get_bank_hash(lua_State* L){auto* a=get_anim(L);lua_pushnumber(L,a?web_strings::hash(a->bank.c_str()):0);return 1;}
+int anim_get_skin_build(lua_State* L){auto* a=get_anim(L);lua_pushstring(L,a?a->skin_build.c_str():"");return 1;}
+int anim_is_skin_build(lua_State* L){auto* a=get_anim(L);lua_pushboolean(L,a&&!a->skin_build.empty());return 1;}
+int anim_get_build(lua_State* L){auto* a=get_anim(L);lua_pushstring(L,a?a->build.c_str():"");return 1;}
+int anim_get_current_facing(lua_State* L){auto* a=get_anim(L);lua_pushinteger(L,a?a->facing:3);return 1;}
+int anim_get_history_data(lua_State* L){lua_pushnumber(L,0);lua_pushnumber(L,0);return 2;}
+
+// Physics
+PhysicsData* get_physics(lua_State* L){
+    uint32_t id=check_comp_owner(L,"dst.Physics");
+    auto it=physics_states.find(id);
+    return (host.alive(id)&&it!=physics_states.end())?&it->second:nullptr;
+}
+int add_physics(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return luaL_error(L,"Cannot add Physics to a removed entity");
+    physics_states.try_emplace(id);
+    attach_component_userdata(L,id,"dst.Physics","Physics");
+    return 1;
+}
+int tostring_physics(lua_State* L){check_comp_owner(L,"dst.Physics");lua_pushfstring(L,"Physics (%p)",lua_touserdata(L,1));return 1;}
+int phys_set_motor_vel(lua_State* L){
+    if(auto* p=get_physics(L)){
+        p->mx=static_cast<float>(luaL_optnumber(L,2,0.0));
+        p->my=static_cast<float>(luaL_optnumber(L,3,0.0));
+        p->mz=static_cast<float>(luaL_optnumber(L,4,0.0));
+        p->vx=p->mx;p->vy=p->my;p->vz=p->mz;
+    }
+    return 0;
+}
+int phys_get_motor_vel(lua_State* L){
+    auto* p=get_physics(L);
+    lua_pushnumber(L,p?p->mx:0.0f);lua_pushnumber(L,p?p->my:0.0f);lua_pushnumber(L,p?p->mz:0.0f);
+    return 3;
+}
+int phys_get_motor_speed(lua_State* L){auto* p=get_physics(L);lua_pushnumber(L,p?p->mx:0.0f);return 1;}
+int phys_set_vel(lua_State* L){
+    if(auto* p=get_physics(L)){
+        p->vx=static_cast<float>(luaL_optnumber(L,2,0.0));
+        p->vy=static_cast<float>(luaL_optnumber(L,3,0.0));
+        p->vz=static_cast<float>(luaL_optnumber(L,4,0.0));
+    }
+    return 0;
+}
+int phys_stop(lua_State* L){
+    if(auto* p=get_physics(L)){p->vx=p->vy=p->vz=0.0f;p->mx=p->my=p->mz=0.0f;}
+    return 0;
+}
+int phys_get_velocity(lua_State* L){
+    auto* p=get_physics(L);
+    lua_pushnumber(L,p?p->vx:0.0f);lua_pushnumber(L,p?p->vy:0.0f);lua_pushnumber(L,p?p->vz:0.0f);
+    return 3;
+}
+int phys_set_sphere(lua_State* L){if(auto* p=get_physics(L))p->radius=static_cast<float>(luaL_optnumber(L,2,0.5));return 0;}
+int phys_set_capsule(lua_State* L){
+    if(auto* p=get_physics(L)){
+        p->radius=static_cast<float>(luaL_optnumber(L,2,0.5));
+        p->height=static_cast<float>(luaL_optnumber(L,3,1.0));
+    }
+    return 0;
+}
+int phys_get_radius(lua_State* L){auto* p=get_physics(L);lua_pushnumber(L,p?p->radius:0.5f);return 1;}
+int phys_get_height(lua_State* L){auto* p=get_physics(L);lua_pushnumber(L,p?p->height:1.0f);return 1;}
+int phys_get_mass(lua_State* L){auto* p=get_physics(L);lua_pushnumber(L,p?p->mass:1.0f);return 1;}
+int phys_set_mass(lua_State* L){if(auto* p=get_physics(L))p->mass=static_cast<float>(luaL_optnumber(L,2,1.0));return 0;}
+int phys_teleport(lua_State* L){
+    uint32_t id=check_comp_owner(L,"dst.Physics");
+    if(!host.alive(id))return 0;
+    double x=luaL_optnumber(L,2,0.0);
+    double y=luaL_optnumber(L,3,0.0);
+    double z=luaL_optnumber(L,4,0.0);
+    lua_getfield(L,LUA_REGISTRYINDEX,"dst.entities");
+    if(lua_istable(L,-1)){
+        lua_rawgeti(L,-1,id);
+        if(lua_isuserdata(L,-1)){
+            lua_getglobal(L,"Entity");
+            if(lua_istable(L,-1)){
+                lua_getfield(L,-1,"SetPosition");
+                if(lua_isfunction(L,-1)){
+                    lua_pushvalue(L,-3);
+                    lua_pushnumber(L,x);lua_pushnumber(L,y);lua_pushnumber(L,z);
+                    lua_pcall(L,4,0,0);
+                }else lua_pop(L,1);
+            }
+            lua_pop(L,1);
+        }
+        lua_pop(L,1);
+    }
+    lua_pop(L,1);
+    return 0;
+}
+int phys_set_active(lua_State* L){if(auto* p=get_physics(L))p->active=lua_toboolean(L,2)!=0;return 0;}
+int phys_is_active(lua_State* L){auto* p=get_physics(L);lua_pushboolean(L,p?p->active:1);return 1;}
+int phys_is_passable(lua_State* L){auto* p=get_physics(L);lua_pushboolean(L,p?p->passable:0);return 1;}
+int phys_get_collision_mask(lua_State* L){auto* p=get_physics(L);lua_pushinteger(L,p?p->collision_mask:0);return 1;}
+int phys_set_collision_mask(lua_State* L){if(auto* p=get_physics(L))p->collision_mask=static_cast<uint32_t>(luaL_optinteger(L,2,0));return 0;}
+int phys_clear_collision_mask(lua_State* L){if(auto* p=get_physics(L))p->collision_mask=0;return 0;}
+int phys_collides_with(lua_State* L){if(auto* p=get_physics(L))p->collision_mask|=static_cast<uint32_t>(luaL_optinteger(L,2,0));return 0;}
+int phys_clear_collides_with(lua_State* L){if(auto* p=get_physics(L))p->collision_mask&=~static_cast<uint32_t>(luaL_optinteger(L,2,0));return 0;}
+int phys_get_collision_group(lua_State* L){auto* p=get_physics(L);lua_pushinteger(L,p?p->collision_group:0);return 1;}
+int phys_set_collision_group(lua_State* L){if(auto* p=get_physics(L))p->collision_group=static_cast<uint32_t>(luaL_optinteger(L,2,0));return 0;}
+
+// Light
+LightData* get_light(lua_State* L){
+    uint32_t id=check_comp_owner(L,"dst.Light");
+    auto it=light_states.find(id);
+    return (host.alive(id)&&it!=light_states.end())?&it->second:nullptr;
+}
+int add_light(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return luaL_error(L,"Cannot add Light to a removed entity");
+    light_states.try_emplace(id);
+    attach_component_userdata(L,id,"dst.Light","Light");
+    return 1;
+}
+int tostring_light(lua_State* L){check_comp_owner(L,"dst.Light");lua_pushfstring(L,"Light (%p)",lua_touserdata(L,1));return 1;}
+int light_enable(lua_State* L){if(auto* l=get_light(L))l->enabled=lua_toboolean(L,2)!=0;return 0;}
+int light_is_enabled(lua_State* L){auto* l=get_light(L);lua_pushboolean(L,l?l->enabled:0);return 1;}
+int light_set_radius(lua_State* L){if(auto* l=get_light(L))l->radius=static_cast<float>(luaL_optnumber(L,2,1.0));return 0;}
+int light_get_radius(lua_State* L){auto* l=get_light(L);lua_pushnumber(L,l?l->radius:1.0f);return 1;}
+int light_set_falloff(lua_State* L){if(auto* l=get_light(L))l->falloff=static_cast<float>(luaL_optnumber(L,2,0.5));return 0;}
+int light_get_falloff(lua_State* L){auto* l=get_light(L);lua_pushnumber(L,l?l->falloff:0.5f);return 1;}
+int light_set_intensity(lua_State* L){if(auto* l=get_light(L))l->intensity=static_cast<float>(luaL_optnumber(L,2,0.5));return 0;}
+int light_get_intensity(lua_State* L){auto* l=get_light(L);lua_pushnumber(L,l?l->intensity:0.5f);return 1;}
+int light_set_colour(lua_State* L){
+    if(auto* l=get_light(L)){
+        l->r=static_cast<float>(luaL_optnumber(L,2,1.0));
+        l->g=static_cast<float>(luaL_optnumber(L,3,1.0));
+        l->b=static_cast<float>(luaL_optnumber(L,4,1.0));
+    }
+    return 0;
+}
+int light_get_colour(lua_State* L){
+    auto* l=get_light(L);
+    lua_pushnumber(L,l?l->r:1.0f);lua_pushnumber(L,l?l->g:1.0f);lua_pushnumber(L,l?l->b:1.0f);
+    return 3;
+}
+int light_set_disable_on_removal(lua_State* L){if(auto* l=get_light(L))l->disable_on_scene_removal=lua_toboolean(L,2)!=0;return 0;}
+int light_get_disable_on_removal(lua_State* L){auto* l=get_light(L);lua_pushboolean(L,l?l->disable_on_scene_removal:1);return 1;}
+
+// Follower, MiniMapEntity, DynamicShadow, StaticShadow, LightWatcher, GroundCreepEntity, MapExplorer, DebugRender, ParticleEmitter, VFXEffect, Image, Label, TextEditWidget, VideoWidget
+int add_follower(lua_State* L){return add_simple_comp(L,followers,"dst.Follower","Follower","Cannot add Follower to a removed entity");}
+int tostring_follower(lua_State* L){check_comp_owner(L,"dst.Follower");lua_pushfstring(L,"Follower (%p)",lua_touserdata(L,1));return 1;}
+
+int add_minimap_entity(lua_State* L){return add_simple_comp(L,minimap_entities,"dst.MiniMapEntity","MiniMapEntity","Cannot add MiniMapEntity to a removed entity");}
+int tostring_minimap_entity(lua_State* L){check_comp_owner(L,"dst.MiniMapEntity");lua_pushfstring(L,"MiniMapEntity (%p)",lua_touserdata(L,1));return 1;}
+
+int add_dynamic_shadow(lua_State* L){return add_simple_comp(L,dynamic_shadows,"dst.DynamicShadow","DynamicShadow","Cannot add DynamicShadow to a removed entity");}
+int tostring_dynamic_shadow(lua_State* L){check_comp_owner(L,"dst.DynamicShadow");lua_pushfstring(L,"DynamicShadow (%p)",lua_touserdata(L,1));return 1;}
+
+int add_static_shadow(lua_State* L){return add_simple_comp(L,static_shadows,"dst.StaticShadow","StaticShadow","Cannot add StaticShadow to a removed entity");}
+int tostring_static_shadow(lua_State* L){check_comp_owner(L,"dst.StaticShadow");lua_pushfstring(L,"StaticShadow (%p)",lua_touserdata(L,1));return 1;}
+
+int add_light_watcher(lua_State* L){return add_simple_comp(L,light_watchers,"dst.LightWatcher","LightWatcher","Cannot add LightWatcher to a removed entity");}
+int tostring_light_watcher(lua_State* L){check_comp_owner(L,"dst.LightWatcher");lua_pushfstring(L,"LightWatcher (%p)",lua_touserdata(L,1));return 1;}
+
+int add_ground_creep_entity(lua_State* L){return add_simple_comp(L,ground_creep_entities,"dst.GroundCreepEntity","GroundCreepEntity","Cannot add GroundCreepEntity to a removed entity");}
+int tostring_ground_creep_entity(lua_State* L){check_comp_owner(L,"dst.GroundCreepEntity");lua_pushfstring(L,"GroundCreepEntity (%p)",lua_touserdata(L,1));return 1;}
+
+int add_map_explorer(lua_State* L){return add_simple_comp(L,map_explorers,"dst.MapExplorer","MapExplorer","Cannot add MapExplorer to a removed entity");}
+int tostring_map_explorer(lua_State* L){check_comp_owner(L,"dst.MapExplorer");lua_pushfstring(L,"MapExplorer (%p)",lua_touserdata(L,1));return 1;}
+
+int add_debug_render(lua_State* L){return add_simple_comp(L,debug_renders,"dst.DebugRender","DebugRender","Cannot add DebugRender to a removed entity");}
+int tostring_debug_render(lua_State* L){check_comp_owner(L,"dst.DebugRender");lua_pushfstring(L,"DebugRender (%p)",lua_touserdata(L,1));return 1;}
+
+int add_particle_emitter(lua_State* L){return add_simple_comp(L,particle_emitters,"dst.ParticleEmitter","ParticleEmitter","Cannot add ParticleEmitter to a removed entity");}
+int tostring_particle_emitter(lua_State* L){check_comp_owner(L,"dst.ParticleEmitter");lua_pushfstring(L,"ParticleEmitter (%p)",lua_touserdata(L,1));return 1;}
+
+int add_vfx_effect(lua_State* L){return add_simple_comp(L,vfx_effects,"dst.VFXEffect","VFXEffect","Cannot add VFXEffect to a removed entity");}
+int tostring_vfx_effect(lua_State* L){check_comp_owner(L,"dst.VFXEffect");lua_pushfstring(L,"VFXEffect (%p)",lua_touserdata(L,1));return 1;}
+
+int add_image_comp(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return luaL_error(L,"Cannot add Image to a removed entity");
+    image_comp_states.try_emplace(id);
+    attach_component_userdata(L,id,"dst.Image","Image");
+    return 1;
+}
+int tostring_image_comp(lua_State* L){check_comp_owner(L,"dst.Image");lua_pushfstring(L,"Image (%p)",lua_touserdata(L,1));return 1;}
+int image_comp_set_size(lua_State* L){
+    uint32_t id=check_comp_owner(L,"dst.Image");
+    auto it=image_comp_states.find(id);
+    if(it!=image_comp_states.end()){
+        it->second.w=static_cast<float>(luaL_optnumber(L,2,0.0));
+        it->second.h=static_cast<float>(luaL_optnumber(L,3,0.0));
+    }
+    return 0;
+}
+int image_comp_get_size(lua_State* L){
+    uint32_t id=check_comp_owner(L,"dst.Image");
+    auto it=image_comp_states.find(id);
+    lua_pushnumber(L,it!=image_comp_states.end()?it->second.w:0.0f);
+    lua_pushnumber(L,it!=image_comp_states.end()?it->second.h:0.0f);
+    return 2;
+}
+
+int add_label_comp(lua_State* L){return add_simple_comp(L,labels,"dst.Label","Label","Cannot add Label to a removed entity");}
+int tostring_label_comp(lua_State* L){check_comp_owner(L,"dst.Label");lua_pushfstring(L,"Label (%p)",lua_touserdata(L,1));return 1;}
+
+int add_text_edit_widget(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return luaL_error(L,"Cannot add TextEditWidget to a removed entity");
+    text_edit_states.try_emplace(id);
+    attach_component_userdata(L,id,"dst.TextEditWidget","TextEditWidget");
+    return 1;
+}
+int tostring_text_edit_widget(lua_State* L){check_comp_owner(L,"dst.TextEditWidget");lua_pushfstring(L,"TextEditWidget (%p)",lua_touserdata(L,1));return 1;}
+int tew_set_string(lua_State* L){
+    uint32_t id=check_comp_owner(L,"dst.TextEditWidget");
+    auto it=text_edit_states.find(id);
+    if(it!=text_edit_states.end())it->second.text=luaL_optstring(L,2,"");
+    return 0;
+}
+int tew_get_string(lua_State* L){
+    uint32_t id=check_comp_owner(L,"dst.TextEditWidget");
+    auto it=text_edit_states.find(id);
+    lua_pushstring(L,it!=text_edit_states.end()?it->second.text.c_str():"");
+    return 1;
+}
+int tew_set_cursor_pos(lua_State* L){
+    uint32_t id=check_comp_owner(L,"dst.TextEditWidget");
+    auto it=text_edit_states.find(id);
+    if(it!=text_edit_states.end())it->second.cursor_pos=static_cast<int>(luaL_optinteger(L,2,0));
+    return 0;
+}
+int tew_get_cursor_pos(lua_State* L){
+    uint32_t id=check_comp_owner(L,"dst.TextEditWidget");
+    auto it=text_edit_states.find(id);
+    lua_pushinteger(L,it!=text_edit_states.end()?it->second.cursor_pos:0);
+    return 1;
+}
+
+int add_video_widget(lua_State* L){
+    uint32_t id=host.id(L,1);
+    if(!host.alive(id))return luaL_error(L,"Cannot add VideoWidget to a removed entity");
+    video_states.try_emplace(id);
+    attach_component_userdata(L,id,"dst.VideoWidget","VideoWidget");
+    return 1;
+}
+int tostring_video_widget(lua_State* L){check_comp_owner(L,"dst.VideoWidget");lua_pushfstring(L,"VideoWidget (%p)",lua_touserdata(L,1));return 1;}
+int vw_set_size(lua_State* L){
+    uint32_t id=check_comp_owner(L,"dst.VideoWidget");
+    auto it=video_states.find(id);
+    if(it!=video_states.end()){
+        it->second.w=static_cast<float>(luaL_optnumber(L,2,100.0));
+        it->second.h=static_cast<float>(luaL_optnumber(L,3,100.0));
+    }
+    return 0;
+}
+int vw_get_size(lua_State* L){
+    uint32_t id=check_comp_owner(L,"dst.VideoWidget");
+    auto it=video_states.find(id);
+    lua_pushnumber(L,it!=video_states.end()?it->second.w:100.0f);
+    lua_pushnumber(L,it!=video_states.end()?it->second.h:100.0f);
+    return 2;
+}
+
 }
 
 void retire(uint32_t id){
@@ -1590,6 +2079,23 @@ void retire(uint32_t id){
     shard_clients.erase(id);
     server_non_sleepables.erase(id);
     client_sleepables.erase(id);
+    anim_states.erase(id);
+    physics_states.erase(id);
+    light_states.erase(id);
+    image_comp_states.erase(id);
+    text_edit_states.erase(id);
+    video_states.erase(id);
+    followers.erase(id);
+    minimap_entities.erase(id);
+    dynamic_shadows.erase(id);
+    static_shadows.erase(id);
+    light_watchers.erase(id);
+    ground_creep_entities.erase(id);
+    map_explorers.erase(id);
+    debug_renders.erase(id);
+    particle_emitters.erase(id);
+    vfx_effects.erase(id);
+    labels.erase(id);
     auto it=entity_net_states.find(id);
     if(it!=entity_net_states.end()){
         for(uint32_t nvid:it->second.netvar_ids)netvars.erase(nvid);
@@ -1608,6 +2114,23 @@ void clear(){
     shard_clients.clear();
     server_non_sleepables.clear();
     client_sleepables.clear();
+    anim_states.clear();
+    physics_states.clear();
+    light_states.clear();
+    image_comp_states.clear();
+    text_edit_states.clear();
+    video_states.clear();
+    followers.clear();
+    minimap_entities.clear();
+    dynamic_shadows.clear();
+    static_shadows.clear();
+    light_watchers.clear();
+    ground_creep_entities.clear();
+    map_explorers.clear();
+    debug_renders.clear();
+    particle_emitters.clear();
+    vfx_effects.clear();
+    labels.clear();
     entity_net_states.clear();
     netvars.clear();
     next_netvar_id=1;
@@ -1720,6 +2243,193 @@ void install(lua_State* L,web_components::EntityHost callbacks){
     register_component_metatable(L,"dst.ServerNonSleepable","ServerNonSleepable",nullptr,tostring_server_non_sleepable);
     register_component_metatable(L,"dst.ClientSleepable","ClientSleepable",nullptr,tostring_client_sleepable);
 
+    const luaL_Reg anim_methods[]={
+        {"PlayAnimation",anim_play},{"SetBuild",anim_set_build},{"SetSkin",anim_set_skin},
+        {"BuildHasSymbol",comp_true},{"SetBank",anim_set_bank},{"SetBankAndPlayAnimation",anim_set_bank_and_play},
+        {"SetLayer",anim_set_layer},{"GetLayer",anim_get_layer},{"SetScale",comp_noop},
+        {"SetDepthTestEnabled",comp_noop},{"SetDepthWriteEnabled",comp_noop},{"SetDepthBias",comp_noop},
+        {"AnimDone",comp_true},{"PushAnimation",anim_play},{"Hide",comp_noop},{"Show",comp_noop},
+        {"HideSymbol",comp_noop},{"ShowSymbol",comp_noop},{"Pause",comp_noop},{"Resume",comp_noop},
+        {"SetPercent",comp_noop},{"SetAddColour",anim_set_add_colour},{"SetMultColour",anim_set_mult_colour},
+        {"SetHue",anim_set_hue},{"SetSaturation",anim_set_saturation},{"SetBrightness",anim_set_brightness},
+        {"SetHighlightColour",comp_noop},{"SetTime",comp_noop},{"SetFrame",comp_noop},
+        {"SetDeltaTimeMultiplier",comp_noop},{"SetRayTestOnBB",comp_noop},
+        {"GetSymbolOverride",anim_get_symbol_override},{"OverrideSymbol",anim_override_symbol},
+        {"OverrideSkinSymbol",anim_override_symbol},{"IsSkinBuild",anim_is_skin_build},
+        {"OverrideItemSkinSymbol",anim_override_symbol},{"AssignItemSkins",comp_noop},
+        {"ClearAllOverrideSymbols",anim_clear_all_override_symbols},{"ClearOverrideSymbol",anim_clear_override_symbol},
+        {"AddOverrideBuild",comp_noop},{"ClearOverrideBuild",comp_noop},
+        {"GetSymbolPosition",anim_get_symbol_position},{"SetFinalOffset",comp_noop},
+        {"SetSortOrder",anim_set_sort_order},{"GetSortOrder",anim_get_sort_order},
+        {"SetSortWorldOffset",comp_noop},{"SetInheritsSortKey",anim_set_inherits_sort_key},{"GetInheritsSortKey",anim_get_inherits_sort_key},
+        {"SetOrientation",comp_noop},{"SetManualBB",comp_noop},{"GetVisualBB",anim_get_visual_bb},
+        {"GetMultColour",anim_get_mult_colour},{"GetAddColour",anim_get_add_colour},
+        {"GetHue",anim_get_hue},{"GetSaturation",anim_get_saturation},{"GetBrightness",anim_get_brightness},
+        {"OverrideMultColour",comp_noop},{"OverrideHue",comp_noop},{"OverrideSaturation",comp_noop},
+        {"OverrideBrightness",comp_noop},{"OverrideShade",comp_noop},
+        {"SetSymbolAddColour",comp_noop},{"SetSymbolMultColour",comp_noop},{"SetSymbolHue",comp_noop},
+        {"SetSymbolSaturation",comp_noop},{"SetSymbolBrightness",comp_noop},
+        {"GetSymbolAddColour",anim_get_symbol_add_colour},{"GetSymbolMultColour",anim_get_symbol_mult_colour},{"GetSymbolHSB",anim_get_symbol_hsb},
+        {"SetSymbolLightOverride",comp_noop},{"SetSymbolBloom",comp_noop},{"ClearSymbolBloom",comp_noop},
+        {"ClearBloomEffectHandle",comp_noop},{"SetBloomEffectHandle",comp_noop},
+        {"ClearDefaultEffectHandle",comp_noop},{"SetDefaultEffectHandle",comp_noop},
+        {"SetHaunted",comp_noop},{"SetLightOverride",comp_noop},
+        {"IsCurrentAnimation",anim_is_current_animation},{"GetCurrentAnimationHash",anim_get_current_anim_hash},
+        {"GetCurrentAnimationLength",anim_get_current_anim_length},{"GetCurrentAnimationTime",anim_get_current_anim_time},
+        {"GetCurrentAnimationNumFrames",anim_get_current_anim_num_frames},{"GetCurrentAnimationFrame",anim_get_current_anim_frame},
+        {"GetCurrentBankName",anim_get_current_bank_name},{"GetBankHash",anim_get_bank_hash},
+        {"GetSkinBuild",anim_get_skin_build},{"GetBuild",anim_get_build},
+        {"SetErosionParams",comp_noop},{"SetErosionParallax",comp_noop},{"SetFloatParams",comp_noop},{"SetOceanBlendParams",comp_noop},
+        {"GetCurrentFacing",anim_get_current_facing},{"FastForward",comp_noop},
+        {"SetClientSideBuildOverrideFlag",comp_noop},{"SetClientsideBuildOverride",comp_noop},
+        {"SetSymbolExchange",comp_noop},{"SetMultiSymbolExchange",comp_noop},{"ClearSymbolExchanges",comp_noop},
+        {"UseHeadHatExchange",comp_noop},{"SetHatOffset",comp_noop},
+        {"CompareSymbolBuilds",anim_compare_symbol_builds},{"IsSymbolOverridden",anim_is_symbol_overridden},
+        {"UsePointFiltering",comp_noop},{"SetForceSinglePass",comp_noop},{"UseColourCube",comp_noop},
+        {"SetWorldSpaceAmbientLightPos",comp_noop},{"SetUILightParams",comp_noop},
+        {"AnimateWhilePaused",comp_noop},{"GetHistoryData",anim_get_history_data},{"MakeFacingDirty",comp_noop},
+        {nullptr,nullptr}
+    };
+    register_component_metatable(L,"dst.AnimState","AnimState",anim_methods,tostring_anim_state);
+
+    const luaL_Reg phys_methods[]={
+        {"SetMotorVel",phys_set_motor_vel},{"GetMotorVel",phys_get_motor_vel},
+        {"SetMotorVelOverride",phys_set_motor_vel},{"ClearMotorVelOverride",comp_noop},
+        {"SetMotorVelExternal",phys_set_motor_vel},{"GetMotorSpeed",phys_get_motor_speed},
+        {"SetVel",phys_set_vel},{"Stop",phys_stop},{"GetVelocity",phys_get_velocity},
+        {"SetSphere",phys_set_sphere},{"SetCapsule",phys_set_capsule},{"SetCylinder",phys_set_capsule},
+        {"GetRadius",phys_get_radius},{"GetHeight",phys_get_height},
+        {"GetMass",phys_get_mass},{"SetMass",phys_set_mass},{"SetTempMass0",comp_noop},
+        {"SetCollides",comp_noop},{"GeoProbe",comp_noop},
+        {"Teleport",phys_teleport},{"TeleportRespectingInterpolation",phys_teleport},{"TeleportOffset",comp_noop},
+        {"SetActive",phys_set_active},{"IsActive",phys_is_active},{"SetDontRemoveOnSleep",comp_noop},
+        {"IsPassable",phys_is_passable},{"CheckGridOffset",comp_true},
+        {"GetCollisionMask",phys_get_collision_mask},{"SetCollisionMask",phys_set_collision_mask},
+        {"SetLocalCollisionMask",comp_noop},{"ClearLocalCollisionMask",comp_noop},
+        {"GetCollisionGroup",phys_get_collision_group},{"SetCollisionGroup",phys_set_collision_group},
+        {"CollidesWith",phys_collides_with},{"ClearCollidesWith",phys_clear_collides_with},{"ClearCollisionMask",phys_clear_collision_mask},
+        {"SetFriction",comp_noop},{"SetRestitution",comp_noop},{"SetDamping",comp_noop},
+        {"SetCollisionCallback",comp_noop},{"SetTriangleMesh",comp_noop},{"ClearTransformationHistory",comp_noop},
+        {"ConstrainTo",comp_noop},{"P2PConstrainTo",comp_noop},{"SetP2PConstrainPivots",comp_noop},
+        {"TEMPHACK_DisableSleepDeactivation",comp_noop},{nullptr,nullptr}
+    };
+    register_component_metatable(L,"dst.Physics","Physics",phys_methods,tostring_physics);
+
+    const luaL_Reg light_methods[]={
+        {"Enable",light_enable},{"IsEnabled",light_is_enabled},
+        {"SetRadius",light_set_radius},{"GetRadius",light_get_radius},{"GetCalculatedRadius",light_get_radius},
+        {"SetFalloff",light_set_falloff},{"GetFalloff",light_get_falloff},
+        {"SetIntensity",light_set_intensity},{"GetIntensity",light_get_intensity},
+        {"SetColour",light_set_colour},{"GetColour",light_get_colour},
+        {"SetDisableOnSceneRemoval",light_set_disable_on_removal},{"GetDisableOnSceneRemoval",light_get_disable_on_removal},
+        {"EnableClientModulation",comp_noop},{nullptr,nullptr}
+    };
+    register_component_metatable(L,"dst.Light","Light",light_methods,tostring_light);
+
+    const luaL_Reg follower_methods[]={
+        {"FollowSymbol",comp_noop},{"SetOffset",comp_noop},{"StopFollowing",comp_noop},{nullptr,nullptr}
+    };
+    register_component_metatable(L,"dst.Follower","Follower",follower_methods,tostring_follower);
+
+    const luaL_Reg mme_methods[]={
+        {"SetDrawOverFogOfWar",comp_noop},{"SetIcon",comp_noop},{"CopyIcon",comp_noop},
+        {"SetPriority",comp_noop},{"SetEnabled",comp_noop},{"SetCanUseCache",comp_noop},
+        {"SetRestriction",comp_noop},{"EntityHasRestriction",comp_false},
+        {"SetIsProxy",comp_noop},{"SetIsFogRevealer",comp_noop},{nullptr,nullptr}
+    };
+    register_component_metatable(L,"dst.MiniMapEntity","MiniMapEntity",mme_methods,tostring_minimap_entity);
+
+    const luaL_Reg dshadow_methods[]={{"SetSize",comp_noop},{"Enable",comp_noop},{nullptr,nullptr}};
+    register_component_metatable(L,"dst.DynamicShadow","DynamicShadow",dshadow_methods,tostring_dynamic_shadow);
+
+    const luaL_Reg sshadow_methods[]={{"SetSize",comp_noop},{nullptr,nullptr}};
+    register_component_metatable(L,"dst.StaticShadow","StaticShadow",sshadow_methods,tostring_static_shadow);
+
+    const luaL_Reg lw_methods[]={
+        {"IsInLight",comp_true},{"GetTimeInLight",comp_one},{"GetTimeInDark",comp_zero},
+        {"SetLightThresh",comp_noop},{"SetDarkThresh",comp_noop},
+        {"GetLightAngle",comp_zero},{"GetLightValue",comp_one},{"SetMinLightThresh",comp_noop},{nullptr,nullptr}
+    };
+    register_component_metatable(L,"dst.LightWatcher","LightWatcher",lw_methods,tostring_light_watcher);
+
+    const luaL_Reg gce_methods[]={{"SetRadius",comp_noop},{nullptr,nullptr}};
+    register_component_metatable(L,"dst.GroundCreepEntity","GroundCreepEntity",gce_methods,tostring_ground_creep_entity);
+
+    const luaL_Reg mex_methods[]={
+        {"ActivateLocalMiniMap",comp_noop},{"DeactivateLocalMiniMap",comp_noop},{"EnableUpdate",comp_noop},
+        {"RevealArea",comp_noop},{"RevealEntity",comp_noop},
+        {"RecordMap",comp_empty_str},{"LearnRecordedMap",comp_true},{"IsTileSeeableInRecordedMap",comp_true},
+        {"RecordAllMaps",comp_noop},{"LearnAllMaps",comp_noop},
+        {"IsTileVisited",comp_true},{"IsTileSeeable",comp_true},{"GetSeeableTileCount",comp_zero},{nullptr,nullptr}
+    };
+    register_component_metatable(L,"dst.MapExplorer","MapExplorer",mex_methods,tostring_map_explorer);
+
+    const luaL_Reg dbg_methods[]={
+        {"Flush",comp_noop},{"SetZ",comp_noop},{"SetRenderLoop",comp_noop},
+        {"Line",comp_noop},{"String",comp_noop},{"Circle",comp_noop},
+        {"Box",comp_noop},{"Poly",comp_noop},{"Triangle",comp_noop},{nullptr,nullptr}
+    };
+    register_component_metatable(L,"dst.DebugRender","DebugRender",dbg_methods,tostring_debug_render);
+
+    const luaL_Reg pe_methods[]={
+        {"SetAcceleration",comp_noop},{"SetDragCoefficient",comp_noop},
+        {"AddParticle",comp_noop},{"AddParticleUV",comp_noop},{"AddRotatingParticle",comp_noop},{"AddRotatingParticleUV",comp_noop},
+        {"SetRenderResources",comp_noop},{"SetRotationStatus",comp_noop},
+        {"SetMaxNumParticles",comp_noop},{"SetMaxLifetime",comp_noop},
+        {"SetColourEnvelope",comp_noop},{"SetScaleEnvelope",comp_noop},{"SetSpawnVectors",comp_noop},
+        {"SetSortOrder",comp_noop},{"SetBlendMode",comp_noop},{"SetUVFrameSize",comp_noop},
+        {"EnableBloomPass",comp_noop},{"EnableDepthTest",comp_noop},
+        {"GetNumLiveParticles",comp_zero},{"ClearAllParticles",comp_noop},
+        {"SetRadius",comp_noop},{"FastForward",comp_noop},{"SetLayer",comp_noop},{nullptr,nullptr}
+    };
+    register_component_metatable(L,"dst.ParticleEmitter","ParticleEmitter",pe_methods,tostring_particle_emitter);
+
+    const luaL_Reg vfx_methods[]={
+        {"InitEmitters",comp_noop},{"SetAcceleration",comp_noop},{"SetDragCoefficient",comp_noop},
+        {"SetAngularAcceleration",comp_noop},{"SetAngularDragCoefficient",comp_noop},
+        {"SetRenderResources",comp_noop},{"SetFollowEmitter",comp_noop},{"SetWorldSpaceEmitter",comp_noop},
+        {"SetRotationStatus",comp_noop},{"SetRotateOnVelocity",comp_noop},{"SetGroundPhysics",comp_noop},
+        {"SetMaxNumParticles",comp_noop},{"SetMaxLifetime",comp_noop},
+        {"SetColourEnvelope",comp_noop},{"SetScaleEnvelope",comp_noop},{"SetSpawnVectors",comp_noop},
+        {"SetSortOrder",comp_noop},{"SetSortOffset",comp_noop},{"SetLayer",comp_noop},
+        {"SetBlendMode",comp_noop},{"SetUVFrameSize",comp_noop},{"SetKillOnEntityDeath",comp_noop},{"SetIsTrailEmitter",comp_noop},
+        {"EnableBloomPass",comp_noop},{"EnableDepthTest",comp_noop},{"EnableDepthWrite",comp_noop},
+        {"GetNumLiveParticles",comp_zero},{"ClearAllParticles",comp_noop},{"SetRadius",comp_noop},
+        {"AddParticle",comp_noop},{"AddParticleUV",comp_noop},{"AddRotatingParticle",comp_noop},{"AddRotatingParticleUV",comp_noop},
+        {"FastForward",comp_noop},{nullptr,nullptr}
+    };
+    register_component_metatable(L,"dst.VFXEffect","VFXEffect",vfx_methods,tostring_vfx_effect);
+
+    const luaL_Reg img_methods[]={
+        {"Enable",comp_noop},{"SetTexture",comp_noop},{"SetTextureHandle",comp_noop},
+        {"SetUIOffset",comp_noop},{"SetWorldOffset",comp_noop},{"SetTint",comp_noop},
+        {"SetBlendMode",comp_noop},{"SetAlphaRange",comp_noop},{"SetEffect",comp_noop},
+        {"SetSize",image_comp_set_size},{"GetSize",image_comp_get_size},{nullptr,nullptr}
+    };
+    register_component_metatable(L,"dst.Image","Image",img_methods,tostring_image_comp);
+
+    const luaL_Reg lbl_methods[]={
+        {"Enable",comp_noop},{"SetText",comp_noop},{"SetFont",comp_noop},{"SetFontSize",comp_noop},
+        {"SetUIOffset",comp_noop},{"SetWorldOffset",comp_noop},{"SetColour",comp_noop},{nullptr,nullptr}
+    };
+    register_component_metatable(L,"dst.Label","Label",lbl_methods,tostring_label_comp);
+
+    const luaL_Reg tew_methods[]={
+        {"SetString",tew_set_string},{"GetString",tew_get_string},
+        {"SetEditCursorPos",tew_set_cursor_pos},{"GetEditCursorPos",tew_get_cursor_pos},
+        {"OnTextInput",comp_false},{"OnKeyDown",comp_false},{"OnKeyUp",comp_false},{"OnControl",comp_false},
+        {"SetPassword",comp_noop},{"SetForceUpperCase",comp_noop},{"EnableScrollEditWindow",comp_noop},{nullptr,nullptr}
+    };
+    register_component_metatable(L,"dst.TextEditWidget","TextEditWidget",tew_methods,tostring_text_edit_widget);
+
+    const luaL_Reg vw_methods[]={
+        {"SetSize",vw_set_size},{"GetSize",vw_get_size},{"SetTint",comp_noop},
+        {"SetAlphaRange",comp_noop},{"SetUVScale",comp_noop},
+        {"SetVAnchor",comp_noop},{"SetHAnchor",comp_noop},
+        {"Load",comp_true},{"Play",comp_noop},{"IsDone",comp_true},{"Pause",comp_noop},{"Stop",comp_noop},{nullptr,nullptr}
+    };
+    register_component_metatable(L,"dst.VideoWidget","VideoWidget",vw_methods,tostring_video_widget);
+
     luaL_newmetatable(L,"dst.NetVar");lua_newtable(L);
     const luaL_Reg nv_methods[]={
         {"set",netvar_set},{"set_local",netvar_set_local},{"value",netvar_value},{nullptr,nullptr}
@@ -1756,6 +2466,23 @@ void install(lua_State* L,web_components::EntityHost callbacks){
     lua_pushcfunction(L,add_shard_client);lua_setfield(L,-2,"AddShardClient");
     lua_pushcfunction(L,add_server_non_sleepable);lua_setfield(L,-2,"AddServerNonSleepable");
     lua_pushcfunction(L,add_client_sleepable);lua_setfield(L,-2,"AddClientSleepable");
+    lua_pushcfunction(L,add_anim_state);lua_setfield(L,-2,"AddAnimState");
+    lua_pushcfunction(L,add_physics);lua_setfield(L,-2,"AddPhysics");
+    lua_pushcfunction(L,add_light);lua_setfield(L,-2,"AddLight");
+    lua_pushcfunction(L,add_follower);lua_setfield(L,-2,"AddFollower");
+    lua_pushcfunction(L,add_minimap_entity);lua_setfield(L,-2,"AddMiniMapEntity");
+    lua_pushcfunction(L,add_dynamic_shadow);lua_setfield(L,-2,"AddDynamicShadow");
+    lua_pushcfunction(L,add_static_shadow);lua_setfield(L,-2,"AddStaticShadow");
+    lua_pushcfunction(L,add_light_watcher);lua_setfield(L,-2,"AddLightWatcher");
+    lua_pushcfunction(L,add_ground_creep_entity);lua_setfield(L,-2,"AddGroundCreepEntity");
+    lua_pushcfunction(L,add_map_explorer);lua_setfield(L,-2,"AddMapExplorer");
+    lua_pushcfunction(L,add_debug_render);lua_setfield(L,-2,"AddDebugRender");
+    lua_pushcfunction(L,add_particle_emitter);lua_setfield(L,-2,"AddParticleEmitter");
+    lua_pushcfunction(L,add_vfx_effect);lua_setfield(L,-2,"AddVFXEffect");
+    lua_pushcfunction(L,add_image_comp);lua_setfield(L,-2,"AddImage");
+    lua_pushcfunction(L,add_label_comp);lua_setfield(L,-2,"AddLabel");
+    lua_pushcfunction(L,add_text_edit_widget);lua_setfield(L,-2,"AddTextEditWidget");
+    lua_pushcfunction(L,add_video_widget);lua_setfield(L,-2,"AddVideoWidget");
     lua_pushcfunction(L,entity_set_pristine);lua_setfield(L,-2,"SetPristine");
     lua_pushcfunction(L,entity_flush_local_dirty_netvars);lua_setfield(L,-2,"FlushLocalDirtyNetVars");
     lua_pushcfunction(L,entity_set_aabb);lua_setfield(L,-2,"SetAABB");
