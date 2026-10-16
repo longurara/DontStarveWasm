@@ -1,0 +1,23 @@
+{
+  "name": "dst-web-port",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "test": "node --test tests/*.test.mjs",
+    "signal": "node tools/signaling.mjs",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "fflate": "0.8.3",
+    "typescript": "7.0.2",
+    "vite": "8.3.4",
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "@types/ws": "8.18.2"
+  }
+}

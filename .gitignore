@@ -1,0 +1,12 @@
+.cache/
+build/
+node_modules/
+public/generated/
+output/
+dist/
+vendor/lua-5.1.5/
+vendor/LuaBitOp-1.0.4/
+vendor/dr_libs/
+*.log
+.playwright-cli/
+__pycache__/
