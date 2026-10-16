@@ -16,7 +16,7 @@ add_executable(engine engine/runtime.cpp engine/persistent.cpp engine/audio.cpp 
 target_include_directories(engine PRIVATE vendor/rapidxml-1.13)
 target_sources(engine PRIVATE engine/ktex.cpp engine/texture_asset.cpp)
 target_sources(engine PRIVATE engine/asset_zip.cpp engine/asset_xml.cpp engine/font_asset.cpp)
-target_sources(engine PRIVATE engine/components.cpp engine/road_manager.cpp engine/envelope_manager.cpp engine/postprocessor.cpp engine/font_manager.cpp engine/map_layers.cpp engine/physics_waker.cpp engine/ui_transform.cpp engine/text_widget.cpp engine/image_widget.cpp engine/sound_emitter.cpp engine/graphics_options.cpp engine/twitch_options.cpp)
+target_sources(engine PRIVATE engine/components.cpp engine/road_manager.cpp engine/envelope_manager.cpp engine/postprocessor.cpp engine/font_manager.cpp engine/map_layers.cpp engine/physics_waker.cpp engine/ui_transform.cpp engine/text_widget.cpp engine/image_widget.cpp engine/sound_emitter.cpp engine/graphics_options.cpp engine/twitch_options.cpp engine/account_manager.cpp)
 target_link_libraries(engine PRIVATE lua51 flac)
 target_compile_options(engine PRIVATE -Wall -Wextra -Werror -fno-fast-math -sUSE_ZLIB=1)
 target_link_options(engine PRIVATE
