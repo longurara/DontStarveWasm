@@ -13,6 +13,7 @@ namespace {
 struct Group {
     uint32_t parent=0;
     uint16_t begin=0,end=0;
+    bool has_range=false;
     std::set<uint16_t> valid,invalid;
 };
 std::map<uint32_t,Group> groups;
@@ -36,7 +37,7 @@ int add_group(lua_State* L){
 int set_range(lua_State* L){
     self(L);uint32_t id=group_id(L,2);uint16_t begin=tile_id(L,3),end=tile_id(L,4);
     if(begin>end)return luaL_error(L,"Invalid tile group range");
-    auto found=groups.find(id);if(found!=groups.end()){found->second.begin=begin;found->second.end=end;}
+    auto found=groups.find(id);if(found!=groups.end()){found->second.begin=begin;found->second.end=end;found->second.has_range=true;}
     return 0;
 }
 int change_tile(lua_State* L){
@@ -62,7 +63,30 @@ int unknown(lua_State* L){return luaL_error(L,"UNIMPLEMENTED_NATIVE: TileGroupMa
 void closure(lua_State* L,const char* name,lua_CFunction fn,int argument){
     lua_pushinteger(L,argument);lua_pushcclosure(L,fn,1);lua_setfield(L,-2,name);
 }
+bool in_group_raw(uint32_t id,uint16_t tile,int depth=0){
+    if(!id||depth>32)return false;
+    auto it=groups.find(id);
+    if(it==groups.end())return false;
+    const auto& g=it->second;
+    if(g.parent&&in_group_raw(g.parent,tile,depth+1))return true;
+    if(g.has_range&&g.begin<=tile&&tile<=g.end)return true;
+    return g.valid.count(tile)!=0;
 }
+}
+bool in_group(uint32_t id,uint16_t tile){
+    auto it=groups.find(id);
+    if(it==groups.end()||it->second.invalid.count(tile))return false;
+    return in_group_raw(id,tile);
+}
+bool is_land(uint16_t tile){return in_group(selected[0],tile);}
+bool is_ocean(uint16_t tile){return in_group(selected[1],tile);}
+bool is_transparent_ocean(uint16_t tile){return in_group(selected[2],tile);}
+bool is_impassable(uint16_t tile){return in_group(selected[3],tile);}
+bool is_invalid(uint16_t tile){return in_group(selected[4],tile);}
+bool is_noise(uint16_t tile){return in_group(selected[5],tile);}
+uint16_t invalid_tile(){return special[0];}
+uint16_t default_impassable_tile(){return special[1];}
+uint16_t fake_ground_tile(){return special[2];}
 void install(lua_State* L){
     groups.clear();next_group=1;selected.fill(0);special.fill(0);no_overlays.clear();invisible.clear();
     luaL_newmetatable(L,"dst.TileGroupManager");

@@ -11,6 +11,7 @@
 #include "graphics_options.hpp"
 #include "twitch_options.hpp"
 #include "account_manager.hpp"
+#include "world_components.hpp"
 #include <cmath>
 #include <map>
 #include <string>
@@ -61,8 +62,8 @@ int inspect(lua_State* L){
     number(L,"textureHandle",-1);number(L,"staticHandle",-1);lua_pushlstring(L,found->second.requested_texture.data(),found->second.requested_texture.size());lua_setfield(L,-2,"requestedTexture");lua_pushboolean(L,false);lua_setfield(L,-2,"rendererReady");return 1;
 }
 }
-void retire(uint32_t id){shadows.erase(id);web_roads::retire(id);web_envelopes::retire(id);web_postprocessor::retire(id);web_font_manager::retire(id);web_map_layers::retire(id);web_ui::retire(id);web_text_widget::retire(id);web_image_widget::retire(id);web_sound_emitter::retire(id);web_graphics_options::retire(id);web_twitch_options::retire(id);web_account_manager::retire(id);}
-void clear(){shadows.clear();web_roads::clear();web_envelopes::clear();web_postprocessor::clear();web_font_manager::clear();web_map_layers::clear();web_ui::clear();web_text_widget::clear();web_image_widget::clear();web_sound_emitter::clear();web_graphics_options::clear();web_twitch_options::clear();web_account_manager::clear();}
+void retire(uint32_t id){shadows.erase(id);web_roads::retire(id);web_envelopes::retire(id);web_postprocessor::retire(id);web_font_manager::retire(id);web_map_layers::retire(id);web_ui::retire(id);web_text_widget::retire(id);web_image_widget::retire(id);web_sound_emitter::retire(id);web_graphics_options::retire(id);web_twitch_options::retire(id);web_account_manager::retire(id);web_world_components::retire(id);}
+void clear(){shadows.clear();web_roads::clear();web_envelopes::clear();web_postprocessor::clear();web_font_manager::clear();web_map_layers::clear();web_ui::clear();web_text_widget::clear();web_image_widget::clear();web_sound_emitter::clear();web_graphics_options::clear();web_twitch_options::clear();web_account_manager::clear();web_world_components::clear();}
 void install(lua_State* L,EntityHost callbacks,bool client){clear();host=callbacks;client_role=client;
     luaL_newmetatable(L,"dst.ShadowManager");lua_newtable(L);const luaL_Reg methods[]={{"SetTexture",set_texture},{"GenerateStaticShadows",generate_static},{nullptr,nullptr}};luaL_register(L,nullptr,methods);lua_setfield(L,-2,"__index");lua_pushcfunction(L,tostring_shadow);lua_setfield(L,-2,"__tostring");lua_pop(L,1);
     lua_getglobal(L,"Entity");lua_pushcfunction(L,add_shadow);lua_setfield(L,-2,"AddShadowManager");lua_pop(L,1);
@@ -79,5 +80,6 @@ void install(lua_State* L,EntityHost callbacks,bool client){clear();host=callbac
     web_graphics_options::install(L,callbacks,client);
     web_twitch_options::install(L,callbacks);
     web_account_manager::install(L,callbacks);
+    web_world_components::install(L,callbacks);
 }
 }
