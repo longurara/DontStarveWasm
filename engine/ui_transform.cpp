@@ -176,7 +176,7 @@ void install(lua_State* L,web_components::EntityHost callbacks){clear();host=cal
     const char* setters[]={"SetHAnchor","SetVAnchor","SetScaleMode","SetFacing"};for(int i=0;i<4;++i){lua_pushinteger(L,i);lua_pushcclosure(L,set_integer,1);lua_setfield(L,-2,setters[i]);}
     lua_setfield(L,-2,"__index");lua_pushcfunction(L,tostring_ui);lua_setfield(L,-2,"__tostring");lua_pop(L,1);
     lua_getglobal(L,"Entity");lua_pushcfunction(L,add);lua_setfield(L,-2,"AddUITransform");lua_pop(L,1);
-    lua_getglobal(L,"TheSim");lua_pushcfunction(L,screen_size);lua_setfield(L,-2,"GetScreenSize");lua_pop(L,1);
+    lua_getglobal(L,"TheSim");lua_pushcfunction(L,screen_size);lua_setfield(L,-2,"GetScreenSize");lua_pushcfunction(L,screen_size);lua_setfield(L,-2,"GetWindowSize");lua_pop(L,1);
     lua_newtable(L);lua_pushcfunction(L,inspect);lua_setfield(L,-2,"Inspect");lua_pushcfunction(L,viewport);lua_setfield(L,-2,"SetViewport");lua_setglobal(L,"WebUI");
 }
 }

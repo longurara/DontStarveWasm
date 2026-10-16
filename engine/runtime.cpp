@@ -527,6 +527,43 @@ int sim_set_setting(lua_State* L){
 int sim_get_data_collection(lua_State* L){lua_pushboolean(L,0);return 1;}
 int sim_set_data_collection(lua_State* L){(void)lua_toboolean(L,2);lua_pushboolean(L,0);return 1;}
 int sim_is_data_collection_disabled(lua_State* L){lua_pushboolean(L,1);return 1;}
+std::map<int,std::string> render_pass_effects;
+std::string erosion_texture,holo_texture,motd_target;
+uint32_t ui_root_guid=0;
+bool netbook_mode=false;
+int sim_has_player_skeletons(lua_State* L){lua_pushboolean(L,1);return 1;}
+int sim_set_render_pass_default_effect(lua_State* L){
+    int pass=static_cast<int>(luaL_checknumber(L,2));
+    render_pass_effects[pass]=luaL_checkstring(L,3);
+    return 0;
+}
+int sim_set_erosion_texture(lua_State* L){erosion_texture=luaL_checkstring(L,2);return 0;}
+int sim_set_holo_texture(lua_State* L){holo_texture=luaL_checkstring(L,2);return 0;}
+int sim_set_ui_root(lua_State* L){
+    auto id=*static_cast<uint32_t*>(luaL_checkudata(L,2,"dst.Entity"));
+    auto found=entities.find(id);
+    if(found!=entities.end()&&found->second.valid)ui_root_guid=id;
+    return 0;
+}
+int sim_should_play_intro_movie(lua_State* L){
+    auto it=sim_settings.find({"graphics","intro_movie"});
+    bool play=it!=sim_settings.end()&&lower_ascii(it->second.data(),it->second.size())=="true";
+    lua_pushboolean(L,play?1:0);return 1;
+}
+int sim_is_netbook_mode(lua_State* L){lua_pushboolean(L,netbook_mode?1:0);return 1;}
+int sim_set_netbook_mode(lua_State* L){netbook_mode=lua_toboolean(L,2)!=0;return 0;}
+int sim_is_logged_on(lua_State* L){lua_pushnil(L);return 1;}
+int sim_false(lua_State* L){lua_pushboolean(L,0);return 1;}
+int sim_get_users_name(lua_State* L){lua_pushliteral(L,"Player");return 1;}
+int sim_get_steam_id_number(lua_State* L){lua_pushnumber(L,0);return 1;}
+int sim_get_steam_beta_branch_name(lua_State* L){lua_pushliteral(L,"non-Steam");return 1;}
+int sim_log_bulk_metric(lua_State* L){luaL_checkstring(L,2);return 0;}
+int sim_set_motd_target(lua_State* L){motd_target=std::string("https://")+luaL_checkstring(L,2)+"/motd.json";return 0;}
+int sim_get_motd_query_url(lua_State* L){lua_pushliteral(L,"https://motd.klei.com/motd.json/?game=dst");return 1;}
+int sim_has_motd_image(lua_State* L){(void)lua_tostring(L,2);lua_pushboolean(L,0);return 1;}
+int sim_download_motd_image(lua_State* L){luaL_checkstring(L,2);luaL_checkstring(L,3);return 0;}
+int sim_load_motd_image(lua_State* L){luaL_checkstring(L,2);return 0;}
+int sim_download_motd_images(lua_State*){return 0;}
 int inspect_sim_settings(lua_State* L){
     lua_newtable(L);
     for(const auto& kv:sim_settings){
@@ -606,7 +643,7 @@ EMSCRIPTEN_KEEPALIVE int dst_init(int role) {
     lua_getglobal(state,"os"); lua_pushnil(state); lua_setfield(state,-2,"execute");
     lua_pushnil(state); lua_setfield(state,-2,"exit"); lua_pop(state,1);
     lua_getglobal(state,"package"); lua_pushnil(state); lua_setfield(state,-2,"loadlib"); lua_pop(state,1);
-    entities.clear();resource_catalog.clear();texture_groups.clear();sim_settings.clear(); tick=0; next_guid=1; profiler_depth=0;seed_rng(0);server_language="en";
+    entities.clear();resource_catalog.clear();texture_groups.clear();sim_settings.clear();render_pass_effects.clear();erosion_texture.clear();holo_texture.clear();motd_target.clear();ui_root_guid=0;netbook_mode=false; tick=0; next_guid=1; profiler_depth=0;seed_rng(0);server_language="en";
     runtime_role=role==0?"client":role==1?"master":"caves";
     lua_getglobal(state,"math");
     lua_pushcfunction(state,math_randomseed);lua_setfield(state,-2,"randomseed");
@@ -650,6 +687,13 @@ EMSCRIPTEN_KEEPALIVE int dst_init(int role) {
         {"SendProfileStats",local_profile_stats},
         {"GetSetting",sim_get_setting},{"SetSetting",sim_set_setting},{"GetLocalSetting",sim_get_setting},
         {"GetDataCollectionSetting",sim_get_data_collection},{"SetDataCollectionSetting",sim_set_data_collection},{"IsDataCollectionDisabled",sim_is_data_collection_disabled},
+        {"HasPlayerSkeletons",sim_has_player_skeletons},{"SetRenderPassDefaultEffect",sim_set_render_pass_default_effect},
+        {"SetErosionTexture",sim_set_erosion_texture},{"SetHoloTexture",sim_set_holo_texture},{"SetUIRoot",sim_set_ui_root},
+        {"ShouldPlayIntroMovie",sim_should_play_intro_movie},{"IsNetbookMode",sim_is_netbook_mode},{"SetNetbookMode",sim_set_netbook_mode},
+        {"IsLoggedOn",sim_is_logged_on},{"GetUserHasLicenseForApp",sim_false},{"IsSteamChinaClient",sim_false},{"IsBorrowed",sim_false},
+        {"GetUsersName",sim_get_users_name},{"GetSteamIDNumber",sim_get_steam_id_number},{"GetSteamBetaBranchName",sim_get_steam_beta_branch_name},
+        {"LogBulkMetric",sim_log_bulk_metric},{"SetMOTDTarget",sim_set_motd_target},{"GetMOTDQueryURL",sim_get_motd_query_url},
+        {"HasMOTDImage",sim_has_motd_image},{"DownloadMOTDImage",sim_download_motd_image},{"LoadMOTDImage",sim_load_motd_image},{"DownloadMOTDImages",sim_download_motd_images},
         {"ProfilerPush",profiler_push},{"ProfilerPop",profiler_pop},{"ShouldInitDebugger",debugger_disabled},
         {"SetReverbPreset",set_reverb},{"GetFileModificationTime",file_mtime},{"LuaPrint",lua_print},
         {"AddTextureToStreamingGroup",texture_group},{"ClearFileSystemAliases",clear_file_aliases},{"SendHardwareStats",send_hardware_stats},{nullptr,nullptr}};
