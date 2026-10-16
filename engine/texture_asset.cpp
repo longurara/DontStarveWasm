@@ -1,5 +1,6 @@
 #include "texture_asset.hpp"
 #include "animation_asset.hpp"
+#include "asset_zip.hpp"
 #include "ktex.hpp"
 #include "resource_io.hpp"
 #include "string_hash.hpp"
@@ -77,7 +78,13 @@ int upload_lua(lua_State* L){auto path=luaL_checkstring(L,1);bool ok;
 int animation_lua(lua_State* L){const char* path=luaL_checkstring(L,1);const char* atlas=luaL_checkstring(L,2);bool ok=false;
     {std::string error,key=std::string(path)+"#"+atlas;const auto* bundle=web_animation_asset::get(path);
         if(!bundle||!bundle->textures.count(atlas))error="Animation atlas is not decoded";
-        else {auto bytes=bundle->textures.at(atlas).data;ok=load_bytes(key,std::move(bytes),error)&&upload(key,error);}
+        else {
+            std::vector<uint8_t> zip_bytes;
+            std::map<std::string,std::vector<uint8_t>> files;
+            if(web_resource_io::read(path,zip_bytes,error)&&web_asset_zip::unpack(zip_bytes,files,error)&&files.count(atlas)){
+                ok=load_bytes(key,std::move(files.at(atlas)),error)&&upload(key,error);
+            }
+        }
         if(ok){lua_settop(L,0);lua_pushlstring(L,key.data(),key.size());}else lua_pushlstring(L,error.data(),error.size());}
     if(!ok)return lua_error(L);return inspect(L);
 }

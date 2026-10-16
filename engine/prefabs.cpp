@@ -173,6 +173,25 @@ int unregister_all_prefabs(lua_State*){
     }
     return 0;
 }
+int unregister_prefabs(lua_State* L){
+    // Native 0x14011a780: iterate table and unregister named prefabs.
+    int table=lua_gettop(L);luaL_checktype(L,table,LUA_TTABLE);
+    std::vector<std::string> remove_names;
+    lua_pushnil(L);
+    while(lua_next(L,table)){if(lua_type(L,-1)==LUA_TSTRING)remove_names.push_back(string(L,-1));lua_pop(L,1);}
+    for(const auto& name:remove_names){
+        if(ends_with_global(name))continue;
+        while(loaded[name]>0)unload(name);
+        loaded.erase(name);
+        definitions.erase(name);
+    }
+    return 0;
+}
+int on_asset_path_resolve(lua_State* L){
+    // Native 0x14011d210: validates original and resolved asset path strings.
+    luaL_checkstring(L,2);luaL_checkstring(L,3);
+    return 0;
+}
 int start_file_exists_async(lua_State*){return 0;}
 int loaded_info(lua_State* L){
     lua_newtable(L);for(const auto& value:loaded)if(value.second){lua_pushnumber(L,value.second);lua_setfield(L,-2,value.first.c_str());}return 1;
@@ -212,7 +231,10 @@ int inspect(lua_State* L){
 void install(lua_State* L,Exists exists,bool client){
     definitions.clear();verification_queue.clear();loaded.clear();resource_exists=exists;client_role=client;
     lua_getglobal(L,"TheSim");lua_pushcfunction(L,register_prefab);lua_setfield(L,-2,"RegisterPrefab");
+    lua_pushcfunction(L,unregister_prefabs);lua_setfield(L,-2,"UnregisterPrefabs");
     lua_pushcfunction(L,unregister_all_prefabs);lua_setfield(L,-2,"UnregisterAllPrefabs");
+    lua_pushcfunction(L,on_asset_path_resolve);lua_setfield(L,-2,"OnAssetPathResolve");
+    lua_pushcfunction(L,add_verify);lua_setfield(L,-2,"VerifyFileExistsAsync");
     lua_pushcfunction(L,add_verify);lua_setfield(L,-2,"AddBatchVerifyFileExists");
     lua_pushcfunction(L,start_file_exists_async);lua_setfield(L,-2,"StartFileExistsAsync");
     lua_pushcfunction(L,load_prefabs);lua_setfield(L,-2,"LoadPrefabs");lua_pushcfunction(L,unload_prefabs);lua_setfield(L,-2,"UnloadPrefabs");lua_pop(L,1);

@@ -37,15 +37,17 @@ bool build(const std::vector<uint8_t>& bytes,Bundle& out){
     Reader r(bytes);if(r.u32()!=0x444c4942||r.u32()!=6)return false;
     uint32_t symbols=r.u32(),frames=r.u32();out.build=r.text();uint32_t atlases=r.u32();
     if(symbols>100000||frames>1000000||atlases>256)return false;
+    out.atlases.reserve(atlases);
     for(uint32_t i=0;i<atlases&&r.ok;++i)out.atlases.push_back(r.text());
     uint64_t observed=0;
     for(uint32_t i=0;i<symbols&&r.ok;++i){
         uint32_t id=r.u32(),count=r.u32();if(count>frames||count>r.left()/32||out.symbols.count(id))return false;
-        Symbol symbol;
+        Symbol symbol;symbol.frames.reserve(count);
         for(uint32_t f=0;f<count;++f){SymbolFrame frame;frame.frame=r.u32();frame.duration=r.u32();frame.bounds=r.floats<4>();frame.offset=r.u32();frame.count=r.u32();symbol.frames.push_back(frame);}
         observed+=count;out.symbols.emplace(id,std::move(symbol));
     }
     uint32_t vertices=r.u32();if(vertices>10000000||vertices>r.left()/24||observed!=frames)return false;
+    out.vertices.reserve(vertices);
     for(uint32_t i=0;i<vertices;++i)out.vertices.push_back(r.floats<6>());
     uint32_t names=r.u32();if(names>100000)return false;
     for(uint32_t i=0;i<names&&r.ok;++i){uint32_t id=r.u32();auto name=r.text();auto symbol=out.symbols.find(id);if(symbol!=out.symbols.end())symbol->second.name=std::move(name);}
@@ -57,14 +59,18 @@ bool animation(const std::vector<uint8_t>& bytes,Bundle& out){
     Reader r(bytes);if(r.u32()!=0x4d494e41||r.u32()!=4)return false;
     uint32_t elements=r.u32(),frames=r.u32(),events=r.u32(),clips=r.u32();
     if(std::max({elements,frames,events,clips})>10000000)return false;
+    out.clips.reserve(clips);
     uint64_t observed_elements=0,observed_frames=0,observed_events=0;
     for(uint32_t i=0;i<clips&&r.ok;++i){
         Clip clip;clip.name=r.text();clip.facing=r.integer(1);clip.bank=r.u32();clip.rate=r.number();uint32_t count=r.u32();
         if(clip.rate<=0||clip.rate>240||count>100000||count>r.left()/24)return false;
+        clip.frames.reserve(count);
         for(uint32_t j=0;j<count&&r.ok;++j){
             Frame frame;frame.bounds=r.floats<4>();uint32_t evs=r.u32();if(evs>r.left()/4)return false;
+            frame.events.reserve(evs);
             for(uint32_t k=0;k<evs;++k)frame.events.push_back(r.u32());
             uint32_t items=r.u32();if(items>r.left()/40)return false;
+            frame.elements.reserve(items);
             for(uint32_t k=0;k<items;++k){Element element;element.symbol=r.u32();element.frame=r.u32();element.layer=r.u32();element.matrix=r.floats<6>();element.depth=r.number();frame.elements.push_back(element);}
             observed_elements+=items;observed_events+=evs;clip.frames.push_back(std::move(frame));
         }
@@ -76,9 +82,9 @@ bool animation(const std::vector<uint8_t>& bytes,Bundle& out){
 }
 bool texture(const std::vector<uint8_t>& bytes,Texture& out){
     web_ktex::Texture decoded;std::string error;if(!web_ktex::parse(bytes,decoded,error))return false;
-    out.codec=decoded.codec;out.mips=decoded.mips.size();out.width=decoded.mips[0].width;out.height=decoded.mips[0].height;out.data=bytes;return true;
+    out.codec=decoded.codec;out.mips=decoded.mips.size();out.width=decoded.mips[0].width;out.height=decoded.mips[0].height;out.bytes=bytes.size();return true;
 }
-bool decode(const std::vector<uint8_t>& bytes,Bundle& out,bool deferred,std::string& error){
+bool decode(const std::vector<uint8_t>& bytes,Bundle& out,bool deferred,bool include_texture_bytes,std::string& error){
     std::map<std::string,std::vector<uint8_t>> files;if(!web_asset_zip::unpack(bytes,files,error))return false;
     auto anim=files.find("anim.bin"),bild=files.find("build.bin");
     if(anim==files.end()&&bild==files.end()){error="Animation ZIP has no ANIM/BILD";return false;}
@@ -87,13 +93,18 @@ bool decode(const std::vector<uint8_t>& bytes,Bundle& out,bool deferred,std::str
     out.textures_deferred=deferred;out.source_hash=web_crypto::sha256(std::string(reinterpret_cast<const char*>(bytes.data()),bytes.size()));
     if(!deferred)for(const auto& name:out.atlases){auto file=files.find(name);Texture image;
         if(file==files.end()||!texture(file->second,image)){error="Invalid/missing KTEX atlas: "+name;return false;}out.textures.emplace(name,std::move(image));}
-    out.retained_bytes=1024+out.build.size()+out.source_hash.size()+out.atlases.capacity()*sizeof(std::string)+out.vertices.capacity()*sizeof(out.vertices[0])+out.clips.capacity()*sizeof(Clip);
+    bool duplicate_hash=false;
+    if(!include_texture_bytes&&!deferred){
+        for(const auto& kv:cache)if(kv.second.value.source_hash==out.source_hash){duplicate_hash=true;break;}
+    }
+    const bool charge_textures=include_texture_bytes||duplicate_hash;
+    out.retained_bytes=out.build.size()+out.source_hash.size()+out.atlases.capacity()*sizeof(std::string)+out.vertices.capacity()*sizeof(out.vertices[0])+out.clips.capacity()*sizeof(Clip);
     for(const auto& name:out.atlases)out.retained_bytes+=name.size();
-    for(const auto& pair:out.symbols)out.retained_bytes+=64+sizeof(Symbol)+pair.second.name.size()+pair.second.frames.capacity()*sizeof(SymbolFrame);
+    for(const auto& pair:out.symbols)out.retained_bytes+=sizeof(Symbol)+pair.second.name.size()+pair.second.frames.capacity()*sizeof(SymbolFrame);
     for(const auto& clip:out.clips){out.retained_bytes+=clip.name.size()+clip.frames.capacity()*sizeof(Frame);
         for(const auto& frame:clip.frames)out.retained_bytes+=frame.elements.capacity()*sizeof(Element)+frame.events.capacity()*sizeof(uint32_t);}
-    for(const auto& image:out.textures)out.retained_bytes+=64+image.first.size()+image.second.data.capacity()+sizeof(Texture);
-    for(const auto& name:out.names)out.retained_bytes+=name.second.size()+64;
+    for(const auto& image:out.textures)out.retained_bytes+=image.first.size()+(charge_textures?image.second.bytes:0)+sizeof(Texture);
+    for(const auto& name:out.names)out.retained_bytes+=name.second.size();
     return true;
 }
 void integer(lua_State* L,const char* name,size_t value){lua_pushnumber(L,value);lua_setfield(L,-2,name);}
@@ -120,16 +131,16 @@ int inspect(lua_State* L){
 }
 int decode_lua(lua_State* L){
     const char* path=luaL_checkstring(L,1);bool ok;
-    {std::string error;ok=load(path,error);if(!ok)lua_pushlstring(L,error.data(),error.size());}
+    {std::string error;ok=load(path,error,false,true);if(!ok)lua_pushlstring(L,error.data(),error.size());}
     if(!ok)return lua_error(L);return inspect(L);
 }
 int release_lua(lua_State* L){auto path=luaL_checkstring(L,1);auto found=cache.find(web_strings::hash(path));
     if(found!=cache.end()&&found->second.references)return luaL_error(L,"Asset is owned by loaded prefabs");release(path);return 0;}
 }
-bool load(const std::string& path,std::string& error,bool deferred){
+bool load(const std::string& path,std::string& error,bool deferred,bool include_texture_bytes){
     auto id=web_strings::hash(path);auto existing=cache.find(id);if(existing!=cache.end()){existing->second.used=++usage;return true;}
     std::vector<uint8_t> bytes;if(!web_resource_io::read(path,bytes,error))return false;
-    Bundle value;if(!decode(bytes,value,deferred,error)){error=path+": "+error;return false;}
+    Bundle value;if(!decode(bytes,value,deferred,include_texture_bytes,error)){error=path+": "+error;return false;}
     if(value.retained_bytes>budget){error="Animation asset exceeds memory budget";return false;}
     while(value.retained_bytes>budget-retained){
         auto oldest=cache.end();
@@ -139,7 +150,7 @@ bool load(const std::string& path,std::string& error,bool deferred){
     }
     retained+=value.retained_bytes;Record record;record.value=std::move(value);record.used=++usage;cache.emplace(id,std::move(record));return true;
 }
-bool acquire(const std::string& path,std::string& error,bool deferred){if(!load(path,error,deferred))return false;++cache.at(web_strings::hash(path)).references;return true;}
+bool acquire(const std::string& path,std::string& error,bool deferred){if(!load(path,error,deferred,false))return false;++cache.at(web_strings::hash(path)).references;return true;}
 void release(const std::string& path){auto found=cache.find(web_strings::hash(path));if(found==cache.end())return;if(found->second.references)--found->second.references;
     if(!found->second.references){retained-=found->second.value.retained_bytes;cache.erase(found);}}
 const Bundle* get(const std::string& path){auto found=cache.find(web_strings::hash(path));return found==cache.end()?nullptr:&found->second.value;}

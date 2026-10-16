@@ -13,7 +13,7 @@ struct Symbol {std::string name;std::vector<SymbolFrame> frames;};
 struct Element {uint32_t symbol,frame,layer;std::array<float,6> matrix;float depth;};
 struct Frame {std::array<float,4> bounds;std::vector<uint32_t> events;std::vector<Element> elements;};
 struct Clip {std::string name;uint8_t facing;uint32_t bank;float rate;std::vector<Frame> frames;};
-struct Texture {uint32_t codec,width,height,mips;std::vector<uint8_t> data;};
+struct Texture {uint32_t codec,width,height,mips;size_t bytes=0;};
 struct Bundle {
     std::string build;
     std::vector<std::string> atlases;
@@ -26,7 +26,7 @@ struct Bundle {
     bool textures_deferred=false;
     std::string source_hash;
 };
-bool load(const std::string& path,std::string& error,bool deferred=false);
+bool load(const std::string& path,std::string& error,bool deferred=false,bool include_texture_bytes=true);
 bool acquire(const std::string& path,std::string& error,bool deferred=false);
 void release(const std::string& path);
 void clear();
