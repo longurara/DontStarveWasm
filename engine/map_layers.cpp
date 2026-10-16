@@ -1,5 +1,7 @@
 #include "map_layers.hpp"
 #include "atlas_asset.hpp"
+#include "asset_xml.hpp"
+#include "file_asset.hpp"
 #include "sha256.hpp"
 #include <algorithm>
 #include <array>
@@ -46,21 +48,60 @@ int add(lua_State* L){auto id=host.id(L,1);
     lua_pop(L,1);return 1;
 }
 int style(lua_State* L){auto& value=manager(L);value.style=signed_word(integer(L,2));return 0;}
+bool xml_number(rapidxml::xml_node<>* node,const char* name,float& value){
+    auto* attr=node->first_attribute(name);if(!attr||!attr->value_size())return false;
+    char* end=nullptr;value=std::strtof(attr->value(),&end);
+    while(end&&(*end==' '||*end=='\t'||*end=='\r'||*end=='\n'))++end;
+    return end&&end!=attr->value()&&!*end&&std::isfinite(value);
+}
+bool parse_file_elements(const std::vector<uint8_t>& file_bytes,std::vector<std::pair<std::string,UV>>& out){
+    std::vector<uint8_t> copy=file_bytes;
+    if(!copy.empty()&&copy.back()==0)copy.pop_back();
+    const auto doc=std::make_unique<rapidxml::xml_document<>>();
+    std::string err;
+    if(!web_asset_xml::parse(copy,*doc,16*1024*1024,err))return false;
+    auto* root=doc->first_node("Atlas");
+    auto* elements=root?root->first_node("Elements"):nullptr;
+    if(!elements)return false;
+    for(auto* item=elements->first_node("Element");item;item=item->next_sibling("Element")){
+        auto* name=item->first_attribute("name");
+        if(!name||!name->value_size())return false;
+        UV uv{};
+        const char* keys[]={"u1","v1","u2","v2"};
+        for(int i=0;i<4;++i)if(!xml_number(item,keys[i],uv[i]))return false;
+        out.emplace_back(std::string(name->value(),name->value_size()),uv);
+    }
+    return true;
+}
 int create(Manager& value,uint16_t tile,const char* path){
     // No Lua callbacks or longjmp errors while staging C++ allocations.
     const auto* atlas=web_atlas_asset::get_owned(path);
-    if(!atlas){last_error="MapLayerManager ATLAS must be loaded before CreateRenderLayer";return -1;}
+    const auto* file_bytes=atlas?nullptr:web_file_asset::get(path);
+    if(!atlas&&!file_bytes){last_error="MapLayerManager ATLAS must be loaded before CreateRenderLayer";return -1;}
     if(value.free.empty()&&value.slots.size()>=slot_budget){last_error="MapLayerManager slot count exceeds budget";return -1;}
     if(value.free.empty()&&total_slots>=65536){last_error="MapLayerManager aggregate slot count exceeds budget";return -1;}
     auto layer=std::make_unique<Layer>();layer->tile=tile;layer->style=value.style;
-    layer->shape_count=std::min<size_t>(48,atlas->elements.size());for(auto& colour:layer->colours)colour.fill(1.f);
-    for(auto index:atlas->source_order){const auto& element=atlas->elements[index];
-        // Native atoi consumes a numeric prefix; 17 is reserved, and names
-        // above it are shifted down one slot. XML variant ordering matters.
-        char* end=nullptr;long name=std::strtol(element.name.c_str(),&end,10);
-        if(end==element.name.c_str()||name<1||name>49){last_error="MapLayerManager atlas element name outside 1..49";return -1;}
-        if(name==17)continue;if(name>16)--name;
-        layer->groups[name-1].push_back(element.uv);
+    for(auto& colour:layer->colours)colour.fill(1.f);
+    if(atlas){
+        layer->shape_count=std::min<size_t>(48,atlas->elements.size());
+        for(auto index:atlas->source_order){const auto& element=atlas->elements[index];
+            // Native atoi consumes a numeric prefix; 17 is reserved, and names
+            // above it are shifted down one slot. XML variant ordering matters.
+            char* end=nullptr;long name=std::strtol(element.name.c_str(),&end,10);
+            if(end==element.name.c_str()||name<1||name>49){last_error="MapLayerManager atlas element name outside 1..49";return -1;}
+            if(name==17)continue;if(name>16)--name;
+            layer->groups[name-1].push_back(element.uv);
+        }
+    }else{
+        std::vector<std::pair<std::string,UV>> elements;
+        if(!parse_file_elements(*file_bytes,elements)){last_error="MapLayerManager invalid FILE atlas XML";return -1;}
+        layer->shape_count=std::min<size_t>(48,elements.size());
+        for(const auto& [ename,uv]:elements){
+            char* end=nullptr;long name=std::strtol(ename.c_str(),&end,10);
+            if(end==ename.c_str()||name<1||name>49){last_error="MapLayerManager atlas element name outside 1..49";return -1;}
+            if(name==17)continue;if(name>16)--name;
+            layer->groups[name-1].push_back(uv);
+        }
     }
     layer->bytes=sizeof(Layer)+64;for(const auto& group:layer->groups)layer->bytes+=group.capacity()*sizeof(UV);
     if(layer->bytes>budget-retained){last_error="MapLayerManager data exceeds 32 MiB budget";return -1;}
