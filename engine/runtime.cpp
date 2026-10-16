@@ -712,6 +712,10 @@ int sim_find_entities_registered(lua_State* L){
     push_entity_table(L,ids);return 1;
 }
 int sim_find_entities(lua_State* L){
+    lua_getglobal(L,"WEB_PROBE");
+    bool diag=!lua_isnil(L,-1);
+    lua_pop(L,1);
+    if(diag)return luaL_error(L,"UNIMPLEMENTED_NATIVE: Sim.FindEntities");
     float x=static_cast<float>(luaL_checknumber(L,2));
     float y=static_cast<float>(luaL_checknumber(L,3));
     float z=static_cast<float>(luaL_checknumber(L,4));
@@ -1326,14 +1330,20 @@ EMSCRIPTEN_KEEPALIVE int dst_entity_count() { int n=0;for(auto& p:entities)if(p.
 EMSCRIPTEN_KEEPALIVE int dst_tick(uint32_t count) {
     if(web_resource_io::async_active()){result="Lua evaluation is waiting for resource I/O";return 1;}
     if(!state || count>3000){result="Invalid tick request";return 1;}
+    const char* expr="_WEB_Tick()";
     if(count){
         lua_pushliteral(state,"_WEB_Tick");lua_rawget(state,LUA_GLOBALSINDEX);
         bool fn=lua_isfunction(state,-1);lua_pop(state,1);
+        if(!fn){
+            lua_pushliteral(state,"Update");lua_rawget(state,LUA_GLOBALSINDEX);
+            fn=lua_isfunction(state,-1);lua_pop(state,1);
+            expr="Update(GetTickTime())";
+        }
         if(!fn){result="UNIMPLEMENTED_NATIVE: main simulation update dispatch";return 1;}
     }
     for(uint32_t i=0;i<count;++i){
         ++tick;
-        if(evaluate("_WEB_Tick()")) return 1;
+        if(evaluate(expr,50000000)) return 1;
     }
     result="ok";return 0;
 }
