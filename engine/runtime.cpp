@@ -7,6 +7,8 @@
 #include <map>
 #include <set>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <sys/stat.h>
 #include <emscripten/emscripten.h>
@@ -29,6 +31,7 @@
 #include "texture_asset.hpp"
 #include "font_asset.hpp"
 #include "components.hpp"
+#include "world_components.hpp"
 #include "physics_waker.hpp"
 #include "sha256.hpp"
 #include "ui_transform.hpp"
@@ -48,15 +51,56 @@ struct EntityState {
     bool sleeping=false,can_sleep=true,components_allow_sleep=true,sleep_state_pending=true;
     bool has_transform=false,prefab_complete=false;
     bool visible=true,clickable=true,in_limbo=false;
+    bool in_spatial_grid=false;
+    int64_t spatial_cell=0;
     float x = 0, y = 0, z = 0, rotation = 0;
     float sx = 1, sy = 1, sz = 1;
     uint32_t parent = 0, platform = 0;
     std::vector<uint32_t> children;
     std::string name, prefab;
-    std::set<std::string> tags;
+    std::unordered_set<std::string> tags;
 };
 lua_State* state = nullptr;
-std::map<uint32_t, EntityState> entities;
+std::unordered_map<uint32_t, EntityState> entities;
+std::unordered_map<int64_t, std::vector<uint32_t>> spatial_grid;
+std::unordered_set<uint32_t> parented_transforms;
+int64_t pack_grid_cell(int32_t gx,int32_t gz){
+    return (static_cast<int64_t>(gx)<<32)|static_cast<uint32_t>(gz);
+}
+int64_t coord_grid_cell(float x,float z){
+    int32_t gx=std::isfinite(x)?static_cast<int32_t>(std::floor(x*0.0625f)):0;
+    int32_t gz=std::isfinite(z)?static_cast<int32_t>(std::floor(z*0.0625f)):0;
+    return pack_grid_cell(gx,gz);
+}
+void remove_from_grid_cell(int64_t cell,uint32_t id){
+    auto it=spatial_grid.find(cell);
+    if(it==spatial_grid.end())return;
+    auto& vec=it->second;
+    for(size_t i=0;i<vec.size();++i){
+        if(vec[i]==id){vec[i]=vec.back();vec.pop_back();break;}
+    }
+    if(vec.empty())spatial_grid.erase(it);
+}
+void update_entity_spatial(EntityState& e){
+    if(!e.valid||!e.has_transform){
+        if(e.in_spatial_grid){remove_from_grid_cell(e.spatial_cell,e.guid);e.in_spatial_grid=false;}
+        parented_transforms.erase(e.guid);
+        return;
+    }
+    if(e.parent!=0){
+        if(e.in_spatial_grid){remove_from_grid_cell(e.spatial_cell,e.guid);e.in_spatial_grid=false;}
+        if(e.tags.count("CLASSIFIED"))parented_transforms.erase(e.guid);
+        else parented_transforms.insert(e.guid);
+        return;
+    }
+    parented_transforms.erase(e.guid);
+    int64_t cell=coord_grid_cell(e.x,e.z);
+    if(e.in_spatial_grid&&e.spatial_cell==cell)return;
+    if(e.in_spatial_grid)remove_from_grid_cell(e.spatial_cell,e.guid);
+    spatial_grid[cell].push_back(e.guid);
+    e.spatial_cell=cell;
+    e.in_spatial_grid=true;
+}
 std::string result;
 uint32_t tick = 0, next_guid = 1;
 // Native increments a process-global uint32 in the Sim constructor, not a
@@ -213,7 +257,8 @@ void detach_child(uint32_t parent_id,uint32_t child_id){
 int retire(lua_State* L) {
     auto& e=entity(L);auto id=e.guid;
     if(e.parent)detach_child(e.parent,id);
-    for(uint32_t child_id:e.children){auto cit=entities.find(child_id);if(cit!=entities.end())cit->second.parent=0;}
+    for(uint32_t child_id:e.children){auto cit=entities.find(child_id);if(cit!=entities.end()){cit->second.parent=0;update_entity_spatial(cit->second);}}
+    e.valid=false;update_entity_spatial(e);
     lua_getfield(L,LUA_REGISTRYINDEX,"dst.entities");lua_pushnil(L);lua_rawseti(L,-2,id);lua_pop(L,1);
     web_components::retire(id);entities.erase(id);return 0;
 }
@@ -224,7 +269,7 @@ int entity_equal(lua_State* L){
 }
 int set_parent(lua_State* L){
     auto& e=entity(L);
-    if(lua_isnoneornil(L,2)){if(e.parent)detach_child(e.parent,e.guid);e.parent=0;web_ui::refresh();return 0;}
+    if(lua_isnoneornil(L,2)){if(e.parent)detach_child(e.parent,e.guid);e.parent=0;update_entity_spatial(e);web_ui::refresh();return 0;}
     auto id=*static_cast<uint32_t*>(luaL_checkudata(L,2,"dst.Entity"));
     if(!entities.count(id))return luaL_error(L,"Parent is removed");
     uint32_t ancestor=id;int depth=0;
@@ -234,7 +279,7 @@ int set_parent(lua_State* L){
         auto found=entities.find(ancestor);if(found==entities.end())return luaL_error(L,"Parent hierarchy was retired");ancestor=found->second.parent;
     }
     if(e.parent)detach_child(e.parent,e.guid);
-    e.parent=id;entities.at(id).children.push_back(e.guid);web_ui::refresh();return 0;
+    e.parent=id;entities.at(id).children.push_back(e.guid);update_entity_spatial(e);web_ui::refresh();return 0;
 }
 int get_parent(lua_State* L){
     auto id=entity(L).parent;
@@ -296,7 +341,13 @@ int set_name(lua_State* L){entity(L).name=luaL_checkstring(L,2);return 0;}
 int get_name(lua_State* L){lua_pushstring(L,entity(L).name.c_str());return 1;}
 int set_prefab(lua_State* L){entity(L).prefab=luaL_checkstring(L,2);return 0;}
 int get_prefab(lua_State* L){lua_pushstring(L,entity(L).prefab.c_str());return 1;}
-int add_tag(lua_State* L) { entity(L).tags.insert(luaL_checkstring(L, 2)); return 0; }
+int add_tag(lua_State* L) {
+    auto& e = entity(L);
+    const char* t = luaL_checkstring(L, 2);
+    e.tags.insert(t);
+    if (std::strcmp(t, "CLASSIFIED") == 0) parented_transforms.erase(e.guid);
+    return 0;
+}
 int remove_tag(lua_State* L) { entity(L).tags.erase(luaL_checkstring(L, 2)); return 0; }
 int has_tag(lua_State* L) { lua_pushboolean(L, entity(L).tags.count(luaL_checkstring(L, 2))); return 1; }
 int tags(lua_State* L) {
@@ -322,7 +373,7 @@ int position(lua_State* L) {
 }
 int local_position(lua_State* L){auto& e=entity(L);lua_pushnumber(L,e.x);lua_pushnumber(L,e.y);lua_pushnumber(L,e.z);return 3;}
 int set_position(lua_State* L) {
-    auto& e = entity(L); e.x = luaL_checknumber(L, 2); e.y = luaL_checknumber(L, 3); e.z = luaL_checknumber(L, 4); return 0;
+    auto& e = entity(L); e.x = luaL_checknumber(L, 2); e.y = luaL_checknumber(L, 3); e.z = luaL_checknumber(L, 4); update_entity_spatial(e); return 0;
 }
 int rotation(lua_State* L) { lua_pushnumber(L, static_cast<double>(entity(L).rotation / 0.01745329238474369f)); return 1; }
 float normalize_rotation(float radians){
@@ -339,13 +390,16 @@ int offset_position(lua_State* L) {
     e.x += static_cast<float>(luaL_optnumber(L, 2, 0.0));
     e.y += static_cast<float>(luaL_optnumber(L, 3, 0.0));
     e.z += static_cast<float>(luaL_optnumber(L, 4, 0.0));
+    update_entity_spatial(e);
     return 0;
 }
 int transform_noop(lua_State*) { return 0; }
 int add_transform(lua_State* L) {
     auto id=entity(L).guid;
     if(web_ui::contains(id))return luaL_error(L,"UNIMPLEMENTED_NATIVE: mixed Transform/UITransform on one entity");
-    entities.at(id).has_transform=true;
+    auto& e=entities.at(id);
+    e.has_transform=true;
+    update_entity_spatial(e);
     lua_getglobal(L,"Ents");
     if(lua_istable(L,-1)){
         lua_rawgeti(L,-1,id);
@@ -657,14 +711,47 @@ bool entity_matches_filter(const EntityState& e,const TagFilter& f){
 std::vector<uint32_t> query_entities(float x,float y,float z,float radius,const TagFilter& f){
     float r_sq=radius*radius;
     std::vector<std::pair<float,uint32_t>> hits;
-    for(const auto& kv:entities){
-        const auto& e=kv.second;
-        if(!e.valid||!e.has_transform)continue;
-        float ex=0,ey=0,ez=0;
-        if(!entity_world_pos(e,ex,ey,ez))continue;
-        float dx=ex-x,dy=ey-y,dz=ez-z;
-        float d_sq=dx*dx+dy*dy+dz*dz;
-        if(d_sq<=r_sq&&entity_matches_filter(e,f))hits.emplace_back(d_sq,e.guid);
+    if(std::isfinite(x)&&std::isfinite(z)&&std::isfinite(radius)&&radius>=0.0f&&radius<=256.0f){
+        int32_t gx0=static_cast<int32_t>(std::floor((x-radius)*0.0625f));
+        int32_t gx1=static_cast<int32_t>(std::floor((x+radius)*0.0625f));
+        int32_t gz0=static_cast<int32_t>(std::floor((z-radius)*0.0625f));
+        int32_t gz1=static_cast<int32_t>(std::floor((z+radius)*0.0625f));
+        for(int32_t gz=gz0;gz<=gz1;++gz){
+            for(int32_t gx=gx0;gx<=gx1;++gx){
+                auto cit=spatial_grid.find(pack_grid_cell(gx,gz));
+                if(cit==spatial_grid.end())continue;
+                for(uint32_t id:cit->second){
+                    auto eit=entities.find(id);
+                    if(eit==entities.end())continue;
+                    const auto& e=eit->second;
+                    if(!e.valid||!e.has_transform)continue;
+                    float dx=e.x-x,dy=e.y-y,dz=e.z-z;
+                    float d_sq=dx*dx+dy*dy+dz*dz;
+                    if(d_sq<=r_sq&&entity_matches_filter(e,f))hits.emplace_back(d_sq,e.guid);
+                }
+            }
+        }
+        for(uint32_t id:parented_transforms){
+            auto eit=entities.find(id);
+            if(eit==entities.end())continue;
+            const auto& e=eit->second;
+            if(!e.valid||!e.has_transform||!entity_matches_filter(e,f))continue;
+            float ex=0,ey=0,ez=0;
+            if(!entity_world_pos(e,ex,ey,ez))continue;
+            float dx=ex-x,dy=ey-y,dz=ez-z;
+            float d_sq=dx*dx+dy*dy+dz*dz;
+            if(d_sq<=r_sq)hits.emplace_back(d_sq,e.guid);
+        }
+    }else{
+        for(const auto& kv:entities){
+            const auto& e=kv.second;
+            if(!e.valid||!e.has_transform||!entity_matches_filter(e,f))continue;
+            float ex=0,ey=0,ez=0;
+            if(!entity_world_pos(e,ex,ey,ez))continue;
+            float dx=ex-x,dy=ey-y,dz=ez-z;
+            float d_sq=dx*dx+dy*dy+dz*dz;
+            if(d_sq<=r_sq)hits.emplace_back(d_sq,e.guid);
+        }
     }
     std::sort(hits.begin(),hits.end(),[](const auto& a,const auto& b){
         return a.first<b.first||(a.first==b.first&&a.second<b.second);
@@ -733,17 +820,20 @@ int sim_count_entities(lua_State* L){
 }
 int sim_find_first_entity_with_tag(lua_State* L){
     const char* tag=luaL_checkstring(L,2);
+    uint32_t best=0;
     for(const auto& kv:entities){
         if(kv.second.valid&&kv.second.tags.count(tag)){
-            lua_getglobal(L,"Ents");
-            if(lua_istable(L,-1)){
-                lua_rawgeti(L,-1,kv.first);
-                lua_remove(L,-2);
-                return 1;
-            }
-            lua_pop(L,1);
-            break;
+            if(best==0||kv.first<best)best=kv.first;
         }
+    }
+    if(best!=0){
+        lua_getglobal(L,"Ents");
+        if(lua_istable(L,-1)){
+            lua_rawgeti(L,-1,best);
+            lua_remove(L,-2);
+            return 1;
+        }
+        lua_pop(L,1);
     }
     lua_pushnil(L);return 1;
 }
@@ -809,8 +899,183 @@ int sim_get_light_at_point(lua_State* L){
     lua_pushnumber(L,std::sqrt(r*r+g*g+b*b));return 1;
 }
 int sim_get_entities_at_screen_point(lua_State* L){
-    (void)luaL_checknumber(L,2);(void)luaL_checknumber(L,3);
-    lua_createtable(L,0,0);return 1;
+    float sx=static_cast<float>(luaL_checknumber(L,2));
+    float sy=static_cast<float>(luaL_checknumber(L,3));
+    float wx=0.0f,wy=0.0f,wz=0.0f;
+    bool projected=false;
+    lua_getglobal(L,"TheSim");
+    if(lua_istable(L,-1)){
+        lua_getfield(L,-1,"ProjectScreenPos");
+        if(lua_isfunction(L,-1)){
+            lua_pushvalue(L,-2);
+            lua_pushnumber(L,sx);
+            lua_pushnumber(L,sy);
+            if(lua_pcall(L,3,3,0)==0){
+                wx=static_cast<float>(lua_tonumber(L,-3));
+                wy=static_cast<float>(lua_tonumber(L,-2));
+                wz=static_cast<float>(lua_tonumber(L,-1));
+                projected=true;
+                lua_pop(L,3);
+            }
+        }else lua_pop(L,1);
+    }
+    lua_pop(L,1);
+    if(!projected){lua_createtable(L,0,0);return 1;}
+    TagFilter f;
+    f.cant={"INLIMBO","NOCLICK","FX","DECOR"};
+    auto raw=query_entities(wx,wy,wz,2.4f,f);
+    std::vector<uint32_t> clickable;
+    clickable.reserve(raw.size());
+    for(uint32_t id:raw){
+        auto it=entities.find(id);
+        if(it!=entities.end()&&it->second.visible&&it->second.clickable)clickable.push_back(id);
+    }
+    push_entity_table(L,clickable);
+    return 1;
+}
+int sim_get_real_time(lua_State* L){
+    lua_pushnumber(L,static_cast<double>(tick)*tick_time);
+    return 1;
+}
+int sim_apply_local_word_filter(lua_State* L){
+    size_t len=0;
+    const char* s=luaL_optlstring(L,2,"",&len);
+    lua_pushlstring(L,s,len);
+    return 1;
+}
+int update_spatial_sleep(lua_State* L){
+    float px=static_cast<float>(luaL_optnumber(L,1,0.0));
+    float pz=static_cast<float>(luaL_optnumber(L,2,0.0));
+    float wake_r=static_cast<float>(luaL_optnumber(L,3,56.0));
+    float sleep_r=static_cast<float>(luaL_optnumber(L,4,68.0));
+    float wake_sq=wake_r*wake_r;
+    float sleep_sq=sleep_r*sleep_r;
+    lua_pushliteral(L,"OnEntitySleep");lua_rawget(L,LUA_GLOBALSINDEX);bool has_sleep=lua_isfunction(L,-1);lua_pop(L,1);
+    lua_pushliteral(L,"OnEntityWake");lua_rawget(L,LUA_GLOBALSINDEX);bool has_wake=lua_isfunction(L,-1);lua_pop(L,1);
+    if(!has_sleep||!has_wake){lua_pushinteger(L,0);return 1;}
+    std::vector<std::pair<uint32_t,bool>> transitions;
+    for(const auto& kv:entities){
+        const auto& e=kv.second;
+        if(!e.valid)continue;
+        if(!e.has_transform||e.parent!=0||!e.can_sleep||e.tags.count("player")||e.tags.count("CLASSIFY")){
+            if(e.sleeping)transitions.emplace_back(e.guid,false);
+            continue;
+        }
+        float dx=e.x-px,dz=e.z-pz;
+        float d_sq=dx*dx+dz*dz;
+        if(e.sleeping){
+            if(d_sq<=wake_sq)transitions.emplace_back(e.guid,false);
+        }else{
+            if(d_sq>=sleep_sq||e.sleep_state_pending)transitions.emplace_back(e.guid,d_sq>=sleep_sq);
+        }
+    }
+    int changed=0;
+    for(const auto& tr:transitions){
+        auto found=entities.find(tr.first);
+        if(found==entities.end()||!found->second.valid)continue;
+        auto& e=found->second;
+        if(!e.sleep_state_pending&&e.sleeping==tr.second)continue;
+        e.sleeping=tr.second;
+        e.sleep_state_pending=false;
+        if(!tr.second&&e.has_transform)e.rotation=normalize_rotation((e.rotation/0.01745329238474369f)*0.01745329238474369f);
+        lua_pushstring(L,tr.second?"OnEntitySleep":"OnEntityWake");
+        lua_rawget(L,LUA_GLOBALSINDEX);
+        lua_pushnumber(L,tr.first);
+        if(lua_pcall(L,1,0,0)!=0)lua_pop(L,1);
+        ++changed;
+    }
+    lua_pushinteger(L,changed);
+    return 1;
+}
+const char* classify_entity_kind(const EntityState& e){
+    if(e.tags.count("player"))return "player";
+    if(e.tags.count("campfire")||e.tags.count("fire"))return "fire";
+    if(e.tags.count("tree"))return "tree";
+    if(e.tags.count("boulder")||e.prefab.find("rock")!=std::string::npos)return "rock";
+    if(e.tags.count("monster")||e.tags.count("hostile"))return "monster";
+    if(e.tags.count("animal")||e.tags.count("smallcreature")||e.tags.count("insect")||e.tags.count("bird")||e.tags.count("character"))return "creature";
+    if(e.tags.count("structure")||e.tags.count("wall"))return "structure";
+    if(e.tags.count("pickable")||e.tags.count("bush")||e.tags.count("plant")||e.tags.count("flower"))return "plant";
+    if(e.tags.count(" _inventoryitem")||e.tags.count("_inventoryitem"))return "item";
+    if(e.tags.count("FX")||e.tags.count("DECOR")||e.tags.count("NOCLICK"))return "fx";
+    return "prop";
+}
+int snapshot_scene(lua_State* L){
+    float cx=static_cast<float>(luaL_optnumber(L,1,0.0));
+    float cz=static_cast<float>(luaL_optnumber(L,2,0.0));
+    float radius=static_cast<float>(luaL_optnumber(L,3,44.0));
+    int tile_radius=static_cast<int>(luaL_optinteger(L,4,13));
+    lua_newtable(L);
+    lua_pushinteger(L,static_cast<lua_Integer>(tick));lua_setfield(L,-2,"tick");
+    lua_pushnumber(L,static_cast<double>(tick)*tick_time);lua_setfield(L,-2,"time");
+    lua_createtable(L,3,0);
+    lua_pushinteger(L,ambient_r);lua_rawseti(L,-2,1);
+    lua_pushinteger(L,ambient_g);lua_rawseti(L,-2,2);
+    lua_pushinteger(L,ambient_b);lua_rawseti(L,-2,3);
+    lua_setfield(L,-2,"ambient");
+    web_world_components::push_map_window(L,cx,cz,std::clamp(tile_radius,4,24),1);
+    lua_setfield(L,-2,"tiles");
+    web_world_components::push_map_window(L,cx,cz,20,3);
+    lua_setfield(L,-2,"minimap");
+    TagFilter f;
+    f.cant={"INLIMBO","CLASSIFIED"};
+    auto ids=query_entities(cx,0.0f,cz,std::clamp(radius,8.0f,120.0f),f);
+    lua_createtable(L,static_cast<int>(ids.size()),0);
+    int out_i=1;
+    for(uint32_t id:ids){
+        auto it=entities.find(id);
+        if(it==entities.end())continue;
+        const auto& e=it->second;
+        if(!e.valid||!e.visible||!e.has_transform)continue;
+        if(e.prefab.empty()&&!web_world_components::AnimSnapshot{}.bank[0]){
+            web_world_components::AnimSnapshot chk;
+            if(!web_world_components::get_anim_snapshot(id,chk))continue;
+        }
+        float wx=0,wy=0,wz=0;
+        if(!entity_world_pos(e,wx,wy,wz))continue;
+        lua_createtable(L,0,16);
+        lua_pushinteger(L,static_cast<lua_Integer>(e.guid));lua_setfield(L,-2,"guid");
+        lua_pushlstring(L,e.prefab.data(),e.prefab.size());lua_setfield(L,-2,"prefab");
+        lua_pushlstring(L,e.name.data(),e.name.size());lua_setfield(L,-2,"name");
+        lua_pushstring(L,classify_entity_kind(e));lua_setfield(L,-2,"kind");
+        lua_pushnumber(L,wx);lua_setfield(L,-2,"x");
+        lua_pushnumber(L,wy);lua_setfield(L,-2,"y");
+        lua_pushnumber(L,wz);lua_setfield(L,-2,"z");
+        lua_pushnumber(L,e.rotation/0.01745329238474369f);lua_setfield(L,-2,"rotation");
+        lua_pushnumber(L,e.sx);lua_setfield(L,-2,"sx");
+        lua_pushnumber(L,e.sy);lua_setfield(L,-2,"sy");
+        lua_pushboolean(L,e.clickable);lua_setfield(L,-2,"clickable");
+        lua_pushboolean(L,!e.sleeping);lua_setfield(L,-2,"awake");
+        lua_pushboolean(L,e.tags.count("CHOP_workable")>0);lua_setfield(L,-2,"choppable");
+        lua_pushboolean(L,e.tags.count("MINE_workable")>0);lua_setfield(L,-2,"mineable");
+        lua_pushboolean(L,e.tags.count("pickable")>0);lua_setfield(L,-2,"pickable");
+        lua_pushboolean(L,e.tags.count("_inventoryitem")>0);lua_setfield(L,-2,"pickupable");
+        web_world_components::AnimSnapshot anim{};
+        if(web_world_components::get_anim_snapshot(id,anim)){
+            lua_pushstring(L,anim.bank);lua_setfield(L,-2,"bank");
+            lua_pushstring(L,anim.build);lua_setfield(L,-2,"build");
+            lua_pushstring(L,anim.anim);lua_setfield(L,-2,"anim");
+            lua_pushinteger(L,anim.layer);lua_setfield(L,-2,"layer");
+            lua_pushinteger(L,anim.sort_order);lua_setfield(L,-2,"sortOrder");
+            lua_pushinteger(L,anim.facing);lua_setfield(L,-2,"facing");
+            lua_pushinteger(L,anim.current_frame);lua_setfield(L,-2,"frame");
+            lua_pushinteger(L,anim.num_frames);lua_setfield(L,-2,"numFrames");
+        }
+        web_world_components::LightSnapshot light{};
+        if(web_world_components::get_light_snapshot(id,light)){
+            lua_createtable(L,0,6);
+            lua_pushnumber(L,light.radius);lua_setfield(L,-2,"radius");
+            lua_pushnumber(L,light.intensity);lua_setfield(L,-2,"intensity");
+            lua_pushnumber(L,light.falloff);lua_setfield(L,-2,"falloff");
+            lua_pushnumber(L,light.r);lua_setfield(L,-2,"r");
+            lua_pushnumber(L,light.g);lua_setfield(L,-2,"g");
+            lua_pushnumber(L,light.b);lua_setfield(L,-2,"b");
+            lua_setfield(L,-2,"light");
+        }
+        lua_rawseti(L,-2,out_i++);
+    }
+    lua_setfield(L,-2,"entities");
+    return 1;
 }
 void apply_entity_skin(lua_State* L,const char* skin_name,uint32_t id,int skin_id){
     int top=lua_gettop(L);
@@ -1062,7 +1327,7 @@ EMSCRIPTEN_KEEPALIVE int dst_init(int role) {
     lua_getglobal(state,"os"); lua_pushnil(state); lua_setfield(state,-2,"execute");
     lua_pushnil(state); lua_setfield(state,-2,"exit"); lua_pop(state,1);
     lua_getglobal(state,"package"); lua_pushnil(state); lua_setfield(state,-2,"loadlib"); lua_pop(state,1);
-    entities.clear();resource_catalog.clear();texture_groups.clear();sim_settings.clear();render_pass_effects.clear();erosion_texture.clear();holo_texture.clear();motd_target.clear();ui_root_guid=0;netbook_mode=false;registered_find_tags.clear();sim_time_scale=1.0f;ambient_r=0;ambient_g=0;ambient_b=0;visual_ambient_r=0;visual_ambient_g=0;visual_ambient_b=0;instance_parameters.clear();sim_reset_requested=false; tick=0; next_guid=1; profiler_depth=0;seed_rng(0);server_language="en";
+    entities.clear();spatial_grid.clear();parented_transforms.clear();resource_catalog.clear();texture_groups.clear();sim_settings.clear();render_pass_effects.clear();erosion_texture.clear();holo_texture.clear();motd_target.clear();ui_root_guid=0;netbook_mode=false;registered_find_tags.clear();sim_time_scale=1.0f;ambient_r=0;ambient_g=0;ambient_b=0;visual_ambient_r=0;visual_ambient_g=0;visual_ambient_b=0;instance_parameters.clear();sim_reset_requested=false; tick=0; next_guid=1; profiler_depth=0;seed_rng(0);server_language="en";
     runtime_role=role==0?"client":role==1?"master":"caves";
     lua_getglobal(state,"math");
     lua_pushcfunction(state,math_randomseed);lua_setfield(state,-2,"randomseed");
@@ -1111,14 +1376,15 @@ EMSCRIPTEN_KEEPALIVE int dst_init(int role) {
         {"SetInterpolateRotation",transform_noop},{"ClearTransformationHistory",transform_noop},{"SetIsOnPlatform",transform_noop},{"SetFromProxy",transform_noop},{"UpdateTransform",transform_noop},
         {"LoadPostPass",transform_noop},{"LongUpdate",transform_noop},{nullptr,nullptr}};
     register_table("Entity",methods);
-    const luaL_Reg lifecycle[]={{"Inspect",inspect_lifecycle},{nullptr,nullptr}};register_table("WebEntity",lifecycle);
+    const luaL_Reg lifecycle[]={{"Inspect",inspect_lifecycle},{"UpdateSpatialSleep",update_spatial_sleep},{nullptr,nullptr}};register_table("WebEntity",lifecycle);
+    const luaL_Reg scene_methods[]={{"Snapshot",snapshot_scene},{nullptr,nullptr}};register_table("WebScene",scene_methods);
     lua_getglobal(state,"Entity");
     lua_pushboolean(state,0); lua_pushcclosure(state,tags,1); lua_setfield(state,-2,"HasAllTags");
     lua_pushboolean(state,1); lua_pushcclosure(state,tags,1); lua_setfield(state,-2,"HasAnyTag"); lua_pop(state,1);
     luaL_newmetatable(state,"dst.Entity"); lua_pushcfunction(state,index_entity); lua_setfield(state,-2,"__index");
     lua_pushcfunction(state,entity_equal);lua_setfield(state,-2,"__eq");lua_pop(state,1);
     const luaL_Reg sim[]={{"CreateEntity",create_entity},{"GetTick",get_tick},{"GetStaticTick",get_tick},
-        {"GetTime",get_time},{"GetTickTime",get_tick_time},{"GetNumberOfEntities",get_entity_count},{"GetNumLaunches",get_num_launches},
+        {"GetTime",get_time},{"GetRealTime",sim_get_real_time},{"GetTickTime",get_tick_time},{"GetNumberOfEntities",get_entity_count},{"GetNumLaunches",get_num_launches},
         {"GetStashedPlayInstance",get_stashed_play_instance},{"StashPlayInstance",stash_play_instance},
         {"SendProfileStats",local_profile_stats},
         {"GetSetting",sim_get_setting},{"SetSetting",sim_set_setting},{"GetLocalSetting",sim_get_setting},
@@ -1139,7 +1405,7 @@ EMSCRIPTEN_KEEPALIVE int dst_init(int role) {
         {"SetTimeScale",sim_set_time_scale},{"GetTimeScale",sim_get_time_scale},
         {"SetAmbientColour",sim_set_ambient_colour},{"GetAmbientColour",sim_get_ambient_colour},{"SetVisualAmbientColour",sim_set_visual_ambient_colour},
         {"GetLightAtPoint",sim_get_light_at_point},{"GetEntitiesAtScreenPoint",sim_get_entities_at_screen_point},
-        {"SpawnPrefab",sim_spawn_prefab},{"ReskinEntity",sim_reskin_entity},
+        {"SpawnPrefab",sim_spawn_prefab},{"ReskinEntity",sim_reskin_entity},{"ApplyLocalWordFilter",sim_apply_local_word_filter},
         {"ProfilerPush",profiler_push},{"ProfilerPop",profiler_pop},{"ShouldInitDebugger",debugger_disabled},
         {"SetReverbPreset",set_reverb},{"GetFileModificationTime",file_mtime},{"LuaPrint",lua_print},
         {"AddTextureToStreamingGroup",texture_group},{"ClearFileSystemAliases",clear_file_aliases},{"SendHardwareStats",send_hardware_stats},{nullptr,nullptr}};
@@ -1173,6 +1439,19 @@ EMSCRIPTEN_KEEPALIVE int dst_init(int role) {
             const auto& e=found->second;float c=std::cos(e.rotation),s=std::sin(e.rotation);
             const float local[16]={c*e.sx,0,s*e.sz,e.x,0,e.sy,0,e.y,-s*e.sx,0,c*e.sz,e.z,0,0,0,1};
             std::memcpy(matrix,local,sizeof(local));return true;
+        },
+        [](uint32_t id,float* out_x,float* out_y,float* out_z,float* out_rot){
+            auto found=entities.find(id);if(found==entities.end()||!found->second.has_transform)return false;
+            const auto& e=found->second;
+            if(out_x)*out_x=e.x;if(out_y)*out_y=e.y;if(out_z)*out_z=e.z;if(out_rot)*out_rot=e.rotation;
+            return true;
+        },
+        [](uint32_t id,float x,float y,float z){
+            auto found=entities.find(id);if(found==entities.end()||!found->second.has_transform)return false;
+            auto& e=found->second;e.x=x;e.y=y;e.z=z;update_entity_spatial(e);return true;
+        },
+        [](uint32_t id){
+            auto found=entities.find(id);return found!=entities.end()&&found->second.valid&&!found->second.sleeping;
         }
     },role==0);
     web_game_service::install(state);
@@ -1343,9 +1622,10 @@ EMSCRIPTEN_KEEPALIVE int dst_tick(uint32_t count) {
     }
     for(uint32_t i=0;i<count;++i){
         ++tick;
+        web_world_components::step(state,static_cast<float>(tick_time)*sim_time_scale);
         if(evaluate(expr,50000000)) return 1;
     }
     result="ok";return 0;
 }
-EMSCRIPTEN_KEEPALIVE void dst_close() { if(web_resource_io::async_active()){result="Lua evaluation is waiting for resource I/O";return;}if(state)lua_close(state);state=nullptr;entities.clear();resource_catalog.clear();web_animation_asset::clear();web_file_asset::clear();web_atlas_asset::clear();web_shader_asset::clear();web_font_asset::clear();web_texture_asset::clear();web_components::clear();dst_audio_release(); }
+EMSCRIPTEN_KEEPALIVE void dst_close() { if(web_resource_io::async_active()){result="Lua evaluation is waiting for resource I/O";return;}if(state)lua_close(state);state=nullptr;entities.clear();spatial_grid.clear();parented_transforms.clear();resource_catalog.clear();web_animation_asset::clear();web_file_asset::clear();web_atlas_asset::clear();web_shader_asset::clear();web_font_asset::clear();web_texture_asset::clear();web_components::clear();dst_audio_release(); }
 }

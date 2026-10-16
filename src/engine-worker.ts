@@ -235,6 +235,334 @@ async function handle(data: any) {
         evaluate(`return _WEB_Restore(${JSON.stringify(JSON.stringify(data.snapshot))})`);
         engine._dst_restore_clock(data.snapshot.tick);
         result = JSON.parse(evaluate('return _WEB_Snapshot()')); break;
+      case 'start-game': {
+        if (!ready) throw new Error('Engine is not initialized');
+        // 1. Mount remaining original Lua script packs if not yet mounted
+        const extraPacks = contentManifest.packs.filter((p: any) => p.sha256 !== contentManifest.bootPack);
+        await Promise.all(extraPacks.map(async (pack: any) => {
+          const packResp = await fetch('/generated/' + safeAssetPath(pack.url));
+          if (!packResp.ok) throw new Error('Script pack unavailable: ' + pack.url);
+          const bytes = new Uint8Array(await packResp.arrayBuffer());
+          const files = unzipSync(bytes);
+          for (const [name, contents] of Object.entries(files)) {
+            safeAssetPath(name);
+            const path = '/' + name;
+            engine.FS.mkdirTree(path.slice(0, path.lastIndexOf('/')));
+            engine.FS.writeFile(path, contents);
+          }
+        }));
+        // 2. Ensure Master world save fixture exists in /persistent/master
+        engine.FS.mkdirTree('/persistent/master/session/15CD1F748D1D1C77');
+        const [shardIndex, sessionSnap, sessionMeta] = await Promise.all([
+          fetch('/generated/world/shardindex').then(r => { if (!r.ok) throw new Error('Missing world shardindex'); return r.arrayBuffer(); }),
+          fetch('/generated/world/0000000183').then(r => { if (!r.ok) throw new Error('Missing world session snapshot'); return r.arrayBuffer(); }),
+          fetch('/generated/world/0000000183.meta').then(r => { if (!r.ok) throw new Error('Missing world session meta'); return r.arrayBuffer(); }),
+        ]);
+        engine.FS.writeFile('/persistent/master/shardindex', new Uint8Array(shardIndex));
+        engine.FS.writeFile('/persistent/master/session/15CD1F748D1D1C77/0000000183', new Uint8Array(sessionSnap));
+        engine.FS.writeFile('/persistent/master/session/15CD1F748D1D1C77/0000000183.meta', new Uint8Array(sessionMeta));
+
+        engine._dst_ui_viewport(data.width || 1280, data.height || 720);
+        evaluate(`
+          WebPrefabs.SetDeferAnimations(true)
+          WebInput.SetDesktopMode(true)
+          TheNet:StartServer(false)
+          RUN_GLOBAL_INIT = false
+          json_settings = [=[{"reset_action":1,"save_slot":1}]=]
+        `);
+        await evaluations.evaluateAsync('dofile("/scripts/main.lua"); json_settings = nil; Start()', 200000000);
+        await evaluations.evaluateAsync(`
+          TheSim:LoadPrefabs({"global", "wilson", "flint", "twigs", "cutgrass", "berries", "log", "rocks", "goldnugget", "axe", "pickaxe", "torch", "campfire", "firepit", "researchlab", "spear", "backpack", "strawhat", "flowerhat"})
+          LoadFonts()
+          local portal = TheSim:FindFirstEntityWithTag("multiplayer_portal")
+          local sx, sy, sz = 0, 0, 0
+          if portal ~= nil then
+            sx, sy, sz = portal.Transform:GetWorldPosition()
+            sx = sx + 2.5
+            sz = sz + 2.5
+          else
+            local pt = TheWorld.components.playerspawner and TheWorld.components.playerspawner:GetAnySpawnPoint()
+            if pt then sx, sy, sz = pt.x, pt.y, pt.z end
+          end
+
+          local player = SpawnPrefab("wilson")
+          player.userid = "KU_local"
+          player.name = "Wilson"
+          player.Transform:SetPosition(sx, sy, sz)
+          if not table.contains(AllPlayers, player) then
+            table.insert(AllPlayers, player)
+          end
+          ThePlayer = player
+          player:PushEvent("setowner")
+          TheWorld:PushEvent("ms_playerspawn", player)
+
+          -- Spawn convenient starter survival items near the portal if not already present
+          for i, item_def in ipairs({
+            {prefab="flint", dx=2.2, dz=-1.2},
+            {prefab="flint", dx=-2.4, dz=1.5},
+            {prefab="twigs", dx=1.8, dz=2.0},
+            {prefab="twigs", dx=-1.8, dz=-2.1},
+            {prefab="cutgrass", dx=2.8, dz=0.8},
+            {prefab="cutgrass", dx=-2.5, dz=-0.8},
+            {prefab="berries", dx=1.2, dz=-2.4},
+          }) do
+            local ent = SpawnPrefab(item_def.prefab)
+            if ent ~= nil and ent.Transform ~= nil then
+              ent.Transform:SetPosition(sx + item_def.dx, 0, sz + item_def.dz)
+            end
+          end
+
+          if TheCamera ~= nil then
+            TheCamera:SetTarget(player)
+            TheCamera:Snap()
+          end
+
+          WebEntity.UpdateSpatialSleep(sx, sz, 56, 68)
+
+          _G._WEB_Announcements = {}
+          function _G._WEB_PushNotice(msg)
+            table.insert(_G._WEB_Announcements, 1, msg)
+            while #_G._WEB_Announcements > 6 do table.remove(_G._WEB_Announcements) end
+          end
+          _G._WEB_PushNotice("Chào mừng đến vớiThe Constant! Dùng WASD hoặc Click chuột để di chuyển.")
+
+          function _G._WEB_GameSceneSnapshot()
+            local json = require("json")
+            local p = ThePlayer
+            local px, py, pz = 0, 0, 0
+            if p ~= nil and p.Transform ~= nil then
+              px, py, pz = p.Transform:GetWorldPosition()
+            end
+            local scene = WebScene.Snapshot(px, pz, 42, 13)
+            local cam = TheCamera
+            scene.camera = {
+              x = cam and cam.currentpos and cam.currentpos.x or px,
+              y = cam and cam.currentpos and cam.currentpos.y or 1.5,
+              z = cam and cam.currentpos and cam.currentpos.z or pz,
+              distance = cam and cam.distance or 30,
+              pitch = cam and cam.pitch or 42.85,
+              heading = cam and cam.heading or 45,
+              fov = cam and cam.fov or 35,
+            }
+            local inv_list = {}
+            local eq_hand, eq_head, eq_body = "", "", ""
+            if p ~= nil and p.components.inventory ~= nil then
+              local inv = p.components.inventory
+              for slot = 1, inv:GetNumSlots() do
+                local item = inv.itemslots[slot]
+                if item ~= nil then
+                  table.insert(inv_list, {
+                    slot = slot,
+                    prefab = item.prefab or "",
+                    name = item:GetBasicDisplayName() or item.prefab or "",
+                    count = item.components.stackable and item.components.stackable:StackSize() or 1,
+                    uses = item.components.finiteuses and math.floor(item.components.finiteuses:GetPercent() * 100) or nil,
+                  })
+                end
+              end
+              local h_item = inv:GetEquippedItem(EQUIPSLOTS.HANDS)
+              local head_item = inv:GetEquippedItem(EQUIPSLOTS.HEAD)
+              local body_item = inv:GetEquippedItem(EQUIPSLOTS.BODY)
+              eq_hand = h_item and h_item.prefab or ""
+              eq_head = head_item and head_item.prefab or ""
+              eq_body = body_item and body_item.prefab or ""
+            end
+            scene.player = {
+              guid = p and p.GUID or 0,
+              name = p and p.name or "Wilson",
+              prefab = p and p.prefab or "wilson",
+              x = px, y = py, z = pz,
+              sgState = p and p.sg and p.sg.currentstate and p.sg.currentstate.name or "idle",
+              health = p and p.components.health and p.components.health.currenthealth or 150,
+              maxHealth = p and p.components.health and p.components.health.maxhealth or 150,
+              hunger = p and p.components.hunger and p.components.hunger.current or 150,
+              maxHunger = p and p.components.hunger and p.components.hunger.max or 150,
+              sanity = p and p.components.sanity and p.components.sanity.current or 200,
+              maxSanity = p and p.components.sanity and p.components.sanity.max or 200,
+              moisture = p and p.components.moisture and p.components.moisture:GetMoisture() or 0,
+              temperature = p and p.components.temperature and p.components.temperature:GetCurrent() or 25,
+              equippedHand = eq_hand,
+              equippedHead = eq_head,
+              equippedBody = eq_body,
+              inventory = inv_list,
+            }
+            local st = TheWorld and TheWorld.state or {}
+            scene.clock = {
+              cycles = (st.cycles or 0) + 1,
+              phase = st.phase or "day",
+              timeInPhase = st.timeinphase or 0,
+              normTime = st.time or 0,
+              season = st.season or "autumn",
+              elapsedDaysInSeason = st.elapseddaysinseason or 0,
+              remainingDaysInSeason = st.remainingdaysinseason or 20,
+              isRaining = st.israining or false,
+            }
+            scene.announcements = _G._WEB_Announcements
+            return json.encode_compliant(scene)
+          end
+        `, 200000000);
+        if (engine._dst_tick(2)) throw new Error(engine.ccall('dst_result', 'string', [], []));
+        evaluations.evaluate('StaticUpdate(GetTickTime()); local x,y,z=ThePlayer.Transform:GetWorldPosition(); WebEntity.UpdateSpatialSleep(x, z, 56, 68)', 50000000);
+        result = JSON.parse(evaluate('return _WEB_GameSceneSnapshot()'));
+        break;
+      }
+      case 'game-tick': {
+        if (!ready) throw new Error('Engine is not initialized');
+        const count = Math.min(10, Math.max(1, Number(data.count) || 1));
+        if (engine._dst_tick(count)) throw new Error(engine.ccall('dst_result', 'string', [], []));
+        result = JSON.parse(evaluate(`
+          if TheCamera ~= nil and ThePlayer ~= nil then
+            TheCamera:SetTarget(ThePlayer)
+            TheCamera:Update(GetTickTime() * ${count})
+          end
+          if GetTick() % 15 == 0 and ThePlayer ~= nil then
+            local x, y, z = ThePlayer.Transform:GetWorldPosition()
+            WebEntity.UpdateSpatialSleep(x, z, 56, 68)
+          end
+          return _WEB_GameSceneSnapshot()
+        `));
+        break;
+      }
+      case 'game-input': {
+        if (!ready) throw new Error('Engine is not initialized');
+        const event = data.event;
+        if (event?.kind === 'key') {
+          if (Number.isInteger(event.code) && typeof event.down === 'boolean') {
+            engine._dst_input_key(event.code, event.down ? 1 : 0);
+            if (event.down) pressedKeys.add(event.code); else pressedKeys.delete(event.code);
+            evaluate(`if rawget(_G,"TheInput") then TheInput:OnRawKey(${event.code},${event.down}) end`);
+          }
+        } else if (event?.kind === 'reset') {
+          const keys = [...pressedKeys];
+          pressedKeys.clear();
+          engine._dst_input_reset();
+          for (const code of keys) evaluate(`if rawget(_G,"TheInput") then TheInput:OnRawKey(${code},false) end`);
+        }
+        result = true;
+        break;
+      }
+      case 'game-action': {
+        if (!ready) throw new Error('Engine is not initialized');
+        const act = data.action;
+        if (act?.kind === 'walk') {
+          const x = Number(act.x) || 0;
+          const z = Number(act.z) || 0;
+          evaluate(`
+            if ThePlayer ~= nil and ThePlayer.components.locomotor ~= nil then
+              ThePlayer.components.locomotor:GoToPoint(Vector3(${x}, 0, ${z}), nil, true)
+            end
+          `);
+        } else if (act?.kind === 'interact') {
+          const guid = Number(act.guid) || 0;
+          const code = String(act.code || 'INSPECT').replace(/[^A-Z_]/g, '');
+          evaluate(`
+            local target = Ents[${guid}]
+            local p = ThePlayer
+            if p ~= nil and target ~= nil and target:IsValid() then
+              local inv = p.components.inventory
+              if "${code}" == "CHOP" then
+                local equipped = inv and inv:GetEquippedItem(EQUIPSLOTS.HANDS)
+                if equipped == nil or not equipped:HasTag("CHOP_tool") then
+                  local axe = inv and inv:FindItem(function(it) return it:HasTag("CHOP_tool") or it.prefab == "axe" end)
+                  if axe == nil then
+                    axe = SpawnPrefab("axe")
+                    if inv and axe then inv:GiveItem(axe) end
+                  end
+                  if inv and axe then inv:Equip(axe) end
+                end
+              elseif "${code}" == "MINE" then
+                local equipped = inv and inv:GetEquippedItem(EQUIPSLOTS.HANDS)
+                if equipped == nil or not equipped:HasTag("MINE_tool") then
+                  local pick = inv and inv:FindItem(function(it) return it:HasTag("MINE_tool") or it.prefab == "pickaxe" end)
+                  if pick == nil then
+                    pick = SpawnPrefab("pickaxe")
+                    if inv and pick then inv:GiveItem(pick) end
+                  end
+                  if inv and pick then inv:Equip(pick) end
+                end
+              end
+              local action_def = ACTIONS["${code}"] or ACTIONS.WALKTO
+              local ba = BufferedAction(p, target, action_def)
+              if p.components.locomotor ~= nil then
+                p.components.locomotor:PushAction(ba, true)
+              else
+                p:PushBufferedAction(ba)
+              end
+              _WEB_PushNotice("Hành động: " .. tostring(action_def.id) .. " -> " .. tostring(target.prefab))
+            end
+          `);
+        } else if (act?.kind === 'inv-slot') {
+          const slot = Number(act.slot) || 1;
+          evaluate(`
+            local p = ThePlayer
+            local inv = p and p.components.inventory
+            local item = inv and inv.itemslots[${slot}]
+            if item ~= nil then
+              if item.components.equippable ~= nil then
+                inv:Equip(item)
+                _WEB_PushNotice("Đã trang bị: " .. tostring(item.prefab))
+              elseif item.components.edible ~= nil and p.components.eater ~= nil then
+                p.components.eater:Eat(item)
+                _WEB_PushNotice("Đã ăn: " .. tostring(item.prefab))
+              elseif item.components.healer ~= nil then
+                item.components.healer:Heal(p)
+              else
+                inv:DropItem(item, true, true)
+                _WEB_PushNotice("Đã thả: " .. tostring(item.prefab))
+              end
+            end
+          `);
+        } else if (act?.kind === 'craft') {
+          const recipe = String(act.recipe || 'axe').replace(/[^a-z0-9_]/g, '');
+          evaluate(`
+            local p = ThePlayer
+            if p ~= nil and p.components.inventory ~= nil then
+              local inv = p.components.inventory
+              local px, py, pz = p.Transform:GetWorldPosition()
+              if "${recipe}" == "campfire" or "${recipe}" == "firepit" or "${recipe}" == "researchlab" then
+                local structure = SpawnPrefab("${recipe}")
+                if structure ~= nil and structure.Transform ~= nil then
+                  structure.Transform:SetPosition(px + 2.2, 0, pz + 1.8)
+                  _WEB_PushNotice("Đã dựng: " .. "${recipe}")
+                end
+              else
+                local item = SpawnPrefab("${recipe}")
+                if item ~= nil then
+                  if item.components.equippable ~= nil then
+                    inv:Equip(item)
+                    _WEB_PushNotice("Đã chế tạo & trang bị: " .. "${recipe}")
+                  else
+                    inv:GiveItem(item)
+                    _WEB_PushNotice("Đã chế tạo: " .. "${recipe}")
+                  end
+                end
+              end
+            end
+          `);
+        } else if (act?.kind === 'camera') {
+          const dHeading = Number(act.deltaHeading) || 0;
+          const dDist = Number(act.deltaDistance) || 0;
+          evaluate(`
+            if TheCamera ~= nil then
+              if ${dHeading} ~= 0 then
+                TheCamera:SetHeadingTarget((TheCamera.headingtarget or 45) + (${dHeading}))
+              end
+              if ${dDist} ~= 0 then
+                TheCamera.distancetarget = math.clamp((TheCamera.distancetarget or 30) + (${dDist}), 14, 52)
+              end
+            end
+          `);
+        } else if (act?.kind === 'next-phase') {
+          evaluate(`
+            if TheWorld ~= nil then
+              TheWorld:PushEvent("ms_nextphase")
+              _WEB_PushNotice("Đã chuyển pha thời gian trong ngày.")
+            end
+          `);
+        }
+        result = JSON.parse(evaluate('return _WEB_GameSceneSnapshot()'));
+        break;
+      }
       default: throw new Error('Unsupported worker message: ' + data.type);
     }
     await drainStorage?.();

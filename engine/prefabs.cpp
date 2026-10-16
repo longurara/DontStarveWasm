@@ -25,6 +25,7 @@ std::map<std::string,Prefab> definitions;
 std::set<std::string> verification_queue;
 std::map<std::string,uint32_t> loaded;
 bool client_role=false;
+bool defer_animations=false;
 Exists resource_exists=nullptr;
 std::string string(lua_State* L,int index){size_t size=0;const char* value=luaL_checklstring(L,index,&size);if(size>4096)luaL_error(L,"Prefab string exceeds 4096 bytes");return std::string(value);}
 std::string field(lua_State* L,const char* name){lua_getfield(L,-1,name);auto value=string(L,-1);lua_pop(L,1);return value;}
@@ -83,6 +84,7 @@ bool ignored(const Asset& asset){
     // Hash-verified dispatch tables: server 0x1400fcbd0, client 0x140108c14.
     // Package references remain in definitions for on-demand lookup; loading
     // a prefab does not eagerly open all referenced packages.
+    if(defer_animations&&(asset.type=="ANIM"||asset.type=="DYNAMIC_ANIM")&&resource_exists&&resource_exists(asset.file))return true;
     return asset.type=="PKGREF"||asset.type=="SOUND"||
         (!client_role&&asset.type=="IMAGE")|| // Null renderer Load returns -1 without I/O (0x140385190).
         (!client_role&&(asset.type=="SOUNDPACKAGE"||asset.type=="ATLAS_BUILD"))||
@@ -227,9 +229,11 @@ int inspect(lua_State* L){
     for(const auto& dep:found->second.dependencies){lua_pushlstring(L,dep.data(),dep.size());lua_rawseti(L,-2,++i);}
     lua_setfield(L,-2,"deps");return 1;
 }
+int set_defer_animations(lua_State* L){defer_animations=lua_toboolean(L,1)!=0;return 0;}
+int get_defer_animations(lua_State* L){lua_pushboolean(L,defer_animations?1:0);return 1;}
 }
 void install(lua_State* L,Exists exists,bool client){
-    definitions.clear();verification_queue.clear();loaded.clear();resource_exists=exists;client_role=client;
+    definitions.clear();verification_queue.clear();loaded.clear();resource_exists=exists;client_role=client;defer_animations=false;
     lua_getglobal(L,"TheSim");lua_pushcfunction(L,register_prefab);lua_setfield(L,-2,"RegisterPrefab");
     lua_pushcfunction(L,unregister_prefabs);lua_setfield(L,-2,"UnregisterPrefabs");
     lua_pushcfunction(L,unregister_all_prefabs);lua_setfield(L,-2,"UnregisterAllPrefabs");
@@ -240,6 +244,7 @@ void install(lua_State* L,Exists exists,bool client){
     lua_pushcfunction(L,load_prefabs);lua_setfield(L,-2,"LoadPrefabs");lua_pushcfunction(L,unload_prefabs);lua_setfield(L,-2,"UnloadPrefabs");lua_pop(L,1);
     lua_newtable(L);lua_pushcfunction(L,inspect);lua_setfield(L,-2,"Inspect");lua_pushcfunction(L,verify);lua_setfield(L,-2,"VerifyBatch");lua_setglobal(L,"WebPrefabs");
     lua_getglobal(L,"WebPrefabs");lua_pushcfunction(L,loaded_info);lua_setfield(L,-2,"Loaded");
-    lua_pushcfunction(L,kind_info);lua_setfield(L,-2,"Kinds");lua_pushcfunction(L,native_assets);lua_setfield(L,-2,"NativeAssets");lua_pushcfunction(L,ignored_assets);lua_setfield(L,-2,"IgnoredAssets");lua_pop(L,1);
+    lua_pushcfunction(L,kind_info);lua_setfield(L,-2,"Kinds");lua_pushcfunction(L,native_assets);lua_setfield(L,-2,"NativeAssets");lua_pushcfunction(L,ignored_assets);lua_setfield(L,-2,"IgnoredAssets");
+    lua_pushcfunction(L,set_defer_animations);lua_setfield(L,-2,"SetDeferAnimations");lua_pushcfunction(L,get_defer_animations);lua_setfield(L,-2,"GetDeferAnimations");lua_pop(L,1);
 }
 }

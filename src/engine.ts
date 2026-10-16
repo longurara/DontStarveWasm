@@ -25,7 +25,7 @@ export class EngineWorker {
   request(type: string, payload: Record<string, unknown> = {}, transfer: Transferable[] = []): Promise<any> {
     const id = ++this.counter;
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => { this.pending.delete(id); reject(new Error(`${this.role}: ${type} timed out`)); }, 30000);
+      const timeout = setTimeout(() => { this.pending.delete(id); reject(new Error(`${this.role}: ${type} timed out`)); }, 90000);
       this.pending.set(id, { resolve, reject, timeout });
       this.worker.postMessage({ ...payload, type, id, role: this.role }, transfer);
     });

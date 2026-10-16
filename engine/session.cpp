@@ -282,6 +282,45 @@ int deserialize_user_session(lua_State* L){
     return 0;
 }
 int net_noop(lua_State* L){ready(L);return 0;}
+void push_local_client_entry(lua_State* L,const char* uid_override){
+    lua_getglobal(L,"ThePlayer");
+    if(!lua_istable(L,-1)){lua_pop(L,1);lua_pushnil(L);return;}
+    int player_idx=lua_gettop(L);
+    lua_newtable(L);
+    const char* uid=uid_override&&uid_override[0]?uid_override:"KU_local";
+    lua_pushstring(L,uid);lua_setfield(L,-2,"userid");
+    lua_getfield(L,player_idx,"name");
+    lua_pushstring(L,lua_isstring(L,-1)?lua_tostring(L,-1):"Wilson");
+    lua_remove(L,-2);lua_setfield(L,-2,"name");
+    lua_getfield(L,player_idx,"prefab");
+    lua_pushstring(L,lua_isstring(L,-1)?lua_tostring(L,-1):"wilson");
+    lua_remove(L,-2);lua_setfield(L,-2,"prefab");
+    lua_pushliteral(L,"127.0.0.1");lua_setfield(L,-2,"netid");
+    lua_pushboolean(L,1);lua_setfield(L,-2,"admin");
+    lua_pushinteger(L,0);lua_setfield(L,-2,"performance");
+    lua_pushinteger(L,1);lua_setfield(L,-2,"playerage");
+    lua_pushinteger(L,0);lua_setfield(L,-2,"userflags");
+    lua_pushliteral(L,"");lua_setfield(L,-2,"base_skin");
+    lua_createtable(L,4,0);
+    const float col[4]={0.8039f,0.3098f,0.2235f,1.0f};
+    for(int i=0;i<4;++i){lua_pushnumber(L,col[i]);lua_rawseti(L,-2,i+1);}
+    lua_setfield(L,-2,"colour");
+    lua_remove(L,player_idx);
+}
+int get_client_table(lua_State* L){
+    ready(L);
+    lua_newtable(L);
+    push_local_client_entry(L,nullptr);
+    if(!lua_isnil(L,-1))lua_rawseti(L,-2,1);
+    else lua_pop(L,1);
+    return 1;
+}
+int get_client_table_for_user(lua_State* L){
+    ready(L);
+    const char* uid=lua_tostring(L,2);
+    push_local_client_entry(L,uid);
+    return 1;
+}
 int shard_false(lua_State* L){lua_pushboolean(L,0);return 1;}
 int shard_get_id(lua_State* L){lua_pushliteral(L,"0");return 1;}
 int shard_set_secondary_loading(lua_State* L){luaL_checktype(L,2,LUA_TBOOLEAN);return 0;}
@@ -397,7 +436,7 @@ void install(lua_State* L,bool client){
         {"SetServerPaused",set_server_paused},{"SetAutopaused",set_autopaused},{"IsServerPaused",is_server_paused},
         {"GetCurrentSnapshot",get_current_snapshot},{"SetCurrentSnapshot",set_current_snapshot},{"IncrementSnapshot",increment_snapshot},
         {"StartWorldSave",net_noop},{"EndWorldSave",net_noop},{"SerializeWorldSession",serialize_world_session},{"SerializeUserSession",net_noop},
-        {"GetClientTable",get_empty_table},{"GetClientTableForUser",get_nil},{"GetClientMetricsForUser",get_nil},{"GetNetIdForUser",get_empty_string},
+        {"GetClientTable",get_client_table},{"GetClientTableForUser",get_client_table_for_user},{"GetClientMetricsForUser",get_nil},{"GetNetIdForUser",get_empty_string},
         {"GetPlayerCount",get_zero},{"GetAveragePing",get_zero},{"GetNetUpdates",get_zero},{"GetNetworkStatistics",get_empty_table},
         {"GetBlacklist",get_empty_table},{"SetBlacklist",net_noop},{"LoadPermissionLists",net_noop},
         {"GetPartyTable",get_empty_table},{"GetPartyChatHistory",get_empty_table},{"GetFriendsList",get_empty_table},{"GetServerListings",get_empty_table},{"GetServerListingFromActualIndex",get_nil},{"GetServerListingReadDirty",get_false},

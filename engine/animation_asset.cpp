@@ -157,6 +157,76 @@ int decode_lua(lua_State* L){
     {std::string error;ok=load(path,error,false,true);if(!ok)lua_pushlstring(L,error.data(),error.size());}
     if(!ok)return lua_error(L);return inspect(L);
 }
+int decode_render_lua(lua_State* L){
+    const char* path=luaL_checkstring(L,1);
+    std::string error;std::vector<uint8_t> bytes;
+    if(!web_resource_io::read(path,bytes,error)){lua_pushlstring(L,error.data(),error.size());return lua_error(L);}
+    std::map<std::string,std::vector<uint8_t>> files;
+    if(!web_asset_zip::unpack(bytes,files,error)){lua_pushlstring(L,error.data(),error.size());return lua_error(L);}
+    Bundle out;
+    auto anim=files.find("anim.bin"),bild=files.find("build.bin");
+    if(bild!=files.end()&&!build(bild->second,out)){lua_pushliteral(L,"Invalid BILD");return lua_error(L);}
+    if(anim!=files.end()&&!animation(anim->second,out)){lua_pushliteral(L,"Invalid ANIM");return lua_error(L);}
+    lua_newtable(L);
+    lua_pushlstring(L,out.build.data(),out.build.size());lua_setfield(L,-2,"name");
+    lua_createtable(L,static_cast<int>(out.atlases.size()),0);
+    for(size_t i=0;i<out.atlases.size();++i){lua_pushlstring(L,out.atlases[i].data(),out.atlases[i].size());lua_rawseti(L,-2,static_cast<int>(i+1));}
+    lua_setfield(L,-2,"atlases");
+    lua_newtable(L);
+    for(const auto& [sym_id,sym]:out.symbols){
+        char key[32];std::snprintf(key,sizeof(key),"%u",sym_id);
+        lua_newtable(L);
+        if(!sym.name.empty()){lua_pushlstring(L,sym.name.data(),sym.name.size());lua_setfield(L,-2,"name");}
+        lua_createtable(L,static_cast<int>(sym.frames.size()),0);
+        for(size_t f=0;f<sym.frames.size();++f){
+            const auto& sf=sym.frames[f];
+            lua_newtable(L);
+            integer(L,"frame",sf.frame);integer(L,"duration",sf.duration);integer(L,"offset",sf.offset);integer(L,"count",sf.count);
+            lua_createtable(L,4,0);for(int b=0;b<4;++b){lua_pushnumber(L,sf.bounds[b]);lua_rawseti(L,-2,b+1);}lua_setfield(L,-2,"bbox");
+            lua_rawseti(L,-2,static_cast<int>(f+1));
+        }
+        lua_setfield(L,-2,"frames");
+        lua_setfield(L,-2,key);
+    }
+    lua_setfield(L,-2,"symbols");
+    lua_createtable(L,static_cast<int>(out.vertices.size()),0);
+    for(size_t i=0;i<out.vertices.size();++i){
+        lua_createtable(L,6,0);
+        for(int k=0;k<6;++k){lua_pushnumber(L,out.vertices[i][k]);lua_rawseti(L,-2,k+1);}
+        lua_rawseti(L,-2,static_cast<int>(i+1));
+    }
+    lua_setfield(L,-2,"vertices");
+    lua_createtable(L,static_cast<int>(out.clips.size()),0);
+    for(size_t c=0;c<out.clips.size();++c){
+        const auto& cl=out.clips[c];
+        lua_newtable(L);
+        lua_pushlstring(L,cl.name.data(),cl.name.size());lua_setfield(L,-2,"name");
+        integer(L,"facing",cl.facing);integer(L,"bank",cl.bank);
+        lua_pushnumber(L,cl.rate);lua_setfield(L,-2,"rate");
+        lua_createtable(L,static_cast<int>(cl.frames.size()),0);
+        for(size_t f=0;f<cl.frames.size();++f){
+            const auto& fr=cl.frames[f];
+            lua_newtable(L);
+            lua_createtable(L,static_cast<int>(fr.elements.size()),0);
+            for(size_t e=0;e<fr.elements.size();++e){
+                const auto& el=fr.elements[e];
+                lua_newtable(L);
+                char skey[32];std::snprintf(skey,sizeof(skey),"%u",el.symbol);
+                lua_pushstring(L,skey);lua_setfield(L,-2,"symbol");
+                integer(L,"frame",el.frame);integer(L,"layer",el.layer);
+                lua_pushnumber(L,el.depth);lua_setfield(L,-2,"depth");
+                lua_createtable(L,6,0);for(int m=0;m<6;++m){lua_pushnumber(L,el.matrix[m]);lua_rawseti(L,-2,m+1);}lua_setfield(L,-2,"matrix");
+                lua_rawseti(L,-2,static_cast<int>(e+1));
+            }
+            lua_setfield(L,-2,"elements");
+            lua_rawseti(L,-2,static_cast<int>(f+1));
+        }
+        lua_setfield(L,-2,"frames");
+        lua_rawseti(L,-2,static_cast<int>(c+1));
+    }
+    lua_setfield(L,-2,"animations");
+    return 1;
+}
 int release_lua(lua_State* L){auto path=luaL_checkstring(L,1);auto found=cache.find(web_strings::hash(path));
     if(found!=cache.end()&&found->second.references)return luaL_error(L,"Asset is owned by loaded prefabs");release(path);return 0;}
 }
@@ -178,5 +248,5 @@ void release(const std::string& path){auto found=cache.find(web_strings::hash(pa
     if(!found->second.references){retained-=found->second.value.retained_bytes;cache.erase(found);}}
 const Bundle* get(const std::string& path){auto found=cache.find(web_strings::hash(path));return found==cache.end()?nullptr:&found->second.value;}
 void clear(){cache.clear();retained=0;usage=evictions=0;}
-void install(lua_State* L){clear();lua_newtable(L);const luaL_Reg methods[]={{"Decode",decode_lua},{"Inspect",inspect},{"Release",release_lua},{nullptr,nullptr}};luaL_register(L,nullptr,methods);lua_setglobal(L,"WebAssets");}
+void install(lua_State* L){clear();lua_newtable(L);const luaL_Reg methods[]={{"Decode",decode_lua},{"DecodeRenderData",decode_render_lua},{"Inspect",inspect},{"Release",release_lua},{nullptr,nullptr}};luaL_register(L,nullptr,methods);lua_setglobal(L,"WebAssets");}
 }

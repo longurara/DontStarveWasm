@@ -61,13 +61,92 @@ int inspect(lua_State* L){
     lua_pushnumber(L,camera.dirty);lua_setfield(L,-2,"dirty");
     lua_pushboolean(L,false);lua_setfield(L,-2,"worldRendererReady");return 1;
 }
+void screen_dimensions(lua_State* L,float& sw,float& sh){
+    sw=1280.0f;sh=720.0f;
+    lua_getglobal(L,"TheSim");
+    if(lua_istable(L,-1)){
+        lua_getfield(L,-1,"GetScreenSize");
+        if(lua_isfunction(L,-1)){
+            lua_pushvalue(L,-2);
+            if(lua_pcall(L,1,2,0)==0){
+                float w=static_cast<float>(lua_tonumber(L,-2));
+                float h=static_cast<float>(lua_tonumber(L,-1));
+                if(w>1.0f&&h>1.0f){sw=w;sh=h;}
+                lua_pop(L,2);
+            }
+        }else lua_pop(L,1);
+    }
+    lua_pop(L,1);
+}
+void camera_basis(std::array<float,3>& fwd,std::array<float,3>& right,std::array<float,3>& up_orth){
+    fwd=camera.direction_set?camera.direction:std::array<float,3>{-0.70710678f,-0.5f,0.70710678f};
+    float fl=std::sqrt(fwd[0]*fwd[0]+fwd[1]*fwd[1]+fwd[2]*fwd[2]);
+    if(fl>1e-5f){fwd[0]/=fl;fwd[1]/=fl;fwd[2]/=fl;}else fwd={-0.70710678f,-0.5f,0.70710678f};
+    std::array<float,3> u=camera.up_set?camera.up:std::array<float,3>{0.0f,1.0f,0.0f};
+    right={fwd[1]*u[2]-fwd[2]*u[1],fwd[2]*u[0]-fwd[0]*u[2],fwd[0]*u[1]-fwd[1]*u[0]};
+    float rl=std::sqrt(right[0]*right[0]+right[1]*right[1]+right[2]*right[2]);
+    if(rl>1e-5f){right[0]/=rl;right[1]/=rl;right[2]/=rl;}else right={0.0f,0.0f,-1.0f};
+    up_orth={right[1]*fwd[2]-right[2]*fwd[1],right[2]*fwd[0]-right[0]*fwd[2],right[0]*fwd[1]-right[1]*fwd[0]};
+}
+int project_screen_pos(lua_State* L){
+    float sx=static_cast<float>(luaL_optnumber(L,2,0.0));
+    float sy=static_cast<float>(luaL_optnumber(L,3,0.0));
+    float plane_y=static_cast<float>(luaL_optnumber(L,4,0.0));
+    float sw=1280.0f,sh=720.0f;
+    screen_dimensions(L,sw,sh);
+    float ndc_x=(sx/sw)*2.0f-1.0f;
+    float ndc_y=(sy/sh)*2.0f-1.0f;
+    float fov_deg=(camera.fov_set&&camera.fov>1.0f)?camera.fov:35.0f;
+    float tan_half=std::tan(fov_deg*0.5f*0.01745329238474369f);
+    float aspect=sw/sh;
+    std::array<float,3> fwd{},right{},up_orth{};
+    camera_basis(fwd,right,up_orth);
+    float rx=fwd[0]+right[0]*(ndc_x*aspect*tan_half)+up_orth[0]*(ndc_y*tan_half);
+    float ry=fwd[1]+right[1]*(ndc_x*aspect*tan_half)+up_orth[1]*(ndc_y*tan_half);
+    float rz=fwd[2]+right[2]*(ndc_x*aspect*tan_half)+up_orth[2]*(ndc_y*tan_half);
+    std::array<float,3> pos=camera.position_set?camera.position:std::array<float,3>{21.0f,15.0f,-21.0f};
+    float wx=pos[0],wz=pos[2];
+    if(std::abs(ry)>1e-4f){
+        float t=(plane_y-pos[1])/ry;
+        if(t>0.0f&&t<2000.0f){wx=pos[0]+rx*t;wz=pos[2]+rz*t;}
+    }
+    lua_pushnumber(L,wx);lua_pushnumber(L,plane_y);lua_pushnumber(L,wz);
+    return 3;
+}
+int project_world_pos(lua_State* L){
+    float wx=static_cast<float>(luaL_optnumber(L,2,0.0));
+    float wy=static_cast<float>(luaL_optnumber(L,3,0.0));
+    float wz=static_cast<float>(luaL_optnumber(L,4,0.0));
+    float sw=1280.0f,sh=720.0f;
+    screen_dimensions(L,sw,sh);
+    float fov_deg=(camera.fov_set&&camera.fov>1.0f)?camera.fov:35.0f;
+    float tan_half=std::tan(fov_deg*0.5f*0.01745329238474369f);
+    float aspect=sw/sh;
+    std::array<float,3> fwd{},right{},up_orth{};
+    camera_basis(fwd,right,up_orth);
+    std::array<float,3> pos=camera.position_set?camera.position:std::array<float,3>{21.0f,15.0f,-21.0f};
+    float dx=wx-pos[0],dy=wy-pos[1],dz=wz-pos[2];
+    float vz=dx*fwd[0]+dy*fwd[1]+dz*fwd[2];
+    float vx=dx*right[0]+dy*right[1]+dz*right[2];
+    float vy=dx*up_orth[0]+dy*up_orth[1]+dz*up_orth[2];
+    float safe_z=vz>0.1f?vz:0.1f;
+    float ndc_x=vx/(safe_z*aspect*tan_half);
+    float ndc_y=vy/(safe_z*tan_half);
+    lua_pushnumber(L,(ndc_x*0.5f+0.5f)*sw);
+    lua_pushnumber(L,(ndc_y*0.5f+0.5f)*sh);
+    lua_pushnumber(L,vz);
+    return 3;
+}
 }
 void install(lua_State* L,bool client){
     camera={};is_client=client;lua_getglobal(L,"TheSim");
     const char* names[]={"SetCameraPos","SetCameraDir","SetCameraUp"};
     for(int i=0;i<3;++i){lua_pushinteger(L,i);lua_pushcclosure(L,set_vector,1);lua_setfield(L,-2,names[i]);}
     lua_pushcfunction(L,set_fov);lua_setfield(L,-2,"SetCameraFOV");
-    lua_pushcfunction(L,set_listener);lua_setfield(L,-2,"SetListener");lua_pop(L,1);
+    lua_pushcfunction(L,set_listener);lua_setfield(L,-2,"SetListener");
+    lua_pushcfunction(L,project_screen_pos);lua_setfield(L,-2,"ProjectScreenPos");
+    lua_pushcfunction(L,project_world_pos);lua_setfield(L,-2,"ProjectWorldPos");
+    lua_pop(L,1);
     lua_newtable(L);lua_pushcfunction(L,inspect);lua_setfield(L,-2,"Inspect");lua_setglobal(L,"WebCamera");
 }
 }

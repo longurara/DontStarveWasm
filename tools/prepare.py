@@ -111,6 +111,16 @@ def finalize_engine():
     manifest.pop('contentHash',None)
     manifest['contentHash']=digest(json.dumps(manifest,sort_keys=True,separators=(',',':')).encode())
     path.write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf8')
+    fixture_save=ROOT/'output/native-reference/storage/fixtures/Cluster_1/Master/save'
+    if (fixture_save/'shardindex').exists() and (fixture_save/'session/15CD1F748D1D1C77/0000000183').exists():
+        world_out=OUT/'world'
+        world_out.mkdir(parents=True,exist_ok=True)
+        for src,dst in [
+            (fixture_save/'shardindex',world_out/'shardindex'),
+            (fixture_save/'session/15CD1F748D1D1C77/0000000183',world_out/'0000000183'),
+            (fixture_save/'session/15CD1F748D1D1C77/0000000183.meta',world_out/'0000000183.meta'),
+        ]:
+            if src.exists(): dst.write_bytes(src.read_bytes())
     print('Final engine/content hash',manifest['contentHash'])
 
 if __name__=='__main__': main()

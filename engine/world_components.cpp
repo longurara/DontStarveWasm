@@ -8,6 +8,8 @@
 #include <map>
 #include <set>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 extern "C" {
 #include "lauxlib.h"
@@ -165,12 +167,12 @@ struct WaveComponentState {
 };
 
 struct NetworkComponentState {
-    std::string client_name;
-    std::string user_id;
+    std::string client_name="Wilson";
+    std::string user_id="KU_local";
     uint32_t classified_target=0;
-    uint16_t player_age=0;
+    uint16_t player_age=1;
     uint32_t user_flags=0;
-    bool server_admin=false;
+    bool server_admin=true;
     bool consecutive_match=false;
     bool playing_with_friends=false;
     bool borrowed=false;
@@ -211,13 +213,13 @@ std::map<uint32_t,PathfinderComponent> pathfinders;
 std::map<uint32_t,GroundCreepComponent> creeps;
 std::map<uint32_t,MiniMapComponent> minimaps;
 std::map<uint32_t,WaveComponentState> waves;
-std::map<uint32_t,NetworkComponentState> networks;
+std::unordered_map<uint32_t,NetworkComponentState> networks;
 std::set<uint32_t> shard_networks;
 std::set<uint32_t> shard_clients;
 std::set<uint32_t> server_non_sleepables;
 std::set<uint32_t> client_sleepables;
-std::map<uint32_t,EntityNetState> entity_net_states;
-std::map<uint32_t,NetVarState> netvars;
+std::unordered_map<uint32_t,EntityNetState> entity_net_states;
+std::unordered_map<uint32_t,NetVarState> netvars;
 uint32_t next_netvar_id=1;
 
 MapComponent* get_map(lua_State* L){
@@ -1018,7 +1020,7 @@ int creep_set_from_string(lua_State* L){
 }
 int creep_fast_forward(lua_State* L){
     auto* c=get_creep(L);if(!c)return 0;
-    (void)luaL_checknumber(L,2);
+    (void)luaL_optnumber(L,2,0.0);
     return 0;
 }
 int creep_set_max_radius(lua_State* L){
@@ -1605,20 +1607,26 @@ struct AnimStateData {
     float mult_colour[4]={1.0f,1.0f,1.0f,1.0f};
     float add_colour[4]={0.0f,0.0f,0.0f,0.0f};
     float hue=0.0f,saturation=1.0f,brightness=1.0f;
-    float anim_time=0.0f,anim_length=1.0f;
-    int num_frames=30,current_frame=0;
+    float anim_time=0.0f,anim_length=0.5f;
+    double start_clock=0.0;
+    int num_frames=15,current_frame=0;
+    bool loop=false,playing=false,done=true;
+    std::vector<std::pair<std::string,bool>> queue;
     std::map<std::string,std::string> symbol_overrides;
 };
-std::map<uint32_t,AnimStateData> anim_states;
+std::unordered_map<uint32_t,AnimStateData> anim_states;
+std::unordered_set<uint32_t> active_anim_ids;
+double global_anim_clock=0.0;
 
 struct PhysicsData {
     float vx=0.0f,vy=0.0f,vz=0.0f;
     float mx=0.0f,my=0.0f,mz=0.0f;
     float radius=0.5f,height=1.0f,mass=1.0f;
     uint32_t collision_group=0,collision_mask=0;
-    bool active=true,passable=false;
+    bool active=true,passable=false,use_motor=false;
 };
-std::map<uint32_t,PhysicsData> physics_states;
+std::unordered_map<uint32_t,PhysicsData> physics_states;
+std::unordered_set<uint32_t> active_physics_ids;
 
 struct LightData {
     bool enabled=false;
@@ -1626,7 +1634,7 @@ struct LightData {
     float radius=1.0f,falloff=0.5f,intensity=0.5f;
     float r=1.0f,g=1.0f,b=1.0f;
 };
-std::map<uint32_t,LightData> light_states;
+std::unordered_map<uint32_t,LightData> light_states;
 
 struct ImageCompData {
     float w=0.0f,h=0.0f;
@@ -1676,8 +1684,35 @@ int add_simple_comp(lua_State* L,std::set<uint32_t>& store,const char* mt,const 
 }
 
 // AnimState
-AnimStateData* get_anim(lua_State* L){
+void start_anim_clip_raw(AnimStateData& a,const std::string& name,bool loop){
+    a.anim=name;
+    a.loop=loop;
+    a.anim_time=0.0f;
+    a.start_clock=global_anim_clock;
+    a.current_frame=0;
+    if(name.find("start")!=std::string::npos||name.find("stop")!=std::string::npos||
+       name.find("pre")!=std::string::npos||name.find("pst")!=std::string::npos){
+        a.num_frames=5;
+    }else if(name.find("pickup")!=std::string::npos||name.find("give")!=std::string::npos||
+             name.find("atk")!=std::string::npos||name.find("chop")!=std::string::npos||
+             name.find("mine")!=std::string::npos||name.find("work")!=std::string::npos||
+             name.find("eat")!=std::string::npos||name.find("hit")!=std::string::npos){
+        a.num_frames=10;
+    }else{
+        a.num_frames=20;
+    }
+    a.anim_length=static_cast<float>(a.num_frames)/30.0f;
+    a.playing=!name.empty();
+    a.done=!a.playing;
+}
+void start_anim_clip(uint32_t id,AnimStateData& a,const std::string& name,bool loop){
+    start_anim_clip_raw(a,name,loop);
+    if(a.playing&&(!a.loop||!a.queue.empty()))active_anim_ids.insert(id);
+    else active_anim_ids.erase(id);
+}
+AnimStateData* get_anim(lua_State* L,uint32_t* out_id=nullptr){
     uint32_t id=check_comp_owner(L,"dst.AnimState");
+    if(out_id)*out_id=id;
     auto it=anim_states.find(id);
     return (host.alive(id)&&it!=anim_states.end())?&it->second:nullptr;
 }
@@ -1689,9 +1724,44 @@ int add_anim_state(lua_State* L){
     return 1;
 }
 int tostring_anim_state(lua_State* L){check_comp_owner(L,"dst.AnimState");lua_pushfstring(L,"AnimState (%p)",lua_touserdata(L,1));return 1;}
-int anim_play(lua_State* L){if(auto* a=get_anim(L)){a->anim=luaL_optstring(L,2,"");a->anim_time=0.0f;a->current_frame=0;}return 0;}
+int anim_play(lua_State* L){
+    uint32_t id=0;
+    if(auto* a=get_anim(L,&id)){
+        a->queue.clear();
+        start_anim_clip(id,*a,luaL_optstring(L,2,""),lua_toboolean(L,3)!=0);
+    }
+    return 0;
+}
+int anim_push(lua_State* L){
+    uint32_t id=0;
+    if(auto* a=get_anim(L,&id)){
+        std::string name=luaL_optstring(L,2,"");
+        bool loop=lua_toboolean(L,3)!=0;
+        if(!a->playing||a->done||a->loop||a->anim.empty()){
+            a->queue.clear();
+            start_anim_clip(id,*a,name,loop);
+        }else{
+            a->queue.emplace_back(name,loop);
+            active_anim_ids.insert(id);
+        }
+    }
+    return 0;
+}
+int anim_done(lua_State* L){
+    auto* a=get_anim(L);
+    lua_pushboolean(L,a?a->done:1);
+    return 1;
+}
 int anim_set_bank(lua_State* L){if(auto* a=get_anim(L))a->bank=luaL_optstring(L,2,"");return 0;}
-int anim_set_bank_and_play(lua_State* L){if(auto* a=get_anim(L)){a->bank=luaL_optstring(L,2,"");a->anim=luaL_optstring(L,3,"");a->anim_time=0.0f;a->current_frame=0;}return 0;}
+int anim_set_bank_and_play(lua_State* L){
+    uint32_t id=0;
+    if(auto* a=get_anim(L,&id)){
+        a->bank=luaL_optstring(L,2,"");
+        a->queue.clear();
+        start_anim_clip(id,*a,luaL_optstring(L,3,""),lua_toboolean(L,4)!=0);
+    }
+    return 0;
+}
 int anim_set_build(lua_State* L){if(auto* a=get_anim(L)){a->build=luaL_optstring(L,2,"");a->skin_build.clear();}return 0;}
 int anim_set_skin(lua_State* L){if(auto* a=get_anim(L)){a->skin_build=luaL_optstring(L,2,"");a->build=luaL_optstring(L,3,a->build.c_str());}return 0;}
 int anim_set_layer(lua_State* L){if(auto* a=get_anim(L))a->layer=static_cast<int>(luaL_optinteger(L,2,4));return 0;}
@@ -1817,9 +1887,30 @@ int anim_get_current_anim_hash(lua_State* L){
     return 1;
 }
 int anim_get_current_anim_length(lua_State* L){auto* a=get_anim(L);lua_pushnumber(L,a?a->anim_length:1.0f);return 1;}
-int anim_get_current_anim_time(lua_State* L){auto* a=get_anim(L);lua_pushnumber(L,a?a->anim_time:0.0f);return 1;}
+int anim_get_current_anim_time(lua_State* L){
+    auto* a=get_anim(L);
+    if(!a){lua_pushnumber(L,0.0f);return 1;}
+    if(a->playing&&a->loop&&a->queue.empty()){
+        double t=std::fmod(std::max(0.0,global_anim_clock-a->start_clock),std::max(0.033,static_cast<double>(a->anim_length)));
+        lua_pushnumber(L,t);
+        return 1;
+    }
+    lua_pushnumber(L,a->anim_time);
+    return 1;
+}
 int anim_get_current_anim_num_frames(lua_State* L){auto* a=get_anim(L);lua_pushinteger(L,a?a->num_frames:30);return 1;}
-int anim_get_current_anim_frame(lua_State* L){auto* a=get_anim(L);lua_pushinteger(L,a?a->current_frame:0);return 1;}
+int anim_get_current_anim_frame(lua_State* L){
+    auto* a=get_anim(L);
+    if(!a){lua_pushinteger(L,0);return 1;}
+    if(a->playing&&a->loop&&a->queue.empty()){
+        double t=std::fmod(std::max(0.0,global_anim_clock-a->start_clock),std::max(0.033,static_cast<double>(a->anim_length)));
+        int f=std::clamp(static_cast<int>(t*30.0),0,std::max(0,a->num_frames-1));
+        lua_pushinteger(L,f);
+        return 1;
+    }
+    lua_pushinteger(L,a->current_frame);
+    return 1;
+}
 int anim_get_current_bank_name(lua_State* L){auto* a=get_anim(L);lua_pushstring(L,a?a->bank.c_str():"");return 1;}
 int anim_get_bank_hash(lua_State* L){auto* a=get_anim(L);lua_pushnumber(L,a?web_strings::hash(a->bank.c_str()):0);return 1;}
 int anim_get_skin_build(lua_State* L){auto* a=get_anim(L);lua_pushstring(L,a?a->skin_build.c_str():"");return 1;}
@@ -1829,8 +1920,9 @@ int anim_get_current_facing(lua_State* L){auto* a=get_anim(L);lua_pushinteger(L,
 int anim_get_history_data(lua_State* L){lua_pushnumber(L,0);lua_pushnumber(L,0);return 2;}
 
 // Physics
-PhysicsData* get_physics(lua_State* L){
+PhysicsData* get_physics(lua_State* L,uint32_t* out_id=nullptr){
     uint32_t id=check_comp_owner(L,"dst.Physics");
+    if(out_id)*out_id=id;
     auto it=physics_states.find(id);
     return (host.alive(id)&&it!=physics_states.end())?&it->second:nullptr;
 }
@@ -1843,11 +1935,23 @@ int add_physics(lua_State* L){
 }
 int tostring_physics(lua_State* L){check_comp_owner(L,"dst.Physics");lua_pushfstring(L,"Physics (%p)",lua_touserdata(L,1));return 1;}
 int phys_set_motor_vel(lua_State* L){
-    if(auto* p=get_physics(L)){
+    uint32_t id=0;
+    if(auto* p=get_physics(L,&id)){
+        p->use_motor=true;
         p->mx=static_cast<float>(luaL_optnumber(L,2,0.0));
         p->my=static_cast<float>(luaL_optnumber(L,3,0.0));
         p->mz=static_cast<float>(luaL_optnumber(L,4,0.0));
-        p->vx=p->mx;p->vy=p->my;p->vz=p->mz;
+        float x=0,y=0,z=0,rot=0;
+        if(host.get_transform&&host.get_transform(id,&x,&y,&z,&rot)){
+            float c=std::cos(rot),s=std::sin(rot);
+            p->vx=c*p->mx+s*p->mz;
+            p->vy=p->my;
+            p->vz=-s*p->mx+c*p->mz;
+        }else{
+            p->vx=p->mx;p->vy=p->my;p->vz=p->mz;
+        }
+        if(p->mx!=0.0f||p->my!=0.0f||p->mz!=0.0f)active_physics_ids.insert(id);
+        else active_physics_ids.erase(id);
     }
     return 0;
 }
@@ -1858,15 +1962,23 @@ int phys_get_motor_vel(lua_State* L){
 }
 int phys_get_motor_speed(lua_State* L){auto* p=get_physics(L);lua_pushnumber(L,p?p->mx:0.0f);return 1;}
 int phys_set_vel(lua_State* L){
-    if(auto* p=get_physics(L)){
+    uint32_t id=0;
+    if(auto* p=get_physics(L,&id)){
+        p->use_motor=false;
         p->vx=static_cast<float>(luaL_optnumber(L,2,0.0));
         p->vy=static_cast<float>(luaL_optnumber(L,3,0.0));
         p->vz=static_cast<float>(luaL_optnumber(L,4,0.0));
+        if(p->vx!=0.0f||p->vy!=0.0f||p->vz!=0.0f)active_physics_ids.insert(id);
+        else active_physics_ids.erase(id);
     }
     return 0;
 }
 int phys_stop(lua_State* L){
-    if(auto* p=get_physics(L)){p->vx=p->vy=p->vz=0.0f;p->mx=p->my=p->mz=0.0f;}
+    uint32_t id=0;
+    if(auto* p=get_physics(L,&id)){
+        p->use_motor=false;p->vx=p->vy=p->vz=0.0f;p->mx=p->my=p->mz=0.0f;
+        active_physics_ids.erase(id);
+    }
     return 0;
 }
 int phys_get_velocity(lua_State* L){
@@ -2086,6 +2198,204 @@ int add_physics_waker(lua_State* L){
 }
 int tostring_physics_waker(lua_State* L){check_comp_owner(L,"dst.PhysicsWaker");lua_pushfstring(L,"PhysicsWaker (%p)",lua_touserdata(L,1));return 1;}
 
+bool is_land_point(const MapComponent& m,float wx,float wz){
+    int tx=0,ty=0;
+    m.world_to_tile(wx,wz,tx,ty);
+    uint16_t t=m.tiles.get(tx,ty,web_tiles::default_impassable_tile());
+    return web_tiles::is_land(t);
+}
+
+}
+
+bool get_anim_snapshot(uint32_t id,AnimSnapshot& out){
+    auto it=anim_states.find(id);
+    if(it==anim_states.end())return false;
+    const auto& a=it->second;
+    out.bank=a.bank.c_str();
+    out.build=a.skin_build.empty()?a.build.c_str():a.skin_build.c_str();
+    out.anim=a.anim.c_str();
+    out.layer=a.layer;
+    out.sort_order=a.sort_order;
+    out.facing=a.facing;
+    if(a.playing&&a.loop&&a.queue.empty()){
+        double t=std::fmod(std::max(0.0,global_anim_clock-a.start_clock),std::max(0.033,static_cast<double>(a.anim_length)));
+        out.current_frame=std::clamp(static_cast<int>(t*30.0),0,std::max(0,a.num_frames-1));
+    }else{
+        out.current_frame=a.current_frame;
+    }
+    out.num_frames=a.num_frames;
+    for(int i=0;i<4;++i)out.mult_colour[i]=a.mult_colour[i];
+    return true;
+}
+
+bool get_light_snapshot(uint32_t id,LightSnapshot& out){
+    auto it=light_states.find(id);
+    if(it==light_states.end()||!it->second.enabled)return false;
+    const auto& l=it->second;
+    out.enabled=l.enabled;
+    out.radius=l.radius;
+    out.falloff=l.falloff;
+    out.intensity=l.intensity;
+    out.r=l.r;out.g=l.g;out.b=l.b;
+    return true;
+}
+
+void push_map_window(lua_State* L,float cx,float cz,int tile_radius,int stride){
+    lua_newtable(L);
+    if(maps.empty())return;
+    const auto& m=maps.begin()->second;
+    int ctx=0,cty=0;
+    m.world_to_tile(cx,cz,ctx,cty);
+    int st=std::max(1,stride);
+    int x0=ctx-tile_radius*st;
+    int y0=cty-tile_radius*st;
+    int side=tile_radius*2+1;
+    lua_pushinteger(L,m.tiles.width);lua_setfield(L,-2,"mapWidth");
+    lua_pushinteger(L,m.tiles.height);lua_setfield(L,-2,"mapHeight");
+    lua_pushinteger(L,x0);lua_setfield(L,-2,"x0");
+    lua_pushinteger(L,y0);lua_setfield(L,-2,"y0");
+    lua_pushinteger(L,side);lua_setfield(L,-2,"cols");
+    lua_pushinteger(L,side);lua_setfield(L,-2,"rows");
+    lua_pushinteger(L,st);lua_setfield(L,-2,"stride");
+    lua_createtable(L,side*side,0);
+    int idx=1;
+    uint16_t imp=web_tiles::default_impassable_tile();
+    for(int ry=0;ry<side;++ry){
+        int ty=y0+ry*st;
+        for(int rx=0;rx<side;++rx){
+            int tx=x0+rx*st;
+            uint16_t t=m.tiles.get(tx,ty,imp);
+            lua_pushinteger(L,t);
+            lua_rawseti(L,-2,idx++);
+        }
+    }
+    lua_setfield(L,-2,"data");
+}
+
+void step(lua_State* L,float dt){
+    if(dt<=0.0f||!host.get_transform||!host.set_position)return;
+    global_anim_clock+=dt;
+    const MapComponent* map=maps.empty()?nullptr:&maps.begin()->second;
+    std::vector<uint32_t> stopped_phys;
+    for(uint32_t id:active_physics_ids){
+        auto it=physics_states.find(id);
+        if(it==physics_states.end()){stopped_phys.push_back(id);continue;}
+        auto& p=it->second;
+        if(!p.active){stopped_phys.push_back(id);continue;}
+        if(p.use_motor){
+            if(p.mx==0.0f&&p.my==0.0f&&p.mz==0.0f){p.vx=0.0f;p.vy=0.0f;p.vz=0.0f;stopped_phys.push_back(id);continue;}
+        }else if(p.vx==0.0f&&p.vy==0.0f&&p.vz==0.0f){
+            stopped_phys.push_back(id);continue;
+        }
+        if(host.is_awake?!host.is_awake(id):!host.alive(id))continue;
+        float x=0,y=0,z=0,rot=0;
+        if(!host.get_transform(id,&x,&y,&z,&rot))continue;
+        if(p.use_motor){
+            float c=std::cos(rot),s=std::sin(rot);
+            p.vx=c*p.mx+s*p.mz;
+            p.vy=p.my;
+            p.vz=-s*p.mx+c*p.mz;
+        }
+        if(p.vx==0.0f&&p.vy==0.0f&&p.vz==0.0f){stopped_phys.push_back(id);continue;}
+        float nx=x+p.vx*dt;
+        float ny=std::max(0.0f,y+p.vy*dt);
+        float nz=z+p.vz*dt;
+        if(!p.passable&&map&&is_land_point(*map,x,z)){
+            if(!is_land_point(*map,nx,nz)){
+                if(is_land_point(*map,nx,z))nz=z;
+                else if(is_land_point(*map,x,nz))nx=x;
+                else{nx=x;nz=z;}
+            }
+        }
+        host.set_position(id,nx,ny,nz);
+        if(!p.use_motor&&y>0.0f){
+            p.vy-=24.0f*dt;
+            if(ny<=0.0f){p.vx*=0.5f;p.vz*=0.5f;p.vy=0.0f;}
+        }
+    }
+    for(uint32_t id:stopped_phys)active_physics_ids.erase(id);
+
+    std::vector<std::pair<uint32_t,bool>> finished_anims;
+    std::vector<uint32_t> inactive_anims;
+    for(uint32_t id:active_anim_ids){
+        auto it=anim_states.find(id);
+        if(it==anim_states.end()){inactive_anims.push_back(id);continue;}
+        auto& a=it->second;
+        if(!a.playing||(a.loop&&a.queue.empty())){inactive_anims.push_back(id);continue;}
+        if(host.is_awake?!host.is_awake(id):!host.alive(id)){
+            // Sleeping world props playing a one-shot initial idle can settle immediately
+            a.done=true;
+            a.playing=false;
+            inactive_anims.push_back(id);
+            continue;
+        }
+        a.anim_time+=dt;
+        int f=static_cast<int>(a.anim_time*30.0f);
+        a.current_frame=std::clamp(f,0,std::max(0,a.num_frames-1));
+        if(a.anim_time>=a.anim_length){
+            if(!a.queue.empty()){
+                auto next=a.queue.front();
+                a.queue.erase(a.queue.begin());
+                start_anim_clip_raw(a,next.first,next.second);
+                if(!a.playing||(a.loop&&a.queue.empty()))inactive_anims.push_back(id);
+                finished_anims.emplace_back(id,false);
+            }else if(a.loop){
+                a.anim_time=std::fmod(a.anim_time,std::max(0.033f,a.anim_length));
+                a.current_frame=0;
+                inactive_anims.push_back(id);
+            }else{
+                a.done=true;
+                a.playing=false;
+                inactive_anims.push_back(id);
+                finished_anims.emplace_back(id,true);
+            }
+        }
+    }
+    for(uint32_t id:inactive_anims)active_anim_ids.erase(id);
+
+    if(!finished_anims.empty()&&L){
+        int top=lua_gettop(L);
+        lua_getglobal(L,"Ents");
+        if(lua_istable(L,-1)){
+            int ents_idx=lua_gettop(L);
+            for(const auto& item:finished_anims){
+                lua_rawgeti(L,ents_idx,item.first);
+                if(lua_istable(L,-1)){
+                    int ent_idx=lua_gettop(L);
+                    lua_getfield(L,ent_idx,"sg");
+                    bool has_sg=!lua_isnil(L,-1);
+                    lua_pop(L,1);
+                    if(!has_sg){
+                        lua_getfield(L,ent_idx,"event_listeners");
+                        if(lua_istable(L,-1)){
+                            lua_getfield(L,-1,"animover");
+                            has_sg=!lua_isnil(L,-1);
+                            lua_pop(L,1);
+                        }
+                        lua_pop(L,1);
+                    }
+                    if(has_sg){
+                        lua_getfield(L,ent_idx,"PushEvent");
+                        if(lua_isfunction(L,-1)){
+                            lua_pushvalue(L,ent_idx);
+                            lua_pushliteral(L,"animover");
+                            lua_pcall(L,2,0,0);
+                        }else lua_pop(L,1);
+                        if(item.second){
+                            lua_getfield(L,ent_idx,"PushEvent");
+                            if(lua_isfunction(L,-1)){
+                                lua_pushvalue(L,ent_idx);
+                                lua_pushliteral(L,"animqueueover");
+                                lua_pcall(L,2,0,0);
+                            }else lua_pop(L,1);
+                        }
+                    }
+                }
+                lua_pop(L,1);
+            }
+        }
+        lua_settop(L,top);
+    }
 }
 
 void retire(uint32_t id){
@@ -2100,7 +2410,9 @@ void retire(uint32_t id){
     server_non_sleepables.erase(id);
     client_sleepables.erase(id);
     anim_states.erase(id);
+    active_anim_ids.erase(id);
     physics_states.erase(id);
+    active_physics_ids.erase(id);
     light_states.erase(id);
     image_comp_states.erase(id);
     text_edit_states.erase(id);
@@ -2135,7 +2447,10 @@ void clear(){
     server_non_sleepables.clear();
     client_sleepables.clear();
     anim_states.clear();
+    active_anim_ids.clear();
+    global_anim_clock=0.0;
     physics_states.clear();
+    active_physics_ids.clear();
     light_states.clear();
     image_comp_states.clear();
     text_edit_states.clear();
@@ -2268,7 +2583,7 @@ void install(lua_State* L,web_components::EntityHost callbacks){
         {"BuildHasSymbol",comp_true},{"SetBank",anim_set_bank},{"SetBankAndPlayAnimation",anim_set_bank_and_play},
         {"SetLayer",anim_set_layer},{"GetLayer",anim_get_layer},{"SetScale",comp_noop},
         {"SetDepthTestEnabled",comp_noop},{"SetDepthWriteEnabled",comp_noop},{"SetDepthBias",comp_noop},
-        {"AnimDone",comp_true},{"PushAnimation",anim_play},{"Hide",comp_noop},{"Show",comp_noop},
+        {"AnimDone",anim_done},{"PushAnimation",anim_push},{"Hide",comp_noop},{"Show",comp_noop},
         {"HideSymbol",comp_noop},{"ShowSymbol",comp_noop},{"Pause",comp_noop},{"Resume",comp_noop},
         {"SetPercent",comp_noop},{"SetAddColour",anim_set_add_colour},{"SetMultColour",anim_set_mult_colour},
         {"SetHue",anim_set_hue},{"SetSaturation",anim_set_saturation},{"SetBrightness",anim_set_brightness},

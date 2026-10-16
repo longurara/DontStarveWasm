@@ -41,6 +41,43 @@ int key_down(lua_State* L){
 }
 int mouse_button(lua_State* L){lua_pushboolean(L,desktop&&enabled&&buttons.count(luaL_checkinteger(L,2)));return 1;}
 int position(lua_State* L){lua_pushnumber(L,mouse_x);lua_pushnumber(L,mouse_y);return 2;}
+bool is_control_pressed(int control){
+    if(!desktop||!enabled)return false;
+    switch(control){
+        case 0:return buttons.count(1000)>0;
+        case 1:return buttons.count(1001)>0;
+        case 2:return keys.count(102)>0;
+        case 3:return keys.count(307)>0||keys.count(308)>0;
+        case 4:return keys.count(32)>0;
+        case 5:return keys.count(119)>0||keys.count(273)>0;
+        case 6:return keys.count(115)>0||keys.count(274)>0;
+        case 7:return keys.count(97)>0||keys.count(276)>0;
+        case 8:return keys.count(100)>0||keys.count(275)>0;
+        case 9:return buttons.count(1003)>0;
+        case 10:return buttons.count(1004)>0;
+        case 11:return keys.count(113)>0;
+        case 12:return keys.count(101)>0;
+        case 13:return keys.count(27)>0;
+        case 14:return keys.count(9)>0||keys.count(109)>0;
+        case 29:return keys.count(13)>0||keys.count(32)>0||buttons.count(1000)>0;
+        case 30:return keys.count(27)>0||buttons.count(1001)>0;
+        case 38:return keys.count(307)>0||keys.count(308)>0;
+        case 39:return keys.count(305)>0||keys.count(306)>0;
+        case 40:return keys.count(303)>0||keys.count(304)>0;
+        case 41:return keys.count(305)>0||keys.count(306)>0;
+        default:
+            if(control>=15&&control<=23)return keys.count(49+(control-15))>0;
+            if(control==24)return keys.count(48)>0;
+            return false;
+    }
+}
+int digital_control(lua_State* L){
+    lua_pushboolean(L,is_control_pressed(static_cast<int>(luaL_checkinteger(L,2))));return 1;
+}
+int analog_control(lua_State* L){
+    lua_pushnumber(L,is_control_pressed(static_cast<int>(luaL_checkinteger(L,2)))?1.0:0.0);return 1;
+}
+int set_desktop_mode(lua_State* L){desktop=lua_toboolean(L,1)!=0;return 0;}
 int unknown(lua_State* L){return luaL_error(L,"UNIMPLEMENTED_NATIVE: InputProxy.%s",luaL_checkstring(L,2));}
 }
 void install(lua_State* L,bool client){
@@ -61,10 +98,11 @@ void install(lua_State* L,bool client){
     lua_setfield(L,-2,"__index");lua_pop(L,1);
     lua_newuserdata(L,1);luaL_getmetatable(L,"dst.InputProxy");lua_setmetatable(L,-2);lua_setglobal(L,"TheInputProxy");
     lua_getglobal(L,"TheSim");
-    for(auto method:std::initializer_list<luaL_Reg>{{"IsKeyDown",key_down},{"GetMouseButtonState",mouse_button},{"GetPosition",position}}){
+    for(auto method:std::initializer_list<luaL_Reg>{{"IsKeyDown",key_down},{"GetMouseButtonState",mouse_button},{"GetPosition",position},{"GetDigitalControl",digital_control},{"GetAnalogControl",analog_control}}){
         lua_pushcfunction(L,method.func);lua_setfield(L,-2,method.name);
     }
     lua_pop(L,1);
+    lua_newtable(L);lua_pushcfunction(L,set_desktop_mode);lua_setfield(L,-2,"SetDesktopMode");lua_setglobal(L,"WebInput");
 }
 }
 extern "C" {
