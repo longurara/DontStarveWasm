@@ -555,6 +555,18 @@ int sim_is_netbook_mode(lua_State* L){lua_pushboolean(L,netbook_mode?1:0);return
 int sim_set_netbook_mode(lua_State* L){netbook_mode=lua_toboolean(L,2)!=0;return 0;}
 int sim_is_logged_on(lua_State* L){lua_pushnil(L);return 1;}
 int sim_false(lua_State* L){lua_pushboolean(L,0);return 1;}
+int sim_true(lua_State* L){lua_pushboolean(L,1);return 1;}
+std::string instance_parameters;
+bool sim_reset_requested=false;
+int sim_set_instance_parameters(lua_State* L){
+    instance_parameters=luaL_optstring(L,2,"");
+    lua_pushlstring(L,instance_parameters.data(),instance_parameters.size());
+    lua_setglobal(L,"json_settings");
+    return 0;
+}
+int sim_reset(lua_State*){sim_reset_requested=true;return 0;}
+int sim_set_dlc_enabled(lua_State* L){(void)luaL_checkinteger(L,2);luaL_checktype(L,3,LUA_TBOOLEAN);return 0;}
+int sim_is_dlc_enabled(lua_State* L){(void)luaL_checkinteger(L,2);lua_pushboolean(L,0);return 1;}
 int sim_get_users_name(lua_State* L){lua_pushliteral(L,"Player");return 1;}
 int sim_get_steam_id_number(lua_State* L){lua_pushnumber(L,0);return 1;}
 int sim_get_steam_beta_branch_name(lua_State* L){lua_pushliteral(L,"non-Steam");return 1;}
@@ -943,7 +955,7 @@ EMSCRIPTEN_KEEPALIVE int dst_init(int role) {
     lua_getglobal(state,"os"); lua_pushnil(state); lua_setfield(state,-2,"execute");
     lua_pushnil(state); lua_setfield(state,-2,"exit"); lua_pop(state,1);
     lua_getglobal(state,"package"); lua_pushnil(state); lua_setfield(state,-2,"loadlib"); lua_pop(state,1);
-    entities.clear();resource_catalog.clear();texture_groups.clear();sim_settings.clear();render_pass_effects.clear();erosion_texture.clear();holo_texture.clear();motd_target.clear();ui_root_guid=0;netbook_mode=false;registered_find_tags.clear();sim_time_scale=1.0f;ambient_r=0;ambient_g=0;ambient_b=0;visual_ambient_r=0;visual_ambient_g=0;visual_ambient_b=0; tick=0; next_guid=1; profiler_depth=0;seed_rng(0);server_language="en";
+    entities.clear();resource_catalog.clear();texture_groups.clear();sim_settings.clear();render_pass_effects.clear();erosion_texture.clear();holo_texture.clear();motd_target.clear();ui_root_guid=0;netbook_mode=false;registered_find_tags.clear();sim_time_scale=1.0f;ambient_r=0;ambient_g=0;ambient_b=0;visual_ambient_r=0;visual_ambient_g=0;visual_ambient_b=0;instance_parameters.clear();sim_reset_requested=false; tick=0; next_guid=1; profiler_depth=0;seed_rng(0);server_language="en";
     runtime_role=role==0?"client":role==1?"master":"caves";
     lua_getglobal(state,"math");
     lua_pushcfunction(state,math_randomseed);lua_setfield(state,-2,"randomseed");
@@ -1001,6 +1013,9 @@ EMSCRIPTEN_KEEPALIVE int dst_init(int role) {
         {"SetErosionTexture",sim_set_erosion_texture},{"SetHoloTexture",sim_set_holo_texture},{"SetUIRoot",sim_set_ui_root},
         {"ShouldPlayIntroMovie",sim_should_play_intro_movie},{"IsNetbookMode",sim_is_netbook_mode},{"SetNetbookMode",sim_set_netbook_mode},
         {"IsLoggedOn",sim_is_logged_on},{"GetUserHasLicenseForApp",sim_false},{"IsSteamChinaClient",sim_false},{"IsBorrowed",sim_false},
+        {"CanWriteConfigurationDirectory",sim_true},{"CanReadConfigurationDirectory",sim_true},{"HasValidLogFile",sim_true},{"HasEnoughFreeDiskSpace",sim_true},
+        {"SetInstanceParameters",sim_set_instance_parameters},{"Reset",sim_reset},
+        {"SetDLCEnabled",sim_set_dlc_enabled},{"IsDLCEnabled",sim_is_dlc_enabled},{"IsDLCInstalled",sim_is_dlc_enabled},
         {"GetUsersName",sim_get_users_name},{"GetSteamIDNumber",sim_get_steam_id_number},{"GetSteamBetaBranchName",sim_get_steam_beta_branch_name},
         {"LogBulkMetric",sim_log_bulk_metric},{"SetMOTDTarget",sim_set_motd_target},{"GetMOTDQueryURL",sim_get_motd_query_url},
         {"HasMOTDImage",sim_has_motd_image},{"DownloadMOTDImage",sim_download_motd_image},{"LoadMOTDImage",sim_load_motd_image},{"DownloadMOTDImages",sim_download_motd_images},
@@ -1053,6 +1068,7 @@ EMSCRIPTEN_KEEPALIVE int dst_init(int role) {
     lua_getglobal(state,"TheSim");lua_pushcfunction(state,validate_line_number);lua_setfield(state,-2,"ValidateLineNumber");lua_pop(state,1);
     const luaL_Reg net[]={{"IsDedicated",is_dedicated},{"GetDefaultServerLanguage",get_server_language},
         {"SetDefaultServerLanguage",set_server_language},{"GetLanguageCode",get_language_code},{nullptr,nullptr}}; register_table("TheNet",net);
+    const luaL_Reg shard[]={{nullptr,nullptr}}; register_table("TheShard",shard);
     web_session::install(state,role==0);
     for(auto p : std::vector<std::pair<const char*,lua_CFunction>>{{"GetTick",get_tick},{"GetStaticTick",get_tick},
         {"GetTime",get_time},{"GetStaticTime",get_time},{"GetTickTime",get_tick_time}}) {

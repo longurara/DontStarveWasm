@@ -12,27 +12,70 @@ namespace web_session {
 namespace {
 bool configured=false;
 bool is_client=false;
+bool server_started=false;
+bool client_started=false;
 std::map<std::string,std::string> strings;
 std::map<std::string,bool> flags;
 int max_players=0;
 std::string default_mode;
+std::string server_playstyle;
+std::string server_tags;
+std::string session_identifier;
+std::string world_gen_data;
 void ready(lua_State* L){if(!configured)luaL_error(L,"Session parameters must be configured before network queries");}
+std::string trim_ascii_control(std::string value){
+    for(char& byte:value)if(static_cast<unsigned char>(byte)>=128||byte<32)byte=' ';
+    auto first=value.find_first_not_of(" \t\n\r");
+    return first==std::string::npos?"":value.substr(first,value.find_last_not_of(" \t\n\r")-first+1);
+}
 int get_string(lua_State* L){ready(L);auto& value=strings.at(lua_tostring(L,lua_upvalueindex(1)));lua_pushlstring(L,value.data(),value.size());return 1;}
 int get_flag(lua_State* L){ready(L);lua_pushboolean(L,flags.at(lua_tostring(L,lua_upvalueindex(1))));return 1;}
 int get_max(lua_State* L){ready(L);lua_pushinteger(L,max_players);return 1;}
 int get_user_id(lua_State* L){ready(L);lua_pushstring(L,strings.at("localUserId").c_str());return 1;}
 int get_default_mode(lua_State* L){ready(L);lua_pushlstring(L,default_mode.data(),default_mode.size());return 1;}
 int set_default_mode(lua_State* L){
-    ready(L);std::string value=luaL_checkstring(L,2);
+    ready(L);
     // 0x1401e7df0: replace signed bytes < 32, trim, then canonicalize only
     // the three built-in names from 0x14026d3a0's table.
-    for(char& byte:value)if(static_cast<unsigned char>(byte)>=128||byte<32)byte=' ';
-    auto first=value.find_first_not_of(" \t\n\r");
-    value=first==std::string::npos?"":value.substr(first,value.find_last_not_of(" \t\n\r")-first+1);
+    std::string value=trim_ascii_control(luaL_checkstring(L,2));
     std::string lower=value;for(char& byte:lower)if(byte>='A'&&byte<='Z')byte+='a'-'A';
     if(lower=="survival"||lower=="lavaarena"||lower=="quagmire")value=lower;
     default_mode=value;return 0;
 }
+int get_is_server(lua_State* L){ready(L);lua_pushboolean(L,server_started?1:0);return 1;}
+int get_is_client(lua_State* L){ready(L);lua_pushboolean(L,client_started?1:0);return 1;}
+int get_is_hosting(lua_State* L){ready(L);lua_pushboolean(L,!is_client?1:0);return 1;}
+int start_server(lua_State* L){
+    ready(L);
+    // 0x140237f70 -> 0x14023803e: luaL_optboolean(L, 2, true)
+    bool start_in_online_mode=lua_isnoneornil(L,2)?true:(lua_toboolean(L,2)!=0);
+    if(is_client||start_in_online_mode)return luaL_error(L,"UNIMPLEMENTED_NATIVE: NetworkProxy.StartServer");
+    server_started=true;
+    lua_pushboolean(L,1);return 1;
+}
+int get_empty_string(lua_State* L){ready(L);lua_pushliteral(L,"");return 1;}
+int get_false(lua_State* L){ready(L);lua_pushboolean(L,0);return 1;}
+int get_true(lua_State* L){ready(L);lua_pushboolean(L,1);return 1;}
+int get_session_identifier(lua_State* L){ready(L);lua_pushlstring(L,session_identifier.data(),session_identifier.size());return 1;}
+int get_server_playstyle(lua_State* L){ready(L);lua_pushlstring(L,server_playstyle.data(),server_playstyle.size());return 1;}
+int set_server_playstyle(lua_State* L){ready(L);server_playstyle=trim_ascii_control(luaL_checkstring(L,2));return 0;}
+int set_server_tags(lua_State* L){
+    ready(L);std::string v=luaL_checkstring(L,2);
+    if(v.size()>1024){auto pos=v.rfind(',',1024);v=pos==std::string::npos?v.substr(0,1024):v.substr(0,pos);}
+    server_tags=std::move(v);return 0;
+}
+int set_world_gen_data(lua_State* L){
+    ready(L);size_t len=0;const char* s=luaL_checklstring(L,2,&len);
+    world_gen_data.assign(s,len>5120?5120:len);return 0;
+}
+int notify_loading_state(lua_State* L){ready(L);(void)luaL_checkinteger(L,2);(void)luaL_optstring(L,3,"");return 0;}
+int net_noop(lua_State* L){ready(L);return 0;}
+int shard_false(lua_State* L){lua_pushboolean(L,0);return 1;}
+int shard_get_id(lua_State* L){lua_pushliteral(L,"0");return 1;}
+int shard_set_secondary_loading(lua_State* L){luaL_checktype(L,2,LUA_TBOOLEAN);return 0;}
+int shard_is_migrating(lua_State*){return 0;}
+int shard_start_migration(lua_State* L){lua_pushboolean(L,0);return 1;}
+int shard_get_secondary_player_counts(lua_State* L){(void)luaL_checknumber(L,2);lua_pushinteger(L,0);lua_pushinteger(L,0);return 2;}
 int inspect(lua_State* L){
     lua_newtable(L);lua_pushboolean(L,configured);lua_setfield(L,-2,"configured");
     if(!configured)return 1;
@@ -76,7 +119,9 @@ std::string configure_data(const std::string& json,const char* expected){
     const auto& identity=next_strings.at("localUserId");
     if(!identity.empty()&&(identity.size()!=36||identity.compare(0,4,"WEB_")!=0||identity.find_first_not_of("0123456789abcdef",4)!=std::string::npos))return "Invalid session localUserId";
     if(!is_client&&!identity.empty())return "Authoritative shard has no local player identity";
-    strings=std::move(next_strings);flags=std::move(next_flags);max_players=static_cast<int>(count);default_mode=strings.at("gameMode");configured=true;return "";
+    strings=std::move(next_strings);flags=std::move(next_flags);max_players=static_cast<int>(count);default_mode=strings.at("gameMode");
+    server_started=false;client_started=false;server_playstyle.clear();server_tags.clear();session_identifier.clear();world_gen_data.clear();
+    configured=true;return "";
 }
 }
 int configure(lua_State* L){
@@ -91,16 +136,46 @@ int configure(lua_State* L){
     return success?0:lua_error(L);
 }
 void install(lua_State* L,bool client){
-    is_client=client;configured=false;strings.clear();flags.clear();max_players=0;default_mode.clear();lua_getglobal(L,"TheNet");
-    for(auto [method,key]:std::map<const char*,const char*>{{"GetServerGameMode","gameMode"},{"GetServerName","serverName"},{"GetServerDescription","serverDescription"},{"GetServerIntention","serverIntention"}})closure(L,method,key,get_string);
-    for(auto [method,key]:std::map<const char*,const char*>{{"GetServerFriendsOnly","friendsOnly"},{"GetServerLANOnly","lanOnly"},{"GetServerPVP","pvp"},{"GetPVPEnabled","pvp"},{"IsOnlineMode","platformOnline"},{"IsDedicatedOfflineCluster","offlineCluster"},{"GetServerIsDedicated","serverDedicated"},{"GetServerIsClientHosted","serverClientHosted"}})closure(L,method,key,get_flag);
-    lua_pushcfunction(L,get_max);lua_setfield(L,-2,"GetServerMaxPlayers");
-    lua_pushcfunction(L,get_user_id);lua_setfield(L,-2,"GetUserID");
-    lua_pushcfunction(L,get_default_mode);lua_setfield(L,-2,"GetDefaultGameMode");lua_pushcfunction(L,set_default_mode);lua_setfield(L,-2,"SetDefaultGameMode");
+    is_client=client;configured=false;server_started=false;client_started=false;
+    strings.clear();flags.clear();max_players=0;default_mode.clear();server_playstyle.clear();server_tags.clear();session_identifier.clear();world_gen_data.clear();
+    lua_getglobal(L,"TheNet");
+    for(auto [method,key]:std::map<const char*,const char*>{
+        {"GetServerGameMode","gameMode"},{"GetServerName","serverName"},{"GetServerDescription","serverDescription"},{"GetServerIntention","serverIntention"},
+        {"GetDefaultServerName","serverName"},{"GetDefaultServerDescription","serverDescription"},{"GetDefaultServerIntention","serverIntention"}
+    })closure(L,method,key,get_string);
+    for(auto [method,key]:std::map<const char*,const char*>{
+        {"GetServerFriendsOnly","friendsOnly"},{"GetServerLANOnly","lanOnly"},{"GetServerPVP","pvp"},{"GetPVPEnabled","pvp"},
+        {"IsOnlineMode","platformOnline"},{"IsDedicatedOfflineCluster","offlineCluster"},{"GetServerIsDedicated","serverDedicated"},{"GetServerIsClientHosted","serverClientHosted"},
+        {"GetDefaultPvpSetting","pvp"},{"GetDefaultFriendsOnlyServer","friendsOnly"},{"GetDefaultLANOnlyServer","lanOnly"}
+    })closure(L,method,key,get_flag);
+    for(auto [method,fn]:std::map<const char*,lua_CFunction>{
+        {"GetServerMaxPlayers",get_max},{"GetDefaultMaxPlayers",get_max},
+        {"GetUserID",get_user_id},
+        {"GetDefaultGameMode",get_default_mode},{"SetDefaultGameMode",set_default_mode},
+        {"GetIsServer",get_is_server},{"GetIsMasterSimulation",get_is_server},
+        {"GetIsClient",get_is_client},{"GetIsHosting",get_is_hosting},
+        {"StartServer",start_server},
+        {"GetDefaultServerPassword",get_empty_string},{"GetDefaultClanID",get_empty_string},
+        {"GetDefaultClanOnly",get_false},{"GetDefaultClanAdmins",get_false},{"GetDefaultVoteEnabled",get_false},
+        {"GetDefaultEncodeUserPath",get_true},{"TryDefaultEncodeUserPath",get_true},
+        {"GetSessionIdentifier",get_session_identifier},
+        {"GetServerPlaystyle",get_server_playstyle},{"SetServerPlaystyle",set_server_playstyle},
+        {"SetServerTags",set_server_tags},{"SetWorldGenData",set_world_gen_data},{"NotifyLoadingState",notify_loading_state},
+        {"DoneLoadingMap",net_noop},{"IncrementSnapshot",net_noop},{"TruncateSnapshots",net_noop},{"CleanupSessionCache",net_noop}
+    }){lua_pushcfunction(L,fn);lua_setfield(L,-2,method);}
     // Native NetworkProxy is userdata with an __index method table. Preserve
     // the existing methods/fallback while replacing the temporary namespace.
     luaL_newmetatable(L,"dst.NetworkProxy");lua_pushvalue(L,-2);lua_setfield(L,-2,"__index");lua_pop(L,1);
     lua_newuserdata(L,1);luaL_getmetatable(L,"dst.NetworkProxy");lua_setmetatable(L,-2);lua_setglobal(L,"TheNet");lua_pop(L,1);
+    lua_getglobal(L,"TheShard");
+    for(auto [method,fn]:std::map<const char*,lua_CFunction>{
+        {"IsMaster",shard_false},{"IsSecondary",shard_false},{"IsPlayer",shard_false},
+        {"GetShardId",shard_get_id},{"GetDefaultShardEnabled",shard_false},
+        {"SetSecondaryLoading",shard_set_secondary_loading},{"IsMigrating",shard_is_migrating},
+        {"StartMigration",shard_start_migration},{"GetSecondaryShardPlayerCounts",shard_get_secondary_player_counts}
+    }){lua_pushcfunction(L,fn);lua_setfield(L,-2,method);}
+    luaL_newmetatable(L,"dst.ShardNetworkProxy");lua_pushvalue(L,-2);lua_setfield(L,-2,"__index");lua_pop(L,1);
+    lua_newuserdata(L,1);luaL_getmetatable(L,"dst.ShardNetworkProxy");lua_setmetatable(L,-2);lua_setglobal(L,"TheShard");lua_pop(L,1);
     lua_newtable(L);lua_pushcfunction(L,inspect);lua_setfield(L,-2,"Inspect");lua_setglobal(L,"WebSession");
 }
 }
