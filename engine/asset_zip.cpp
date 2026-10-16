@@ -15,7 +15,7 @@ bool unpack(const std::vector<uint8_t>& data,std::map<std::string,std::vector<ui
         if(le(data,pos,4)==0x06054b50&&le(data,pos+20,2)==data.size()-pos-22){end=pos;found=true;break;}}
     if(!found||le(data,end+4,2)||le(data,end+6,2))return fail("Unsupported ZIP end record or split archive");
     const size_t count=le(data,end+10,2),size=le(data,end+12,4),start=le(data,end+16,4);
-    if(!count||count>512||le(data,end+8,2)!=count||start>end||size>end-start)return fail("Invalid asset ZIP directory");
+    if(count>512||le(data,end+8,2)!=count||start>end||size>end-start)return fail("Invalid asset ZIP directory");
     size_t pos=start,total=0;
     for(size_t i=0;i<count;++i){
         if(pos>start+size||start+size-pos<46||le(data,pos,4)!=0x02014b50)return fail("Truncated ZIP directory");

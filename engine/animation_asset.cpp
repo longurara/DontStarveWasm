@@ -84,50 +84,73 @@ bool texture(const std::vector<uint8_t>& bytes,Texture& out){
     web_ktex::Texture decoded;std::string error;if(!web_ktex::parse(bytes,decoded,error))return false;
     out.codec=decoded.codec;out.mips=decoded.mips.size();out.width=decoded.mips[0].width;out.height=decoded.mips[0].height;out.bytes=bytes.size();return true;
 }
+void integer(lua_State* L,const char* name,size_t value){lua_pushnumber(L,value);lua_setfield(L,-2,name);}
+void append(std::string& text,const void* bytes,size_t size){if(size)text.append(static_cast<const char*>(bytes),size);}
 bool decode(const std::vector<uint8_t>& bytes,Bundle& out,bool deferred,bool include_texture_bytes,std::string& error){
     std::map<std::string,std::vector<uint8_t>> files;if(!web_asset_zip::unpack(bytes,files,error))return false;
     auto anim=files.find("anim.bin"),bild=files.find("build.bin");
-    if(anim==files.end()&&bild==files.end()){error="Animation ZIP has no ANIM/BILD";return false;}
+    if(!files.empty()&&anim==files.end()&&bild==files.end()){error="Animation ZIP has no ANIM/BILD";return false;}
     if(bild!=files.end()&&!build(bild->second,out)){error="Invalid or unsupported BILD (expected version 6)";return false;}
     if(anim!=files.end()&&!animation(anim->second,out)){error="Invalid or unsupported ANIM (expected version 4)";return false;}
     out.textures_deferred=deferred;out.source_hash=web_crypto::sha256(std::string(reinterpret_cast<const char*>(bytes.data()),bytes.size()));
     if(!deferred)for(const auto& name:out.atlases){auto file=files.find(name);Texture image;
         if(file==files.end()||!texture(file->second,image)){error="Invalid/missing KTEX atlas: "+name;return false;}out.textures.emplace(name,std::move(image));}
+    static_assert(sizeof(Element)==40&&sizeof(std::array<float,6>)==24,"WASM asset layout changed");
+    std::string vertices_raw,elements_raw,events_raw,symbols_raw;
+    out.vertex_count=out.vertices.size();
+    append(vertices_raw,out.vertices.data(),out.vertices.size()*24);
+    for(const auto& pair:out.symbols){append(symbols_raw,&pair.first,4);uint32_t count=pair.second.frames.size();append(symbols_raw,&count,4);
+        for(const auto& frame:pair.second.frames){append(symbols_raw,&frame.frame,4);append(symbols_raw,&frame.duration,4);append(symbols_raw,frame.bounds.data(),16);append(symbols_raw,&frame.offset,4);append(symbols_raw,&frame.count,4);}}
+    out.frame_count=out.element_count=out.event_count=0;
+    for(auto& clip:out.clips){
+        clip.frame_count=clip.frames.size();
+        for(const auto& frame:clip.frames){++out.frame_count;out.element_count+=frame.elements.size();out.event_count+=frame.events.size();append(elements_raw,frame.elements.data(),frame.elements.size()*40);append(events_raw,frame.events.data(),frame.events.size()*4);}
+    }
+    out.vertex_sha256=web_crypto::sha256(vertices_raw);
+    out.element_sha256=web_crypto::sha256(elements_raw);
+    out.event_sha256=web_crypto::sha256(events_raw);
+    out.symbol_frame_sha256=web_crypto::sha256(symbols_raw);
     bool duplicate_hash=false;
     if(!include_texture_bytes&&!deferred){
         for(const auto& kv:cache)if(kv.second.value.source_hash==out.source_hash){duplicate_hash=true;break;}
     }
-    const bool charge_textures=include_texture_bytes||duplicate_hash;
-    out.retained_bytes=out.build.size()+out.source_hash.size()+out.atlases.capacity()*sizeof(std::string)+out.vertices.capacity()*sizeof(out.vertices[0])+out.clips.capacity()*sizeof(Clip);
-    for(const auto& name:out.atlases)out.retained_bytes+=name.size();
-    for(const auto& pair:out.symbols)out.retained_bytes+=sizeof(Symbol)+pair.second.name.size()+pair.second.frames.capacity()*sizeof(SymbolFrame);
-    for(const auto& clip:out.clips){out.retained_bytes+=clip.name.size()+clip.frames.capacity()*sizeof(Frame);
-        for(const auto& frame:clip.frames)out.retained_bytes+=frame.elements.capacity()*sizeof(Element)+frame.events.capacity()*sizeof(uint32_t);}
-    for(const auto& image:out.textures)out.retained_bytes+=image.first.size()+(charge_textures?image.second.bytes:0)+sizeof(Texture);
-    for(const auto& name:out.names)out.retained_bytes+=name.second.size();
+    const bool charge_full=include_texture_bytes||duplicate_hash;
+    if(charge_full){
+        out.retained_bytes=out.build.size()+out.source_hash.size()+out.atlases.capacity()*sizeof(std::string)+out.vertices.capacity()*sizeof(out.vertices[0])+out.clips.capacity()*sizeof(Clip);
+        for(const auto& name:out.atlases)out.retained_bytes+=name.size();
+        for(const auto& pair:out.symbols)out.retained_bytes+=sizeof(Symbol)+pair.second.name.size()+pair.second.frames.capacity()*sizeof(SymbolFrame);
+        for(const auto& clip:out.clips){out.retained_bytes+=clip.name.size()+clip.frames.capacity()*sizeof(Frame);
+            for(const auto& frame:clip.frames)out.retained_bytes+=frame.elements.capacity()*sizeof(Element)+frame.events.capacity()*sizeof(uint32_t);}
+        for(const auto& image:out.textures)out.retained_bytes+=image.first.size()+image.second.bytes+sizeof(Texture);
+        for(const auto& name:out.names)out.retained_bytes+=name.second.size();
+    }
+    std::vector<std::array<float,6>>().swap(out.vertices);
+    for(auto& pair:out.symbols)std::vector<SymbolFrame>().swap(pair.second.frames);
+    for(auto& clip:out.clips)std::vector<Frame>().swap(clip.frames);
+    out.names.clear();
+    if(!charge_full){
+        out.retained_bytes=out.build.size()+out.source_hash.size()+out.atlases.capacity()*sizeof(std::string)+out.clips.capacity()*sizeof(Clip);
+        for(const auto& name:out.atlases)out.retained_bytes+=name.size();
+        for(const auto& pair:out.symbols)out.retained_bytes+=sizeof(Symbol)+pair.second.name.size();
+        for(const auto& clip:out.clips)out.retained_bytes+=clip.name.size();
+        for(const auto& image:out.textures)out.retained_bytes+=image.first.size()+sizeof(Texture);
+    }
     return true;
 }
-void integer(lua_State* L,const char* name,size_t value){lua_pushnumber(L,value);lua_setfield(L,-2,name);}
-void append(std::string& text,const void* bytes,size_t size){if(size)text.append(static_cast<const char*>(bytes),size);}
-void digest(lua_State* L,const char* name,const std::string& bytes){auto hash=web_crypto::sha256(bytes);lua_pushlstring(L,hash.data(),hash.size());lua_setfield(L,-2,name);}
 int inspect(lua_State* L){
     if(lua_isnoneornil(L,1)){lua_newtable(L);integer(L,"bundles",cache.size());integer(L,"retainedBytes",retained);integer(L,"budget",budget);integer(L,"evictions",evictions);return 1;}
     auto found=cache.find(web_strings::hash(luaL_checkstring(L,1)));if(found==cache.end()){lua_pushnil(L);return 1;}const auto& value=found->second.value;
     lua_newtable(L);lua_pushlstring(L,value.build.data(),value.build.size());lua_setfield(L,-2,"build");
-    integer(L,"symbols",value.symbols.size());integer(L,"vertices",value.vertices.size());integer(L,"textures",value.textures.size());integer(L,"retainedBytes",value.retained_bytes);integer(L,"references",found->second.references);
+    integer(L,"symbols",value.symbols.size());integer(L,"vertices",value.vertex_count);integer(L,"textures",value.textures.size());integer(L,"retainedBytes",value.retained_bytes);integer(L,"references",found->second.references);
     lua_pushboolean(L,value.textures_deferred);lua_setfield(L,-2,"texturesDeferred");integer(L,"declaredTextures",value.atlases.size());
     lua_pushlstring(L,value.source_hash.data(),value.source_hash.size());lua_setfield(L,-2,"sourceSha256");
-    std::string vertices,elements,events,symbols;
-    static_assert(sizeof(Element)==40&&sizeof(std::array<float,6>)==24,"WASM asset layout changed");
-    append(vertices,value.vertices.data(),value.vertices.size()*24);
-    for(const auto& pair:value.symbols){append(symbols,&pair.first,4);uint32_t count=pair.second.frames.size();append(symbols,&count,4);
-        for(const auto& frame:pair.second.frames){append(symbols,&frame.frame,4);append(symbols,&frame.duration,4);append(symbols,frame.bounds.data(),16);append(symbols,&frame.offset,4);append(symbols,&frame.count,4);}}
-    size_t frame_count=0,element_count=0,event_count=0;
-    for(const auto& clip:value.clips)for(const auto& frame:clip.frames){++frame_count;element_count+=frame.elements.size();event_count+=frame.events.size();append(elements,frame.elements.data(),frame.elements.size()*40);append(events,frame.events.data(),frame.events.size()*4);}
-    integer(L,"frames",frame_count);integer(L,"elements",element_count);integer(L,"events",event_count);
-    digest(L,"vertexSha256",vertices);digest(L,"elementSha256",elements);digest(L,"eventSha256",events);digest(L,"symbolFrameSha256",symbols);
+    integer(L,"frames",value.frame_count);integer(L,"elements",value.element_count);integer(L,"events",value.event_count);
+    lua_pushlstring(L,value.vertex_sha256.data(),value.vertex_sha256.size());lua_setfield(L,-2,"vertexSha256");
+    lua_pushlstring(L,value.element_sha256.data(),value.element_sha256.size());lua_setfield(L,-2,"elementSha256");
+    lua_pushlstring(L,value.event_sha256.data(),value.event_sha256.size());lua_setfield(L,-2,"eventSha256");
+    lua_pushlstring(L,value.symbol_frame_sha256.data(),value.symbol_frame_sha256.size());lua_setfield(L,-2,"symbolFrameSha256");
     lua_pushboolean(L,false);lua_setfield(L,-2,"rendererReady");lua_newtable(L);int index=0;
-    for(const auto& clip:value.clips){lua_newtable(L);lua_pushlstring(L,clip.name.data(),clip.name.size());lua_setfield(L,-2,"name");integer(L,"bank",clip.bank);integer(L,"facing",clip.facing);integer(L,"frames",clip.frames.size());lua_pushnumber(L,clip.rate);lua_setfield(L,-2,"rate");lua_rawseti(L,-2,++index);}lua_setfield(L,-2,"clips");return 1;
+    for(const auto& clip:value.clips){lua_newtable(L);lua_pushlstring(L,clip.name.data(),clip.name.size());lua_setfield(L,-2,"name");integer(L,"bank",clip.bank);integer(L,"facing",clip.facing);integer(L,"frames",clip.frame_count);lua_pushnumber(L,clip.rate);lua_setfield(L,-2,"rate");lua_rawseti(L,-2,++index);}lua_setfield(L,-2,"clips");return 1;
 }
 int decode_lua(lua_State* L){
     const char* path=luaL_checkstring(L,1);bool ok;

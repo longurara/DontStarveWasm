@@ -1,10 +1,15 @@
 #include "session.hpp"
 #include "session_json.hpp"
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <dirent.h>
 #include <map>
 #include <set>
 #include <string>
+#include <sys/stat.h>
+#include <unistd.h>
 extern "C" {
 #include "lauxlib.h"
 }
@@ -23,6 +28,36 @@ std::string server_tags;
 std::string session_identifier;
 std::string world_gen_data;
 void ready(lua_State* L){if(!configured)luaL_error(L,"Session parameters must be configured before network queries");}
+std::string persistent_root(){return is_client?"/persistent/client":"/persistent/master";}
+bool valid_segment(const char* s,size_t len){
+    if(!len||len>256||std::memchr(s,0,len))return false;
+    std::string v(s,len);
+    return v!="."&&v!=".."&&v.find('/')==std::string::npos&&v.find('\\')==std::string::npos&&v.find(':')==std::string::npos;
+}
+void ensure_dirs(const std::string& path){
+    for(size_t i=1;i<=path.size();++i)if(i==path.size()||path[i]=='/')mkdir(path.substr(0,i).c_str(),0700);
+}
+bool latest_snapshot_in_dir(const std::string& session_dir,const std::string& sid,std::string& out){
+    // Native 0x1402704a0 -> 0x14026f3d0: scan session/<sid>/ for highest
+    // snapshot integer (> 0), ignoring .meta and .User files.
+    DIR* dir=opendir(session_dir.c_str());
+    if(!dir)return false;
+    int max_num=0;
+    while(struct dirent* ent=readdir(dir)){
+        const char* name=ent->d_name;
+        if(name[0]=='.'||std::strstr(name,".meta")||std::strstr(name,".User"))continue;
+        int num=std::atoi(name);
+        if(num>max_num)max_num=num;
+    }
+    closedir(dir);
+    if(max_num<=0)return false;
+    char formatted[16];
+    std::snprintf(formatted,sizeof(formatted),"%010u",static_cast<unsigned int>(max_num));
+    struct stat st{};
+    if(stat((session_dir+"/"+formatted).c_str(),&st)!=0||!S_ISREG(st.st_mode))return false;
+    out="session/"+sid+"/"+formatted;
+    return true;
+}
 std::string trim_ascii_control(std::string value){
     for(char& byte:value)if(static_cast<unsigned char>(byte)>=128||byte<32)byte=' ';
     auto first=value.find_first_not_of(" \t\n\r");
@@ -57,6 +92,52 @@ int get_empty_string(lua_State* L){ready(L);lua_pushliteral(L,"");return 1;}
 int get_false(lua_State* L){ready(L);lua_pushboolean(L,0);return 1;}
 int get_true(lua_State* L){ready(L);lua_pushboolean(L,1);return 1;}
 int get_session_identifier(lua_State* L){ready(L);lua_pushlstring(L,session_identifier.data(),session_identifier.size());return 1;}
+int begin_session(lua_State* L){
+    // Native 0x14023a5b0 -> 0x1401f4810
+    ready(L);size_t len=0;const char* sid=luaL_checklstring(L,2,&len);
+    if(!valid_segment(sid,len))return luaL_error(L,"Invalid session identifier");
+    session_identifier.assign(sid,len);
+    ensure_dirs(persistent_root()+"/session/"+session_identifier);
+    return 0;
+}
+int delete_session(lua_State* L){
+    // Native 0x14023a5e0 -> 0x1401eb2b0
+    ready(L);size_t len=0;const char* sid=luaL_checklstring(L,2,&len);
+    std::string id(sid,len);
+    if(session_identifier==id)session_identifier.clear();
+    if(valid_segment(sid,len)){
+        std::string dir_path=persistent_root()+"/session/"+id;
+        if(DIR* dir=opendir(dir_path.c_str())){
+            while(struct dirent* ent=readdir(dir)){
+                if(ent->d_name[0]=='.')continue;
+                std::remove((dir_path+"/"+ent->d_name).c_str());
+            }
+            closedir(dir);
+            rmdir(dir_path.c_str());
+        }
+    }
+    return 0;
+}
+int get_world_session_file(lua_State* L){
+    // Native 0x14023a640 -> 0x1402704a0
+    ready(L);size_t len=0;const char* sid=luaL_checklstring(L,2,&len);
+    if(!valid_segment(sid,len))return 0;
+    std::string id(sid,len),out;
+    if(!latest_snapshot_in_dir(persistent_root()+"/session/"+id,id,out))return 0;
+    lua_pushlstring(L,out.data(),out.size());return 1;
+}
+int get_world_session_file_in_cluster_slot(lua_State* L){
+    // Native 0x14023a760
+    ready(L);int slot=static_cast<int>(luaL_checkinteger(L,2));
+    size_t sh_len=0,sid_len=0;
+    const char* shard=luaL_checklstring(L,3,&sh_len);
+    const char* sid=luaL_checklstring(L,4,&sid_len);
+    if(slot<0||slot>9999||!valid_segment(shard,sh_len)||!valid_segment(sid,sid_len))return 0;
+    std::string id(sid,sid_len),out;
+    std::string dir=persistent_root()+"/Cluster_"+std::to_string(slot)+"/"+std::string(shard,sh_len)+"/session/"+id;
+    if(!latest_snapshot_in_dir(dir,id,out))return 0;
+    lua_pushlstring(L,out.data(),out.size());return 1;
+}
 int get_server_playstyle(lua_State* L){ready(L);lua_pushlstring(L,server_playstyle.data(),server_playstyle.size());return 1;}
 int set_server_playstyle(lua_State* L){ready(L);server_playstyle=trim_ascii_control(luaL_checkstring(L,2));return 0;}
 int set_server_tags(lua_State* L){
@@ -159,6 +240,8 @@ void install(lua_State* L,bool client){
         {"GetDefaultClanOnly",get_false},{"GetDefaultClanAdmins",get_false},{"GetDefaultVoteEnabled",get_false},
         {"GetDefaultEncodeUserPath",get_true},{"TryDefaultEncodeUserPath",get_true},
         {"GetSessionIdentifier",get_session_identifier},
+        {"BeginSession",begin_session},{"DeleteSession",delete_session},
+        {"GetWorldSessionFile",get_world_session_file},{"GetWorldSessionFileInClusterSlot",get_world_session_file_in_cluster_slot},
         {"GetServerPlaystyle",get_server_playstyle},{"SetServerPlaystyle",set_server_playstyle},
         {"SetServerTags",set_server_tags},{"SetWorldGenData",set_world_gen_data},{"NotifyLoadingState",notify_loading_state},
         {"DoneLoadingMap",net_noop},{"IncrementSnapshot",net_noop},{"TruncateSnapshots",net_noop},{"CleanupSessionCache",net_noop}

@@ -115,3 +115,22 @@ test('browser JSON Unicode and escapes survive the WASM session boundary; malfor
   assert.equal(evaluate('return TheNet:GetServerName()'),valid.serverName);
   assert.equal(evaluate('return TheNet:GetServerDescription()'),valid.serverDescription);
 });
+
+test('TheNet session directory and world snapshot lookup match native GetWorldSessionFile semantics',async t=>{
+  const {engine,evaluate}=await loadEngine(1);t.after(()=>engine._dst_close());
+  assert.equal(evaluate('return TheNet:GetSessionIdentifier()'),'');
+  assert.equal(evaluate('return tostring((TheNet:GetWorldSessionFile("15CD1F748D1D1C77")))'),'nil');
+  evaluate('TheNet:BeginSession("15CD1F748D1D1C77")');
+  assert.equal(evaluate('return TheNet:GetSessionIdentifier()'),'15CD1F748D1D1C77');
+  engine.FS.writeFile('/persistent/master/session/15CD1F748D1D1C77/0000000182','old');
+  engine.FS.writeFile('/persistent/master/session/15CD1F748D1D1C77/0000000183','latest');
+  engine.FS.writeFile('/persistent/master/session/15CD1F748D1D1C77/0000000999.meta','ignored');
+  assert.equal(evaluate('return TheNet:GetWorldSessionFile("15CD1F748D1D1C77")'),'session/15CD1F748D1D1C77/0000000183');
+  engine.FS.mkdirTree('/persistent/master/Cluster_1/Master/session/15CD1F748D1D1C77');
+  engine.FS.writeFile('/persistent/master/Cluster_1/Master/session/15CD1F748D1D1C77/0000000005','slot5');
+  assert.equal(evaluate('return TheNet:GetWorldSessionFileInClusterSlot(1,"Master","15CD1F748D1D1C77")'),'session/15CD1F748D1D1C77/0000000005');
+  evaluate('TheNet:DeleteSession("15CD1F748D1D1C77")');
+  assert.equal(evaluate('return TheNet:GetSessionIdentifier()'),'');
+  assert.equal(evaluate('return tostring((TheNet:GetWorldSessionFile("15CD1F748D1D1C77")))'),'nil');
+});
+
