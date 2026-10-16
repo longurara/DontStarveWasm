@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdint>
@@ -570,6 +571,287 @@ int sim_update_device_caps(lua_State* L){
     lua_pushnumber(L,a);lua_pushnumber(L,b);return 2;
 }
 int sim_render_one_frame(lua_State*){web_ui::refresh();return 0;}
+struct TagFilter {
+    std::set<std::string> must;
+    std::set<std::string> cant;
+    std::set<std::string> one_of;
+};
+std::vector<TagFilter> registered_find_tags;
+float sim_time_scale=1.0f;
+uint8_t ambient_r=0,ambient_g=0,ambient_b=0;
+uint8_t visual_ambient_r=0,visual_ambient_g=0,visual_ambient_b=0;
+void read_tag_set(lua_State* L,int index,std::set<std::string>& out){
+    if(!lua_istable(L,index))return;
+    lua_pushvalue(L,index);
+    lua_pushnil(L);
+    while(lua_next(L,-2)!=0){
+        if(lua_isstring(L,-1))out.insert(lua_tostring(L,-1));
+        lua_pop(L,1);
+    }
+    lua_pop(L,1);
+}
+TagFilter parse_tag_filter(lua_State* L,int must_idx,int cant_idx,int one_of_idx){
+    TagFilter f;
+    int top=lua_gettop(L);
+    if(must_idx<=top)read_tag_set(L,must_idx,f.must);
+    if(cant_idx<=top)read_tag_set(L,cant_idx,f.cant);
+    if(one_of_idx<=top)read_tag_set(L,one_of_idx,f.one_of);
+    if(!f.must.count("INLIMBO")&&!f.one_of.count("INLIMBO"))f.cant.insert("INLIMBO");
+    return f;
+}
+bool entity_world_pos(const EntityState& e,float& x,float& y,float& z){
+    x=e.x;y=e.y;z=e.z;uint32_t parent=e.parent;int depth=0;
+    while(parent){
+        if(++depth>512)return false;
+        auto it=entities.find(parent);if(it==entities.end()||!it->second.valid)return false;
+        const auto& p=it->second;
+        float px=x*p.sx,pz=z*p.sz;
+        x=std::cos(p.rotation)*px+std::sin(p.rotation)*pz+p.x;
+        z=-std::sin(p.rotation)*px+std::cos(p.rotation)*pz+p.z;
+        y=y*p.sy+p.y;parent=p.parent;
+    }
+    return true;
+}
+bool entity_matches_filter(const EntityState& e,const TagFilter& f){
+    if(!f.one_of.empty()){
+        bool any=false;
+        for(const auto& t:f.one_of)if(e.tags.count(t)){any=true;break;}
+        if(!any)return false;
+    }
+    for(const auto& t:f.must)if(!e.tags.count(t))return false;
+    for(const auto& t:f.cant)if(e.tags.count(t))return false;
+    return true;
+}
+std::vector<uint32_t> query_entities(float x,float y,float z,float radius,const TagFilter& f){
+    float r_sq=radius*radius;
+    std::vector<std::pair<float,uint32_t>> hits;
+    for(const auto& kv:entities){
+        const auto& e=kv.second;
+        if(!e.valid||!e.has_transform)continue;
+        float ex=0,ey=0,ez=0;
+        if(!entity_world_pos(e,ex,ey,ez))continue;
+        float dx=ex-x,dy=ey-y,dz=ez-z;
+        float d_sq=dx*dx+dy*dy+dz*dz;
+        if(d_sq<=r_sq&&entity_matches_filter(e,f))hits.emplace_back(d_sq,e.guid);
+    }
+    std::sort(hits.begin(),hits.end(),[](const auto& a,const auto& b){
+        return a.first<b.first||(a.first==b.first&&a.second<b.second);
+    });
+    std::vector<uint32_t> out;out.reserve(hits.size());
+    for(const auto& h:hits)out.push_back(h.second);
+    return out;
+}
+void push_entity_table(lua_State* L,const std::vector<uint32_t>& ids){
+    lua_getglobal(L,"Ents");
+    int ents_idx=lua_gettop(L);
+    lua_createtable(L,static_cast<int>(ids.size()),0);
+    int out_idx=lua_gettop(L);
+    int out_i=1;
+    if(lua_istable(L,ents_idx)){
+        for(uint32_t id:ids){
+            lua_rawgeti(L,ents_idx,id);
+            if(!lua_isnil(L,-1))lua_rawseti(L,out_idx,out_i++);
+            else lua_pop(L,1);
+        }
+    }
+    lua_remove(L,ents_idx);
+}
+int sim_register_find_tags(lua_State* L){
+    TagFilter f=parse_tag_filter(L,2,3,4);
+    for(size_t i=0;i<registered_find_tags.size();++i){
+        const auto& ex=registered_find_tags[i];
+        if(ex.must==f.must&&ex.cant==f.cant&&ex.one_of==f.one_of){
+            lua_pushinteger(L,static_cast<lua_Integer>(i));return 1;
+        }
+    }
+    if(registered_find_tags.size()>=256){lua_pushinteger(L,0xffff);return 1;}
+    size_t idx=registered_find_tags.size();
+    registered_find_tags.push_back(std::move(f));
+    lua_pushinteger(L,static_cast<lua_Integer>(idx));return 1;
+}
+int sim_find_entities_registered(lua_State* L){
+    float x=static_cast<float>(luaL_checknumber(L,2));
+    float y=static_cast<float>(luaL_checknumber(L,3));
+    float z=static_cast<float>(luaL_checknumber(L,4));
+    float r=static_cast<float>(luaL_checknumber(L,5));
+    uint32_t idx=static_cast<uint32_t>(luaL_checknumber(L,6))&0xffffu;
+    std::vector<uint32_t> ids;
+    if(idx<registered_find_tags.size())ids=query_entities(x,y,z,r,registered_find_tags[idx]);
+    push_entity_table(L,ids);return 1;
+}
+int sim_find_entities(lua_State* L){
+    float x=static_cast<float>(luaL_checknumber(L,2));
+    float y=static_cast<float>(luaL_checknumber(L,3));
+    float z=static_cast<float>(luaL_checknumber(L,4));
+    float r=static_cast<float>(luaL_checknumber(L,5));
+    TagFilter f=parse_tag_filter(L,6,7,8);
+    push_entity_table(L,query_entities(x,y,z,r,f));return 1;
+}
+int sim_count_entities(lua_State* L){
+    float x=static_cast<float>(luaL_checknumber(L,2));
+    float y=static_cast<float>(luaL_checknumber(L,3));
+    float z=static_cast<float>(luaL_checknumber(L,4));
+    float r=static_cast<float>(luaL_checknumber(L,5));
+    TagFilter f=parse_tag_filter(L,6,7,8);
+    lua_pushinteger(L,static_cast<lua_Integer>(query_entities(x,y,z,r,f).size()));return 1;
+}
+int sim_find_first_entity_with_tag(lua_State* L){
+    const char* tag=luaL_checkstring(L,2);
+    for(const auto& kv:entities){
+        if(kv.second.valid&&kv.second.tags.count(tag)){
+            lua_getglobal(L,"Ents");
+            if(lua_istable(L,-1)){
+                lua_rawgeti(L,-1,kv.first);
+                lua_remove(L,-2);
+                return 1;
+            }
+            lua_pop(L,1);
+            break;
+        }
+    }
+    lua_pushnil(L);return 1;
+}
+int sim_world_point_in_poly(lua_State* L){
+    float px=static_cast<float>(luaL_checknumber(L,2));
+    float py=static_cast<float>(luaL_checknumber(L,3));
+    luaL_checktype(L,4,LUA_TTABLE);
+    std::vector<std::pair<float,float>> verts;
+    lua_pushvalue(L,4);
+    lua_pushnil(L);
+    while(lua_next(L,-2)!=0){
+        if(lua_istable(L,-1)){
+            lua_rawgeti(L,-1,1);float vx=static_cast<float>(luaL_checknumber(L,-1));lua_pop(L,1);
+            lua_rawgeti(L,-1,2);float vy=static_cast<float>(luaL_checknumber(L,-1));lua_pop(L,1);
+            verts.emplace_back(vx,vy);
+        }
+        lua_pop(L,1);
+    }
+    lua_pop(L,1);
+    int winding=0;
+    size_t n=verts.size();
+    for(size_t i=0;i<n;++i){
+        float x0=verts[i].first,y0=verts[i].second;
+        float x1=verts[(i+1)%n].first,y1=verts[(i+1)%n].second;
+        float cross=(py-y0)*(x1-x0)-(px-x0)*(y1-y0);
+        if(py<y0){if(y1<=py&&cross<0.0f)--winding;}
+        else if(py<y1&&cross>0.0f)++winding;
+    }
+    lua_pushboolean(L,winding!=0);return 1;
+}
+int sim_set_time_scale(lua_State* L){
+    float s=static_cast<float>(luaL_checknumber(L,2));
+    sim_time_scale=s<=0.0f?0.0f:s;return 0;
+}
+int sim_get_time_scale(lua_State* L){lua_pushnumber(L,sim_time_scale);return 1;}
+uint8_t pack_colour_byte(float v){
+    float scaled=v*255.0f+0.5f;
+    if(scaled>=255.0f)return 255;
+    if(scaled<=0.0f)return 0;
+    return static_cast<uint8_t>(static_cast<int>(scaled));
+}
+int sim_set_ambient_colour(lua_State* L){
+    ambient_r=pack_colour_byte(static_cast<float>(luaL_checknumber(L,2)));
+    ambient_g=pack_colour_byte(static_cast<float>(luaL_checknumber(L,3)));
+    ambient_b=pack_colour_byte(static_cast<float>(luaL_checknumber(L,4)));
+    return 0;
+}
+int sim_get_ambient_colour(lua_State* L){
+    lua_pushnumber(L,ambient_r);lua_pushnumber(L,ambient_g);lua_pushnumber(L,ambient_b);return 3;
+}
+int sim_set_visual_ambient_colour(lua_State* L){
+    visual_ambient_r=pack_colour_byte(static_cast<float>(luaL_checknumber(L,2)));
+    visual_ambient_g=pack_colour_byte(static_cast<float>(luaL_checknumber(L,3)));
+    visual_ambient_b=pack_colour_byte(static_cast<float>(luaL_checknumber(L,4)));
+    return 0;
+}
+int sim_get_light_at_point(lua_State* L){
+    (void)luaL_checknumber(L,2);(void)luaL_checknumber(L,3);(void)luaL_checknumber(L,4);
+    (void)luaL_optnumber(L,5,10000.0);
+    float r=static_cast<float>(ambient_r)/255.0f;
+    float g=static_cast<float>(ambient_g)/255.0f;
+    float b=static_cast<float>(ambient_b)/255.0f;
+    lua_pushnumber(L,std::sqrt(r*r+g*g+b*b));return 1;
+}
+int sim_get_entities_at_screen_point(lua_State* L){
+    (void)luaL_checknumber(L,2);(void)luaL_checknumber(L,3);
+    lua_createtable(L,0,0);return 1;
+}
+void apply_entity_skin(lua_State* L,const char* skin_name,uint32_t id,int skin_id){
+    int top=lua_gettop(L);
+    lua_getglobal(L,"Prefabs");
+    if(!lua_istable(L,-1)){lua_settop(L,top);return;}
+    lua_getfield(L,-1,skin_name);
+    if(!lua_istable(L,-1)){lua_settop(L,top);return;}
+    int prefab_idx=lua_gettop(L);
+    lua_getglobal(L,"Ents");
+    if(!lua_istable(L,-1)){lua_settop(L,top);return;}
+    lua_rawgeti(L,-1,id);
+    if(!lua_istable(L,-1)){lua_settop(L,top);return;}
+    int ent_idx=lua_gettop(L);
+    lua_pushstring(L,skin_name);lua_setfield(L,ent_idx,"skinname");
+    lua_pushnil(L);lua_setfield(L,ent_idx,"skin_build_name");
+    lua_pushnumber(L,skin_id);lua_setfield(L,ent_idx,"skin_id");
+    lua_getfield(L,prefab_idx,"init_fn");
+    if(lua_isfunction(L,-1)){
+        lua_pushvalue(L,ent_idx);
+        lua_pushnil(L);
+        lua_call(L,2,0);
+    }
+    lua_settop(L,top);
+}
+void clear_entity_skin(lua_State* L,const char* old_skin,uint32_t id){
+    int top=lua_gettop(L);
+    lua_getglobal(L,"Ents");
+    if(!lua_istable(L,-1)){lua_settop(L,top);return;}
+    lua_rawgeti(L,-1,id);
+    if(!lua_istable(L,-1)){lua_settop(L,top);return;}
+    int ent_idx=lua_gettop(L);
+    if(!old_skin||!old_skin[0]){
+        lua_getfield(L,ent_idx,"clear_fn");
+        if(lua_isfunction(L,-1)){lua_pushvalue(L,ent_idx);lua_call(L,1,0);}
+        lua_settop(L,top);return;
+    }
+    lua_getglobal(L,"Prefabs");
+    if(!lua_istable(L,-1)){lua_settop(L,top);return;}
+    lua_getfield(L,-1,old_skin);
+    if(!lua_istable(L,-1)){lua_settop(L,top);return;}
+    int prefab_idx=lua_gettop(L);
+    lua_pushnil(L);lua_setfield(L,ent_idx,"skinname");
+    lua_pushnil(L);lua_setfield(L,ent_idx,"skin_build_name");
+    lua_pushnil(L);lua_setfield(L,ent_idx,"skin_id");
+    lua_getfield(L,prefab_idx,"clear_fn");
+    if(lua_isfunction(L,-1)){lua_pushvalue(L,ent_idx);lua_call(L,1,0);}
+    lua_settop(L,top);
+}
+int sim_spawn_prefab(lua_State* L){
+    const char* name=luaL_checkstring(L,2);
+    const char* skin=luaL_optstring(L,3,nullptr);
+    int skin_id=static_cast<int>(luaL_optinteger(L,4,-1));
+    lua_getglobal(L,"SpawnPrefabFromSim");
+    if(!lua_isfunction(L,-1)){lua_pop(L,1);lua_pushnil(L);return 1;}
+    lua_pushstring(L,name);
+    lua_call(L,1,1);
+    if(!lua_isnumber(L,-1)){lua_pop(L,1);lua_pushnil(L);return 1;}
+    uint32_t id=static_cast<uint32_t>(lua_tointeger(L,-1));
+    lua_pop(L,1);
+    auto found=entities.find(id);
+    if(found==entities.end()||!found->second.valid){lua_pushnil(L);return 1;}
+    found->second.prefab_complete=true;
+    found->second.can_sleep=found->second.can_sleep&&found->second.components_allow_sleep;
+    if(skin&&skin[0])apply_entity_skin(L,skin,id,skin_id>=0?skin_id:0);
+    lua_pushnumber(L,id);return 1;
+}
+int sim_reskin_entity(lua_State* L){
+    uint32_t id=static_cast<uint32_t>(luaL_checknumber(L,2));
+    const char* old_skin=luaL_optstring(L,3,nullptr);
+    const char* new_skin=luaL_optstring(L,4,nullptr);
+    int skin_id=static_cast<int>(luaL_optinteger(L,5,-1));
+    auto found=entities.find(id);
+    if(found==entities.end()||!found->second.valid)return 0;
+    clear_entity_skin(L,old_skin,id);
+    if(new_skin&&new_skin[0])apply_entity_skin(L,new_skin,id,skin_id>=0?skin_id:0);
+    return 0;
+}
 int create_table_fn(lua_State* L){
     int narr=static_cast<int>(luaL_optinteger(L,1,0));
     int nrec=static_cast<int>(luaL_optinteger(L,2,0));
@@ -661,7 +943,7 @@ EMSCRIPTEN_KEEPALIVE int dst_init(int role) {
     lua_getglobal(state,"os"); lua_pushnil(state); lua_setfield(state,-2,"execute");
     lua_pushnil(state); lua_setfield(state,-2,"exit"); lua_pop(state,1);
     lua_getglobal(state,"package"); lua_pushnil(state); lua_setfield(state,-2,"loadlib"); lua_pop(state,1);
-    entities.clear();resource_catalog.clear();texture_groups.clear();sim_settings.clear();render_pass_effects.clear();erosion_texture.clear();holo_texture.clear();motd_target.clear();ui_root_guid=0;netbook_mode=false; tick=0; next_guid=1; profiler_depth=0;seed_rng(0);server_language="en";
+    entities.clear();resource_catalog.clear();texture_groups.clear();sim_settings.clear();render_pass_effects.clear();erosion_texture.clear();holo_texture.clear();motd_target.clear();ui_root_guid=0;netbook_mode=false;registered_find_tags.clear();sim_time_scale=1.0f;ambient_r=0;ambient_g=0;ambient_b=0;visual_ambient_r=0;visual_ambient_g=0;visual_ambient_b=0; tick=0; next_guid=1; profiler_depth=0;seed_rng(0);server_language="en";
     runtime_role=role==0?"client":role==1?"master":"caves";
     lua_getglobal(state,"math");
     lua_pushcfunction(state,math_randomseed);lua_setfield(state,-2,"randomseed");
@@ -723,6 +1005,12 @@ EMSCRIPTEN_KEEPALIVE int dst_init(int role) {
         {"LogBulkMetric",sim_log_bulk_metric},{"SetMOTDTarget",sim_set_motd_target},{"GetMOTDQueryURL",sim_get_motd_query_url},
         {"HasMOTDImage",sim_has_motd_image},{"DownloadMOTDImage",sim_download_motd_image},{"LoadMOTDImage",sim_load_motd_image},{"DownloadMOTDImages",sim_download_motd_images},
         {"UpdateDeviceCaps",sim_update_device_caps},{"RenderOneFrame",sim_render_one_frame},
+        {"RegisterFindTags",sim_register_find_tags},{"FindEntities",sim_find_entities},{"FindEntities_Registered",sim_find_entities_registered},
+        {"CountEntities",sim_count_entities},{"FindFirstEntityWithTag",sim_find_first_entity_with_tag},{"WorldPointInPoly",sim_world_point_in_poly},
+        {"SetTimeScale",sim_set_time_scale},{"GetTimeScale",sim_get_time_scale},
+        {"SetAmbientColour",sim_set_ambient_colour},{"GetAmbientColour",sim_get_ambient_colour},{"SetVisualAmbientColour",sim_set_visual_ambient_colour},
+        {"GetLightAtPoint",sim_get_light_at_point},{"GetEntitiesAtScreenPoint",sim_get_entities_at_screen_point},
+        {"SpawnPrefab",sim_spawn_prefab},{"ReskinEntity",sim_reskin_entity},
         {"ProfilerPush",profiler_push},{"ProfilerPop",profiler_pop},{"ShouldInitDebugger",debugger_disabled},
         {"SetReverbPreset",set_reverb},{"GetFileModificationTime",file_mtime},{"LuaPrint",lua_print},
         {"AddTextureToStreamingGroup",texture_group},{"ClearFileSystemAliases",clear_file_aliases},{"SendHardwareStats",send_hardware_stats},{nullptr,nullptr}};

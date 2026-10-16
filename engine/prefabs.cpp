@@ -33,28 +33,41 @@ int register_prefab(lua_State* L){
     // Build 756039 RegisterPrefab returns before reading replacement assets
     // when a definition already exists (server 0x1401235e4).
     if(definitions.count(name))return 0;
-    luaL_checktype(L,3,LUA_TTABLE);luaL_checktype(L,4,LUA_TTABLE);
-    if(definitions.size()>=50000||lua_objlen(L,3)>50000||lua_objlen(L,4)>50000)return luaL_error(L,"Prefab registration exceeds limits");
+    if(definitions.size()>=50000)return luaL_error(L,"Prefab registration exceeds limits");
     Prefab value;
-    for(size_t i=1;i<=lua_objlen(L,3);++i){
-        lua_rawgeti(L,3,i);luaL_checktype(L,-1,LUA_TTABLE);Asset asset;
-        asset.type=field(L,"type");asset.file=field(L,"file");
-        asset.kind=asset_kind(asset.type);
-        // Native 0x1400fcec0 / client 0x140108f10 only append the fixed
-        // twelve kinds. MINIMAP_IMAGE is Lua metadata, not a thirteenth kind.
-        if(!asset.kind){value.ignored_assets.push_back(std::move(asset));lua_pop(L,1);continue;}
-        for(const auto& kind:kinds)if(kind.value==asset.kind){asset.type=kind.name;break;}
-        lua_getfield(L,-1,"param");asset.param_type=lua_type(L,-1);asset.native_param=static_cast<float>(lua_tonumber(L,-1));
-        switch(asset.param_type){
-            case LUA_TNIL:break;
-            case LUA_TSTRING:asset.text=string(L,-1);break;
-            case LUA_TNUMBER:asset.number=lua_tonumber(L,-1);break;
-            case LUA_TBOOLEAN:asset.boolean=lua_toboolean(L,-1);break;
-            default:asset.param_type=LUA_TNIL;break; // lua_tonumber yields zero for non-numeric values.
+    if(!lua_isnoneornil(L,3)){
+        luaL_checktype(L,3,LUA_TTABLE);
+        size_t count=0;
+        lua_pushnil(L);
+        while(lua_next(L,3)!=0){
+            if(++count>50000)return luaL_error(L,"Prefab registration exceeds limits");
+            luaL_checktype(L,-1,LUA_TTABLE);Asset asset;
+            asset.type=field(L,"type");asset.file=field(L,"file");
+            asset.kind=asset_kind(asset.type);
+            // Native 0x1400fcec0 / client 0x140108f10 only append the fixed
+            // twelve kinds. MINIMAP_IMAGE is Lua metadata, not a thirteenth kind.
+            if(!asset.kind){value.ignored_assets.push_back(std::move(asset));lua_pop(L,1);continue;}
+            for(const auto& kind:kinds)if(kind.value==asset.kind){asset.type=kind.name;break;}
+            lua_getfield(L,-1,"param");asset.param_type=lua_type(L,-1);asset.native_param=static_cast<float>(lua_tonumber(L,-1));
+            switch(asset.param_type){
+                case LUA_TNIL:break;
+                case LUA_TSTRING:asset.text=string(L,-1);break;
+                case LUA_TNUMBER:asset.number=lua_tonumber(L,-1);break;
+                case LUA_TBOOLEAN:asset.boolean=lua_toboolean(L,-1);break;
+                default:asset.param_type=LUA_TNIL;break; // lua_tonumber yields zero for non-numeric values.
+            }
+            lua_pop(L,2);value.assets.push_back(std::move(asset));
         }
-        lua_pop(L,2);value.assets.push_back(std::move(asset));
     }
-    for(size_t i=1;i<=lua_objlen(L,4);++i){lua_rawgeti(L,4,i);value.dependencies.push_back(string(L,-1));lua_pop(L,1);}
+    if(!lua_isnoneornil(L,4)){
+        luaL_checktype(L,4,LUA_TTABLE);
+        size_t count=0;
+        lua_pushnil(L);
+        while(lua_next(L,4)!=0){
+            if(++count>50000)return luaL_error(L,"Prefab registration exceeds limits");
+            value.dependencies.push_back(string(L,-1));lua_pop(L,1);
+        }
+    }
     definitions[name]=std::move(value);return 0;
 }
 int add_verify(lua_State* L){
