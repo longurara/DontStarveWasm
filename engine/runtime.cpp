@@ -564,6 +564,11 @@ int sim_has_motd_image(lua_State* L){(void)lua_tostring(L,2);lua_pushboolean(L,0
 int sim_download_motd_image(lua_State* L){luaL_checkstring(L,2);luaL_checkstring(L,3);return 0;}
 int sim_load_motd_image(lua_State* L){luaL_checkstring(L,2);return 0;}
 int sim_download_motd_images(lua_State*){return 0;}
+int sim_update_device_caps(lua_State* L){
+    int a=static_cast<int>(luaL_checknumber(L,2));
+    int b=static_cast<int>(luaL_checknumber(L,3));
+    lua_pushnumber(L,a);lua_pushnumber(L,b);return 2;
+}
 int inspect_sim_settings(lua_State* L){
     lua_newtable(L);
     for(const auto& kv:sim_settings){
@@ -694,6 +699,7 @@ EMSCRIPTEN_KEEPALIVE int dst_init(int role) {
         {"GetUsersName",sim_get_users_name},{"GetSteamIDNumber",sim_get_steam_id_number},{"GetSteamBetaBranchName",sim_get_steam_beta_branch_name},
         {"LogBulkMetric",sim_log_bulk_metric},{"SetMOTDTarget",sim_set_motd_target},{"GetMOTDQueryURL",sim_get_motd_query_url},
         {"HasMOTDImage",sim_has_motd_image},{"DownloadMOTDImage",sim_download_motd_image},{"LoadMOTDImage",sim_load_motd_image},{"DownloadMOTDImages",sim_download_motd_images},
+        {"UpdateDeviceCaps",sim_update_device_caps},
         {"ProfilerPush",profiler_push},{"ProfilerPop",profiler_pop},{"ShouldInitDebugger",debugger_disabled},
         {"SetReverbPreset",set_reverb},{"GetFileModificationTime",file_mtime},{"LuaPrint",lua_print},
         {"AddTextureToStreamingGroup",texture_group},{"ClearFileSystemAliases",clear_file_aliases},{"SendHardwareStats",send_hardware_stats},{nullptr,nullptr}};

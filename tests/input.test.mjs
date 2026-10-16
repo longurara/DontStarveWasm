@@ -48,3 +48,11 @@ test('browser physical keys and mouse buttons map to original constants',()=>{
   for(const [name,expected] of Object.entries({KeyW:119,Digit1:49,ShiftLeft:304,ArrowUp:273,Numpad0:256,NumpadEnter:271,F12:293}))assert.equal(nativeKeyCode(name),expected);
   assert.equal(nativeKeyCode('Unidentified'),null);assert.equal(nativeMouseButton(0),1000);assert.equal(nativeMouseButton(1),1002);assert.equal(nativeMouseButton(2),1001);
 });
+
+test('InputProxy vibration, control mapping, and UpdateDeviceCaps match native contracts',async t=>{
+  const {engine,evaluate}=await loadEngine(0);t.after(()=>engine._dst_close());
+  evaluate('TheInputProxy:EnableVibration(true);TheInputProxy:LoadControls("kb","{}",true);TheInputProxy:StopVibration()');
+  assert.equal(evaluate('return tostring(select("#",TheInputProxy:GetLocalizedControl(0,1,false,true)))'),'0');
+  assert.equal(evaluate('local a,b=TheSim:UpdateDeviceCaps(0,20);return a..","..b'),'0,20');
+});
+

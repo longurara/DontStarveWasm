@@ -21,6 +21,17 @@ int name(lua_State* L){self(L);if(desktop&&luaL_checkinteger(L,2)==0)lua_pushlit
 int type(lua_State* L){self(L);if(desktop&&luaL_checkinteger(L,2)==0)lua_pushinteger(L,0);else lua_pushnil(L);return 1;}
 int active_index(lua_State* L){self(L);return 0;}
 int show_cursor(lua_State* L){self(L);cursor=lua_toboolean(L,2);return 0;}
+int get_os_cursor(lua_State* L){self(L);if(!desktop)return 0;lua_pushnumber(L,std::floor(mouse_x));lua_pushnumber(L,std::floor(mouse_y));return 2;}
+int set_os_cursor(lua_State* L){self(L);int x=static_cast<int>(luaL_checkinteger(L,2)),y=static_cast<int>(luaL_checkinteger(L,3));if(desktop){mouse_x=static_cast<float>(x);mouse_y=static_cast<float>(y);}return 0;}
+int enable_vibration(lua_State* L){self(L);(void)lua_toboolean(L,2);return 0;}
+int add_vibration(lua_State* L){self(L);luaL_checkinteger(L,2);luaL_checknumber(L,3);luaL_checknumber(L,4);(void)lua_toboolean(L,5);return 0;}
+int remove_vibration(lua_State* L){self(L);luaL_checkinteger(L,2);return 0;}
+int noop(lua_State* L){self(L);return 0;}
+int flush_input(lua_State* L){self(L);keys.clear();buttons.clear();return 0;}
+int localized_control(lua_State* L){self(L);luaL_checkinteger(L,2);luaL_checkinteger(L,3);(void)lua_toboolean(L,4);(void)lua_toboolean(L,5);return 0;}
+int copy_mapping(lua_State* L){self(L);luaL_checkinteger(L,2);luaL_checkinteger(L,3);luaL_checkinteger(L,4);lua_pushboolean(L,0);return 1;}
+int map_control(lua_State* L){self(L);luaL_checkinteger(L,2);luaL_checkinteger(L,3);return 0;}
+int open_vk(lua_State* L){self(L);luaL_checkinteger(L,2);luaL_checkinteger(L,3);luaL_checkinteger(L,4);luaL_checkinteger(L,5);luaL_checktype(L,6,LUA_TBOOLEAN);lua_pushboolean(L,0);return 1;}
 int key_down(lua_State* L){
     int key=static_cast<int>(luaL_checkinteger(L,2));bool down=keys.count(key)>0;
     if(key==400)down=keys.count(307)||keys.count(308);
@@ -38,7 +49,13 @@ void install(lua_State* L,bool client){
     const luaL_Reg methods[]={{"GetInputDeviceCount",count},{"GetInputDeviceName",name},{"GetInputDeviceType",type},
         {"GetLastActiveControllerIndex",active_index},{"IsAnyControllerActive",controllers},{"IsAnyControllerConnected",controllers},
         {"IsAnyInputDeviceConnected",any_input},{"IsInputDeviceConnected",connected},{"IsInputDeviceEnabled",is_enabled},
-        {"EnableInputDevice",enable},{"SetCursorVisible",show_cursor},{nullptr,nullptr}};
+        {"EnableInputDevice",enable},{"SetCursorVisible",show_cursor},{"GetOSCursorPos",get_os_cursor},{"SetOSCursorPos",set_os_cursor},
+        {"EnableVibration",enable_vibration},{"AddVibration",add_vibration},{"RemoveVibration",remove_vibration},{"StopVibration",noop},
+        {"LoadControls",noop},{"SaveControls",noop},{"FlushInput",flush_input},
+        {"StartMappingControls",noop},{"StopMappingControls",noop},{"CancelMapping",noop},
+        {"GetLocalizedControl",localized_control},{"CopyControlMapping",copy_mapping},{"MapControl",map_control},{"UnMapControl",map_control},
+        {"HasMappingChanged",noop},{"LoadCurrentControlMapping",noop},{"LoadDefaultControlMapping",noop},{"ApplyControlMapping",noop},
+        {"OpenVirtualKeyboard",open_vk},{"CloseVirtualKeyboard",noop},{nullptr,nullptr}};
     luaL_register(L,nullptr,methods);
     lua_newtable(L);lua_pushcfunction(L,unknown);lua_setfield(L,-2,"__index");lua_setmetatable(L,-2);
     lua_setfield(L,-2,"__index");lua_pop(L,1);
