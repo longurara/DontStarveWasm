@@ -46,9 +46,11 @@ struct EntityState {
     bool valid = true;
     bool sleeping=false,can_sleep=true,components_allow_sleep=true,sleep_state_pending=true;
     bool has_transform=false,prefab_complete=false;
+    bool visible=true,clickable=true;
     float x = 0, y = 0, z = 0, rotation = 0;
     float sx = 1, sy = 1, sz = 1;
     uint32_t parent = 0;
+    std::vector<uint32_t> children;
     std::string name, prefab;
     std::set<std::string> tags;
 };
@@ -194,12 +196,23 @@ int inspect_lifecycle(lua_State* L){
     lua_newtable(L);lua_pushboolean(L,found!=entities.end());lua_setfield(L,-2,"valid");
     if(found==entities.end())return 1;
     const auto& e=found->second;
-    const char* names[]={"awake","canSleep","componentsAllowSleep","pending","hasTransform","prefabComplete"};
-    const bool values[]={!e.sleeping,e.can_sleep,e.components_allow_sleep,e.sleep_state_pending,e.has_transform,e.prefab_complete};
-    for(int i=0;i<6;++i){lua_pushboolean(L,values[i]);lua_setfield(L,-2,names[i]);}return 1;
+    const char* names[]={"awake","canSleep","componentsAllowSleep","pending","hasTransform","prefabComplete","visible","clickable"};
+    const bool values[]={!e.sleeping,e.can_sleep,e.components_allow_sleep,e.sleep_state_pending,e.has_transform,e.prefab_complete,e.visible,e.clickable};
+    for(int i=0;i<8;++i){lua_pushboolean(L,values[i]);lua_setfield(L,-2,names[i]);}
+    lua_createtable(L,static_cast<int>(e.children.size()),0);
+    for(size_t i=0;i<e.children.size();++i){lua_pushnumber(L,e.children[i]);lua_rawseti(L,-2,static_cast<int>(i+1));}
+    lua_setfield(L,-2,"children");
+    return 1;
+}
+void detach_child(uint32_t parent_id,uint32_t child_id){
+    auto pit=entities.find(parent_id);if(pit==entities.end())return;
+    auto& vec=pit->second.children;
+    for(auto it=vec.begin();it!=vec.end();++it)if(*it==child_id){vec.erase(it);break;}
 }
 int retire(lua_State* L) {
-    auto id=entity(L).guid;
+    auto& e=entity(L);auto id=e.guid;
+    if(e.parent)detach_child(e.parent,id);
+    for(uint32_t child_id:e.children){auto cit=entities.find(child_id);if(cit!=entities.end())cit->second.parent=0;}
     lua_getfield(L,LUA_REGISTRYINDEX,"dst.entities");lua_pushnil(L);lua_rawseti(L,-2,id);lua_pop(L,1);
     web_components::retire(id);entities.erase(id);return 0;
 }
@@ -210,7 +223,7 @@ int entity_equal(lua_State* L){
 }
 int set_parent(lua_State* L){
     auto& e=entity(L);
-    if(lua_isnoneornil(L,2)){e.parent=0;web_ui::refresh();return 0;}
+    if(lua_isnoneornil(L,2)){if(e.parent)detach_child(e.parent,e.guid);e.parent=0;web_ui::refresh();return 0;}
     auto id=*static_cast<uint32_t*>(luaL_checkudata(L,2,"dst.Entity"));
     if(!entities.count(id))return luaL_error(L,"Parent is removed");
     uint32_t ancestor=id;int depth=0;
@@ -219,12 +232,52 @@ int set_parent(lua_State* L){
         if(++depth>512)return luaL_error(L,"Entity hierarchy is too deep");
         auto found=entities.find(ancestor);if(found==entities.end())return luaL_error(L,"Parent hierarchy was retired");ancestor=found->second.parent;
     }
-    e.parent=id;web_ui::refresh();return 0;
+    if(e.parent)detach_child(e.parent,e.guid);
+    e.parent=id;entities.at(id).children.push_back(e.guid);web_ui::refresh();return 0;
 }
 int get_parent(lua_State* L){
     auto id=entity(L).parent;
     if(!id){lua_pushnil(L);return 1;}
     lua_getfield(L,LUA_REGISTRYINDEX,"dst.entities");lua_rawgeti(L,-1,id);return 1;
+}
+int show_entity(lua_State* L){
+    auto id=*static_cast<uint32_t*>(luaL_checkudata(L,1,"dst.Entity"));auto found=entities.find(id);
+    if(found!=entities.end()&&found->second.valid)found->second.visible=true;
+    return 0;
+}
+int hide_entity(lua_State* L){
+    auto id=*static_cast<uint32_t*>(luaL_checkudata(L,1,"dst.Entity"));auto found=entities.find(id);
+    if(found!=entities.end()&&found->second.valid)found->second.visible=false;
+    return 0;
+}
+int is_visible(lua_State* L){
+    auto id=*static_cast<uint32_t*>(luaL_checkudata(L,1,"dst.Entity"));auto found=entities.find(id);
+    if(found==entities.end()||!found->second.valid)return 0;
+    lua_pushboolean(L,found->second.visible);return 1;
+}
+int set_clickable(lua_State* L){
+    auto id=*static_cast<uint32_t*>(luaL_checkudata(L,1,"dst.Entity"));
+    if(lua_type(L,2)!=LUA_TBOOLEAN)return luaL_typerror(L,2,"boolean");
+    bool clickable=lua_toboolean(L,2)!=0;
+    auto found=entities.find(id);
+    if(found!=entities.end()&&found->second.valid)found->second.clickable=clickable;
+    return 0;
+}
+int move_to_front(lua_State* L){
+    auto id=*static_cast<uint32_t*>(luaL_checkudata(L,1,"dst.Entity"));auto found=entities.find(id);
+    if(found==entities.end()||!found->second.valid||!found->second.parent)return 0;
+    uint32_t parent_id=found->second.parent;
+    detach_child(parent_id,id);
+    auto pit=entities.find(parent_id);if(pit!=entities.end())pit->second.children.push_back(id);
+    return 0;
+}
+int move_to_back(lua_State* L){
+    auto id=*static_cast<uint32_t*>(luaL_checkudata(L,1,"dst.Entity"));auto found=entities.find(id);
+    if(found==entities.end()||!found->second.valid||!found->second.parent)return 0;
+    uint32_t parent_id=found->second.parent;
+    detach_child(parent_id,id);
+    auto pit=entities.find(parent_id);if(pit!=entities.end())pit->second.children.insert(pit->second.children.begin(),id);
+    return 0;
 }
 int set_name(lua_State* L){entity(L).name=luaL_checkstring(L,2);return 0;}
 int get_name(lua_State* L){lua_pushstring(L,entity(L).name.c_str());return 1;}
@@ -543,6 +596,7 @@ EMSCRIPTEN_KEEPALIVE int dst_init(int role) {
     const luaL_Reg methods[]={{"GetGUID",guid},{"IsValid",valid},{"Retire",retire},{"IsAwake",is_awake},
         {"SetCanSleep",set_can_sleep},{"CallPrefabConstructionComplete",prefab_construction_complete},
         {"SetParent",set_parent},{"GetParent",get_parent},{"SetName",set_name},{"GetName",get_name},{"SetPrefabName",set_prefab},{"GetPrefabName",get_prefab},
+        {"Show",show_entity},{"Hide",hide_entity},{"IsVisible",is_visible},{"SetClickable",set_clickable},{"MoveToFront",move_to_front},{"MoveToBack",move_to_back},
         {"AddTag",add_tag},{"RemoveTag",remove_tag},{"HasTag",has_tag},
         {"AddTransform",add_transform},{"GetWorldPosition",position},{"GetLocalPosition",local_position},
         {"SetPosition",set_position},{"GetRotation",rotation},{"SetRotation",set_rotation},
