@@ -164,7 +164,9 @@ void release(const std::string& path){auto found=cache.find(web_strings::hash(pa
     }
 }
 const Font* get(const std::string& path){auto found=cache.find(web_strings::hash(path));return found==cache.end()?nullptr:&found->second.font;}
+const Font* get_by_id(uint32_t id){auto found=cache.find(id);return found==cache.end()||!found->second.references?nullptr:&found->second.font;}
 const Font* by_alias(const std::string& alias){auto* record=alias_record(web_strings::hash(alias));return record?&record->font:nullptr;}
+bool resolve_alias(const std::string& alias,uint32_t& id_out){auto* record=alias_record(web_strings::hash(alias));if(!record)return false;id_out=web_strings::hash(record->path);return true;}
 void clear(){aliases.clear();for(const auto& pair:cache)if(pair.second.texture_owned)web_texture_asset::release(pair.second.font.texture_key);cache.clear();retained=0;}
 void install(lua_State* L,bool client){clear();client_role=client;lua_newtable(L);const luaL_Reg methods[]={{"Decode",decode_lua},{"Inspect",inspect},{"Glyph",glyph_lua},{"Release",release_lua},{"Registry",registry},{nullptr,nullptr}};luaL_register(L,nullptr,methods);lua_setglobal(L,"WebFonts");
     lua_getglobal(L,"TheSim");const luaL_Reg native[]={{"LoadFont",load_font},{"UnloadFont",unload_font},{"SetupFontFallbacks",setup_fallbacks},{"AdjustFontAdvance",adjust_advance},{nullptr,nullptr}};luaL_register(L,nullptr,native);lua_pop(L,1);}

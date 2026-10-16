@@ -263,6 +263,37 @@ def capture(pid,executable,trace):
                 scissor=short_rect(0x1a8),transformedScissor=short_rect(0x1b0),clearScissor=bool(process.read(component+0x1b8,1)[0]),
                 awake=not bool(flags[4]),canSleep=bool(flags[6]),componentsAllowSleep=bool(flags[11])))
         ui_state=dict(traceSha256=hashlib.sha256(ui_data).hexdigest(),components=ui_components)
+        text_data=(trace.parent/'wasm_text_widget_trace').read_bytes()
+        if not text_data.startswith(b'KLEI     1 '):raise ValueError('Expected plain TextWidget trace')
+        text_oracle=json.loads(text_data[11:]);text_components=[]
+        def std_string(address):
+            raw=process.read(address,40);size,capacity=struct.unpack_from('<QQ',raw,24)
+            if size>capacity or size>4096:raise ValueError('Invalid native std::string')
+            chars=raw[8:8+size] if capacity<16 else process.read(struct.unpack_from('<Q',raw,8)[0],size)
+            return chars.decode('utf8')
+        for row in text_oracle['objects']:
+            component=None;owner=None
+            for name in ['first','second']:
+                match=re.fullmatch(r'TextWidget \((?:0x)?([0-9a-fA-F]+)\)',row[name])
+                if not match:raise ValueError('Unknown TextWidget proxy format')
+                current=process.u64(int(match[1],16)+8)
+                if component is not None and component!=current:raise ValueError('TextWidget wrappers do not share component')
+                component=current;owner=process.u64(component+0x18)
+                if process.u32(owner+8)!=row['guid']:raise ValueError('TextWidget owner GUID mismatch')
+            vtable=process.u64(component);flags=process.read(owner+0x1b0,16);node=process.u64(component+0x20)
+            text_components.append(dict(name=row['name'],guid=row['guid'],sameComponent=True,
+                typeFunction=hex(process.u64(vtable+0x30)-process.base+process.image_base),
+                finalizeFunction=hex(process.u64(vtable+0x38)-process.base+process.image_base),
+                destroyFunction=hex(process.u64(vtable)-process.base+process.image_base),
+                dirty=bool(process.read(node+0xd0,1)[0]),fontHandle=struct.unpack('<i',process.read(node+0xd8,4))[0],
+                sizeBits=process.read(node+0xdc,4).hex(),squeezeBits=process.read(node+0xe0,4).hex(),
+                regionBits=process.read(node+0xe4,8).hex(),wordWrap=bool(process.u32(node+0xec)),
+                whitespaceWrap=bool(process.read(node+0xf0,1)[0]),hAnchor=process.u32(node+0xf4),vAnchor=process.u32(node+0xf8),
+                colourBits=process.read(node+0xfc,4).hex(),autoRegionSize=bool(process.read(node+0x174,1)[0]),
+                text=std_string(node+0x178),showEditCursor=bool(process.read(node+0x1a0,1)[0]),cursorIndex=process.u32(node+0x1a4),
+                editCursorColourBits=process.read(node+0x1e8,4).hex(),
+                awake=not bool(flags[4]),canSleep=bool(flags[6]),componentsAllowSleep=bool(flags[11])))
+        text_state=dict(traceSha256=hashlib.sha256(text_data).hexdigest(),components=text_components)
         if trace.read_bytes()!=data:raise ValueError('Entity trace changed during read-only memory capture')
         return dict(gameBuild='756039',executableSha256=process.sha256,cases=result,traceSha256=hashlib.sha256(data).hexdigest(),componentClosures=component_closures,
             shadow=dict(traceSha256=hashlib.sha256(shadow_data).hexdigest(),components=shadow_components),
@@ -275,4 +306,6 @@ def capture(pid,executable,trace):
             simLaunches=launches_state,
             playInstance=play_state,
             uiTransform=ui_state,
+            textWidget=text_state,
             evidence='Read-only exact child process; GUID verified against entity+8; flags from hash-verified native setter/IsAwake/finalizer disassembly')
+
