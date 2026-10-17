@@ -521,6 +521,22 @@ export const PREFAB_ASSET_DEFAULTS: Record<string, { build: string; bank: string
   crow: { build: 'crow_build', bank: 'crow', anim: 'idle' },
   frog: { build: 'frog', bank: 'frog', anim: 'idle' },
   skeleton: { build: 'skeletons', bank: 'skeleton', anim: 'idle' },
+  marsh_plant: { build: 'marsh_plant', bank: 'marsh_plant', anim: 'idle' },
+  fence_junk: { build: 'fence_junk_build', bank: 'fence_junk', anim: 'idle' },
+  junk_pile: { build: 'scrappile', bank: 'scrappile', anim: 'idle' },
+  junk_pile_big: { build: 'scrappile', bank: 'scrappile', anim: 'big_idle' },
+  junk_pile_side: { build: 'scrappile', bank: 'scrappile', anim: 'side_idle1' },
+  bullkelp_plant: { build: 'bullkelp_plant', bank: 'bullkelp_plant', anim: 'idle' },
+  bullkelp_plant_leaves: { build: 'bullkelp_plant', bank: 'bullkelp_plant', anim: 'idle' },
+  storage_robot: { build: 'storage_robot', bank: 'storage_robot', anim: 'idle' },
+  wobster_den: { build: 'lobster_den_build', bank: 'lobster_den', anim: 'full' },
+  firehound: { build: 'hound_red_ocean', bank: 'hound', anim: 'idle' },
+  firestaff: { build: 'staffs', bank: 'staffs', anim: 'redstaff' },
+  mound: { build: 'gravestones', bank: 'mound', anim: 'gravedirt' },
+  gravestone: { build: 'gravestones', bank: 'gravestone', anim: 'grave1' },
+  molehill: { build: 'mole_build', bank: 'mole', anim: 'mound_idle' },
+  mole: { build: 'mole_build', bank: 'mole', anim: 'idle' },
+  campfirefire: { build: 'campfire_fire', bank: 'campfire_fire', anim: 'level1' },
 };
 
 const HIDDEN_SYMBOLS = new Set([
@@ -717,6 +733,8 @@ class OriginalAnimCompositor {
     // AnimState facing: 0=RIGHT, 1=UP, 2=LEFT, 3=DOWN
     // Klei ANIM facing bitmask: 1=RIGHT, 2=UP, 4=LEFT, 8=DOWN, 5=SIDE, 255=ALL
     const desiredMask = entityFacing === 1 ? 2 : entityFacing === 3 ? 8 : entityFacing === 2 ? 4 : 1;
+    const hasElements = (a: LoadedAnimAsset['model']['animations'][number]) =>
+      a.frames.some(f => f.elements && f.elements.length > 0);
 
     const candidates = [
       animName,
@@ -740,7 +758,7 @@ class OriginalAnimCompositor {
       // First pass: exact name + matching facing bit
       for (let i = 0; i < anims.length; ++i) {
         const a = anims[i];
-        if (a.name === target && a.frames.length > 0 && ((a.facing & desiredMask) !== 0 || a.facing === 255)) {
+        if (a.name === target && hasElements(a) && ((a.facing & desiredMask) !== 0 || a.facing === 255)) {
           matchedIdx = i;
           break;
         }
@@ -750,7 +768,7 @@ class OriginalAnimCompositor {
       if (entityFacing === 2) {
         for (let i = 0; i < anims.length; ++i) {
           const a = anims[i];
-          if (a.name === target && a.frames.length > 0 && (a.facing & 5) !== 0) {
+          if (a.name === target && hasElements(a) && (a.facing & 5) !== 0) {
             matchedIdx = i;
             break;
           }
@@ -760,7 +778,7 @@ class OriginalAnimCompositor {
       // Third pass: exact name with any facing
       for (let i = 0; i < anims.length; ++i) {
         const a = anims[i];
-        if (a.name === target && a.frames.length > 0) {
+        if (a.name === target && hasElements(a)) {
           matchedIdx = i;
           break;
         }
@@ -771,14 +789,14 @@ class OriginalAnimCompositor {
     if (matchedIdx < 0) {
       // Substring match
       for (let i = 0; i < anims.length; ++i) {
-        if (anims[i].frames.length > 0 && anims[i].name.includes(animName)) {
+        if (hasElements(anims[i]) && anims[i].name.includes(animName)) {
           matchedIdx = i;
           break;
         }
       }
     }
     if (matchedIdx < 0) {
-      matchedIdx = anims.findIndex(a => a.frames.length > 0);
+      matchedIdx = anims.findIndex(hasElements);
     }
     if (matchedIdx < 0) return null;
 
@@ -796,6 +814,7 @@ class OriginalAnimCompositor {
     equippedBody: string,
     dynHiddenLayers?: Set<string>,
     dynHiddenSymbols?: Set<string>,
+    entityOverrides?: SceneEntity['overrides'],
   ): CachedSpriteFrame | null {
     const gl = this.gl;
     const prog = this.program;
@@ -814,11 +833,29 @@ class OriginalAnimCompositor {
       let textures = bundle.textures;
       let texNamespace = 0;
       let symbol = model.symbols[String(item.symbol)];
-      const symName = (symbol?.name || '').toLowerCase();
-      const layerName = (item.layer || '').toLowerCase();
+      const rawSymName = symbol?.name || '';
+      const rawLayerName = item.layer || '';
+      const symName = rawSymName.toLowerCase();
+      const layerName = rawLayerName.toLowerCase();
 
       if (dynHiddenLayers && layerName && dynHiddenLayers.has(layerName)) return null;
       if (dynHiddenSymbols && symName && dynHiddenSymbols.has(symName)) return null;
+
+      if (entityOverrides) {
+        const entOv =
+          entityOverrides[rawSymName] ||
+          entityOverrides[symName] ||
+          entityOverrides[rawLayerName] ||
+          entityOverrides[layerName];
+        if (entOv?.symbol) {
+          const targetSym = entOv.symbol.toLowerCase();
+          const syms = Object.values(model.symbols);
+          const overridden = syms.find(s => s.name?.toLowerCase() === targetSym && s.frames?.length);
+          if (overridden) {
+            symbol = overridden;
+          }
+        }
+      }
 
       if (equippedHand) {
         if (symName === 'arm_normal' || layerName === 'arm_normal') return null;
@@ -1069,6 +1106,9 @@ class OriginalAnimCompositor {
     now: number,
   ): { frame: CachedSpriteFrame; flipX: boolean } | null {
     if (!this.gl || !this.program) return null;
+    if (entity.prefab === 'firefx_light' || (!entity.build && !entity.bank && entity.prefab.endsWith('_light'))) {
+      return null;
+    }
     const def = PREFAB_ASSET_DEFAULTS[entity.prefab];
     const build = entity.build || def?.build || entity.prefab || '';
     const bank = entity.bank || def?.bank || build;
@@ -1120,10 +1160,14 @@ class OriginalAnimCompositor {
 
     const clip = state.model.animations[resolved.clipIndex];
     const numSampled = clip.frames.length;
-    const frameIdx =
+    let frameIdx =
       numSampled <= 1
         ? 0
         : Math.floor((now * 0.014 + (entity.guid % 19) * 0.65) % numSampled);
+    if (!clip.frames[frameIdx]?.elements?.length) {
+      const nonEmptyIdx = clip.frames.findIndex(f => f.elements && f.elements.length > 0);
+      if (nonEmptyIdx >= 0) frameIdx = nonEmptyIdx;
+    }
 
     let equippedHand = '';
     let equippedHead = '';
@@ -1145,8 +1189,13 @@ class OriginalAnimCompositor {
     const hideKey = dynLayers || dynSyms
       ? `${entity.hiddenLayers?.join(',') || ''}:${entity.hiddenSymbols?.join(',') || ''}`
       : '';
+    const ovKey = entity.overrides
+      ? Object.entries(entity.overrides)
+          .map(([k, v]) => `${k}=${v.symbol || v.build || ''}`)
+          .join(',')
+      : '';
 
-    const cacheKey = `${key}#${resolved.clipIndex}#${frameIdx}#${equippedHand}#${equippedHead}#${equippedBody}#${hideKey}`;
+    const cacheKey = `${key}#${resolved.clipIndex}#${frameIdx}#${equippedHand}#${equippedHead}#${equippedBody}#${hideKey}#${ovKey}`;
     let cached = this.frameCache.get(cacheKey);
     if (cached === undefined) {
       if (this.frameCache.size > 480) {
@@ -1162,6 +1211,7 @@ class OriginalAnimCompositor {
         equippedBody,
         dynLayers,
         dynSyms,
+        entity.overrides,
       );
       this.frameCache.set(cacheKey, cached);
     }
@@ -1550,14 +1600,13 @@ export class GameRenderer {
     ctx.restore();
   }
 
-  private renderTerrain(ctx: CanvasRenderingContext2D, tiles: TileWindow, cam: CameraSnapshot, now: number) {
+  private renderTerrain(ctx: CanvasRenderingContext2D, tiles: TileWindow, cam: CameraSnapshot, _now: number) {
     if (!tiles || !tiles.data || !tiles.cols) return;
     const halfW = tiles.width * 0.5;
     const halfH = tiles.height * 0.5;
     const r = tiles.radius;
     const step = tiles.step || 1;
     const tileWorld = TILE_SIZE * step;
-    const wave = Math.sin(now * 0.0025);
 
     ctx.lineWidth = 1;
     for (let dy = -r; dy <= r; ++dy) {
@@ -1600,35 +1649,15 @@ export class GameRenderer {
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
-
-        // Subtle DST surface detail inside tile
-        const cx = (p00.sx + p11.sx) * 0.5;
-        const cy = (p00.sy + p11.sy) * 0.5;
-        const hash = ((tx * 73856093) ^ (ty * 19349663)) >>> 0;
-        if (style.water) {
-          if ((hash & 3) === 0) {
-            ctx.strokeStyle = style.accent;
-            ctx.beginPath();
-            const offset = wave * 3 * ((hash & 1) ? 1 : -1);
-            ctx.moveTo(cx - 8 + offset, cy);
-            ctx.quadraticCurveTo(cx + offset, cy - 3, cx + 8 + offset, cy);
-            ctx.stroke();
-          }
-        } else if (!pat && (hash % 3) === 0 && p00.scale > 10) {
-          ctx.strokeStyle = style.accent;
-          ctx.beginPath();
-          ctx.moveTo(cx - 3, cy + 2);
-          ctx.lineTo(cx - 5, cy - 4);
-          ctx.moveTo(cx + 1, cy + 2);
-          ctx.lineTo(cx + 3, cy - 5);
-          ctx.stroke();
-        }
       }
     }
   }
 
   private drawShadow(ctx: CanvasRenderingContext2D, item: ProjectedEntity) {
     const { entity, sx, sy, scale } = item;
+    if (entity.prefab === 'firefx_light' || (!entity.build && !entity.bank && entity.prefab.endsWith('_light'))) {
+      return;
+    }
     let rx = scale * 0.52;
     let ry = scale * 0.24;
     if (entity.kind === 'tree' || entity.prefab === 'multiplayer_portal') {
@@ -1652,6 +1681,9 @@ export class GameRenderer {
     now: number,
   ) {
     const { entity, sx, sy, scale } = item;
+    if (entity.prefab === 'firefx_light' || (!entity.build && !entity.bank && entity.prefab.endsWith('_light'))) {
+      return;
+    }
     const s = Math.max(8, scale);
     const isHovered = this.hoveredEntity?.entity.guid === entity.guid;
     ctx.save();
@@ -1695,467 +1727,7 @@ export class GameRenderer {
       return;
     }
 
-    ctx.filter = 'none';
-    if (entity.kind === 'player') {
-      this.drawWilson(ctx, s, entity, snap.player, now);
-      if (snap.player.speech && s > 12) {
-        this.drawPlayerSpeechBubble(ctx, -s * 2.1, snap.player.speech);
-      }
-    } else if (entity.prefab === 'multiplayer_portal') {
-      this.drawPortal(ctx, s, now);
-    } else if (entity.kind === 'tree') {
-      this.drawTree(ctx, s, entity, now);
-    } else if (entity.kind === 'rock') {
-      this.drawRock(ctx, s, entity);
-    } else if (entity.kind === 'fire' || entity.prefab === 'campfire' || entity.prefab === 'firepit') {
-      this.drawCampfire(ctx, s, entity, now);
-    } else if (entity.kind === 'plant') {
-      this.drawPlant(ctx, s, entity, now);
-    } else if (entity.kind === 'item') {
-      this.drawItem(ctx, s, entity, now);
-    } else if (entity.kind === 'creature' || entity.kind === 'monster') {
-      this.drawCreature(ctx, s, entity, now);
-    } else {
-      this.drawStructureOrProp(ctx, s, entity);
-    }
-
     ctx.restore();
-  }
-
-  private drawWilson(ctx: CanvasRenderingContext2D, s: number, entity: SceneEntity, playerHud: PlayerHudSnapshot, now: number) {
-    const isMoving = (entity.anim && entity.anim.includes('run')) || (playerHud.sgState && playerHud.sgState.includes('run'));
-    const isWorking = (entity.anim && (entity.anim.includes('chop') || entity.anim.includes('mine') || entity.anim.includes('pickup')))
-      || (playerHud.sgState && (playerHud.sgState.includes('chop') || playerHud.sgState.includes('mine') || playerHud.sgState.includes('dolongaction')));
-    const bob = isMoving ? Math.abs(Math.sin(now * 0.018)) * s * 0.14 : Math.sin(now * 0.004) * s * 0.03;
-    const stride = isMoving ? Math.sin(now * 0.018) * s * 0.22 : 0;
-    const swing = isWorking ? Math.sin(now * 0.025) * 0.7 : stride * 0.03;
-
-    ctx.translate(0, -bob);
-    ctx.lineWidth = Math.max(1.5, s * 0.06);
-    ctx.strokeStyle = '#141210';
-
-    // Legs
-    ctx.beginPath();
-    ctx.moveTo(-s * 0.14, -s * 0.35);
-    ctx.lineTo(-s * 0.16 - stride * 0.5, 0);
-    ctx.moveTo(s * 0.14, -s * 0.35);
-    ctx.lineTo(s * 0.16 + stride * 0.5, 0);
-    ctx.stroke();
-
-    // Red DST waistcoat torso
-    ctx.fillStyle = '#9e2a2b';
-    ctx.beginPath();
-    ctx.moveTo(-s * 0.28, -s * 0.32);
-    ctx.lineTo(s * 0.28, -s * 0.32);
-    ctx.lineTo(s * 0.22, -s * 0.92);
-    ctx.lineTo(-s * 0.22, -s * 0.92);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // White shirt V-collar & gold vest buttons
-    ctx.fillStyle = '#e8e2d0';
-    ctx.beginPath();
-    ctx.moveTo(-s * 0.12, -s * 0.92);
-    ctx.lineTo(0, -s * 0.68);
-    ctx.lineTo(s * 0.12, -s * 0.92);
-    ctx.closePath();
-    ctx.fill();
-
-    // Equipped hand tool (Axe / Pickaxe / Torch)
-    const tool = playerHud.equippedHand;
-    ctx.save();
-    ctx.translate(s * 0.28, -s * 0.68);
-    ctx.rotate(swing);
-    if (tool === 'axe') {
-      ctx.strokeStyle = '#7c5333';
-      ctx.lineWidth = Math.max(2, s * 0.08);
-      ctx.beginPath();
-      ctx.moveTo(0, s * 0.12);
-      ctx.lineTo(s * 0.42, -s * 0.38);
-      ctx.stroke();
-      ctx.fillStyle = '#c5c9c7';
-      ctx.strokeStyle = '#1a1817';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(s * 0.28, -s * 0.36);
-      ctx.lineTo(s * 0.56, -s * 0.22);
-      ctx.lineTo(s * 0.44, -s * 0.06);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-    } else if (tool === 'pickaxe') {
-      ctx.strokeStyle = '#7c5333';
-      ctx.lineWidth = Math.max(2, s * 0.08);
-      ctx.beginPath();
-      ctx.moveTo(0, s * 0.12);
-      ctx.lineTo(s * 0.42, -s * 0.38);
-      ctx.stroke();
-      ctx.strokeStyle = '#b8bcc0';
-      ctx.lineWidth = Math.max(2.5, s * 0.09);
-      ctx.beginPath();
-      ctx.arc(s * 0.36, -s * 0.32, s * 0.22, -0.4, 1.8);
-      ctx.stroke();
-    } else if (tool === 'torch') {
-      ctx.strokeStyle = '#6d492b';
-      ctx.lineWidth = Math.max(2, s * 0.08);
-      ctx.beginPath();
-      ctx.moveTo(0, s * 0.1);
-      ctx.lineTo(s * 0.36, -s * 0.42);
-      ctx.stroke();
-      ctx.fillStyle = '#ff9f2e';
-      ctx.beginPath();
-      ctx.arc(s * 0.38, -s * 0.48, s * 0.16, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore();
-
-    // Pale parchment DST head
-    ctx.fillStyle = '#f0e5cf';
-    ctx.strokeStyle = '#181512';
-    ctx.lineWidth = Math.max(1.5, s * 0.06);
-    ctx.beginPath();
-    ctx.ellipse(0, -s * 1.28, s * 0.36, s * 0.38, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    // Signature Wilson spiky black hair (iconic 3-peak W silhouette)
-    ctx.fillStyle = '#191817';
-    ctx.beginPath();
-    ctx.moveTo(-s * 0.34, -s * 1.32);
-    ctx.lineTo(-s * 0.56, -s * 1.66);
-    ctx.lineTo(-s * 0.22, -s * 1.56);
-    ctx.lineTo(0, -s * 1.92);
-    ctx.lineTo(s * 0.22, -s * 1.56);
-    ctx.lineTo(s * 0.56, -s * 1.66);
-    ctx.lineTo(s * 0.34, -s * 1.32);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // Eyes & brow
-    ctx.fillStyle = '#181512';
-    ctx.beginPath();
-    ctx.arc(-s * 0.13, -s * 1.26, Math.max(1.5, s * 0.045), 0, Math.PI * 2);
-    ctx.arc(s * 0.13, -s * 1.26, Math.max(1.5, s * 0.045), 0, Math.PI * 2);
-    ctx.fill();
-
-    // Nameplate above Wilson
-    if (s > 12) {
-      ctx.font = '600 11px "Segoe UI", system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = 'rgba(14, 18, 13, 0.72)';
-      ctx.fillRect(-28, -s * 2.25 - 11, 56, 15);
-      ctx.fillStyle = '#f2d379';
-      ctx.fillText('Wilson', 0, -s * 2.25);
-    }
-  }
-
-  private drawPortal(ctx: CanvasRenderingContext2D, s: number, now: number) {
-    const pulse = 0.7 + 0.3 * Math.sin(now * 0.004);
-    // Stone base
-    ctx.fillStyle = '#5a5852';
-    ctx.strokeStyle = '#1b1a17';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, s * 1.15, s * 0.5, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    // Swirling portal vortex
-    const grad = ctx.createRadialGradient(0, -s * 1.2, s * 0.1, 0, -s * 1.2, s * 0.85);
-    grad.addColorStop(0, `rgba(255, 110, 90, ${0.85 * pulse})`);
-    grad.addColorStop(0.6, 'rgba(140, 35, 55, 0.65)');
-    grad.addColorStop(1, 'rgba(30, 12, 22, 0)');
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.ellipse(0, -s * 1.2, s * 0.78, s * 1.05, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Ornate wrought-iron arch
-    ctx.strokeStyle = '#282423';
-    ctx.lineWidth = Math.max(3, s * 0.14);
-    ctx.beginPath();
-    ctx.arc(0, -s * 1.1, s * 0.78, Math.PI, 0, false);
-    ctx.lineTo(s * 0.78, 0);
-    ctx.moveTo(-s * 0.78, -s * 1.1);
-    ctx.lineTo(-s * 0.78, 0);
-    ctx.stroke();
-
-    // Top red gem
-    ctx.fillStyle = '#e63946';
-    ctx.beginPath();
-    ctx.arc(0, -s * 1.9, s * 0.16, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  private drawTree(ctx: CanvasRenderingContext2D, s: number, entity: SceneEntity, now: number) {
-    const sway = Math.sin(now * 0.002 + entity.guid) * s * 0.08;
-    // Trunk
-    ctx.fillStyle = '#5c3d28';
-    ctx.strokeStyle = '#1b140e';
-    ctx.lineWidth = Math.max(1.4, s * 0.05);
-    ctx.beginPath();
-    ctx.rect(-s * 0.16, -s * 0.75, s * 0.32, s * 0.75);
-    ctx.fill();
-    ctx.stroke();
-
-    if (entity.prefab === 'twiggytree' || entity.prefab === 'marsh_tree') {
-      ctx.strokeStyle = '#4a3525';
-      ctx.lineWidth = Math.max(2, s * 0.08);
-      ctx.beginPath();
-      ctx.moveTo(0, -s * 0.6);
-      ctx.lineTo(sway, -s * 2.1);
-      ctx.moveTo(0, -s * 1.2);
-      ctx.lineTo(-s * 0.65 + sway, -s * 1.75);
-      ctx.moveTo(0, -s * 1.4);
-      ctx.lineTo(s * 0.65 + sway, -s * 1.9);
-      ctx.stroke();
-      return;
-    }
-
-    const isDeciduous = entity.prefab === 'deciduoustree';
-    const c1 = isDeciduous ? '#8c3b20' : '#254228';
-    const c2 = isDeciduous ? '#ad4c28' : '#2f5432';
-    const c3 = isDeciduous ? '#c96432' : '#3b683f';
-
-    // Three layered pine/leaf tiers
-    const tiers = [
-      { y: -s * 0.65, w: s * 1.05, h: s * 0.95, fill: c1 },
-      { y: -s * 1.25, w: s * 0.86, h: s * 0.88, fill: c2 },
-      { y: -s * 1.82, w: s * 0.64, h: s * 0.82, fill: c3 },
-    ];
-    for (let i = 0; i < tiers.length; ++i) {
-      const t = tiers[i];
-      const off = sway * (i + 1) * 0.45;
-      ctx.fillStyle = t.fill;
-      ctx.beginPath();
-      ctx.moveTo(-t.w + off * 0.4, t.y);
-      ctx.lineTo(off, t.y - t.h);
-      ctx.lineTo(t.w + off * 0.4, t.y);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-    }
-  }
-
-  private drawRock(ctx: CanvasRenderingContext2D, s: number, entity: SceneEntity) {
-    ctx.fillStyle = '#7a7d78';
-    ctx.strokeStyle = '#1f211e';
-    ctx.lineWidth = Math.max(1.5, s * 0.06);
-    ctx.beginPath();
-    ctx.moveTo(-s * 0.72, -s * 0.05);
-    ctx.lineTo(-s * 0.58, -s * 0.72);
-    ctx.lineTo(-s * 0.08, -s * 1.05);
-    ctx.lineTo(s * 0.52, -s * 0.82);
-    ctx.lineTo(s * 0.74, -s * 0.08);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    // Gold vein accent for rock2
-    if (entity.prefab === 'rock2') {
-      ctx.strokeStyle = '#e5b942';
-      ctx.lineWidth = Math.max(2, s * 0.08);
-      ctx.beginPath();
-      ctx.moveTo(-s * 0.25, -s * 0.75);
-      ctx.lineTo(0, -s * 0.45);
-      ctx.lineTo(s * 0.28, -s * 0.62);
-      ctx.stroke();
-    }
-  }
-
-  private drawCampfire(ctx: CanvasRenderingContext2D, s: number, _entity: SceneEntity, now: number) {
-    // Logs & stones ring
-    ctx.fillStyle = '#5c4028';
-    ctx.strokeStyle = '#181410';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, s * 0.62, s * 0.28, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    // Animated flame tongues
-    const f1 = 0.85 + 0.22 * Math.sin(now * 0.019);
-    const f2 = 0.85 + 0.22 * Math.cos(now * 0.027);
-    ctx.fillStyle = '#e85d1a';
-    ctx.beginPath();
-    ctx.moveTo(-s * 0.42, -s * 0.05);
-    ctx.quadraticCurveTo(-s * 0.2, -s * 0.9 * f1, 0, -s * 1.25 * f1);
-    ctx.quadraticCurveTo(s * 0.2, -s * 0.9 * f2, s * 0.42, -s * 0.05);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.fillStyle = '#ffd152';
-    ctx.beginPath();
-    ctx.moveTo(-s * 0.22, -s * 0.05);
-    ctx.quadraticCurveTo(0, -s * 0.65 * f2, 0, -s * 0.82 * f2);
-    ctx.quadraticCurveTo(0, -s * 0.65 * f1, s * 0.22, -s * 0.05);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  private drawPlant(ctx: CanvasRenderingContext2D, s: number, entity: SceneEntity, now: number) {
-    const sway = Math.sin(now * 0.003 + entity.guid) * s * 0.06;
-    ctx.strokeStyle = '#1b1d16';
-    ctx.lineWidth = Math.max(1.2, s * 0.05);
-
-    if (entity.prefab.startsWith('berrybush')) {
-      ctx.fillStyle = '#385e32';
-      ctx.beginPath();
-      ctx.arc(sway * 0.4, -s * 0.48, s * 0.48, 0, Math.PI * 2);
-      ctx.arc(-s * 0.28 + sway * 0.2, -s * 0.32, s * 0.34, 0, Math.PI * 2);
-      ctx.arc(s * 0.28 + sway * 0.2, -s * 0.32, s * 0.34, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-
-      // Red berries
-      ctx.fillStyle = '#d62828';
-      for (const [bx, by] of [[-0.18, -0.52], [0.16, -0.58], [0.02, -0.32], [-0.24, -0.28], [0.24, -0.26]]) {
-        ctx.beginPath();
-        ctx.arc(s * bx + sway * 0.3, s * by, Math.max(2, s * 0.08), 0, Math.PI * 2);
-        ctx.fill();
-      }
-      return;
-    }
-
-    if (entity.prefab === 'grass' || entity.prefab === 'reeds') {
-      ctx.strokeStyle = entity.prefab === 'grass' ? '#8ea844' : '#6c7d47';
-      ctx.lineWidth = Math.max(2, s * 0.08);
-      for (const offset of [-0.26, -0.1, 0.08, 0.24]) {
-        ctx.beginPath();
-        ctx.moveTo(s * offset * 0.4, 0);
-        ctx.quadraticCurveTo(s * offset + sway, -s * 0.45, s * offset * 1.45 + sway, -s * 0.85);
-        ctx.stroke();
-      }
-      return;
-    }
-
-    if (entity.prefab === 'sapling') {
-      ctx.strokeStyle = '#755233';
-      ctx.lineWidth = Math.max(1.8, s * 0.07);
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(sway, -s * 0.78);
-      ctx.moveTo(sway * 0.4, -s * 0.35);
-      ctx.lineTo(-s * 0.28 + sway, -s * 0.62);
-      ctx.moveTo(sway * 0.6, -s * 0.48);
-      ctx.lineTo(s * 0.28 + sway, -s * 0.72);
-      ctx.stroke();
-      return;
-    }
-
-    // Flower / mushroom / carrot
-    ctx.strokeStyle = '#3d6e2f';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(sway, -s * 0.38);
-    ctx.stroke();
-
-    ctx.fillStyle = entity.prefab.includes('red') ? '#d62828'
-      : entity.prefab.includes('blue') ? '#3a86ff'
-      : entity.prefab.includes('carrot') ? '#f77f00'
-      : '#f4a261';
-    ctx.beginPath();
-    ctx.arc(sway, -s * 0.42, Math.max(3, s * 0.18), 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  private drawItem(ctx: CanvasRenderingContext2D, s: number, entity: SceneEntity, now: number) {
-    const bob = Math.sin(now * 0.005 + entity.guid) * s * 0.05;
-    ctx.translate(0, -bob);
-    ctx.strokeStyle = '#181612';
-    ctx.lineWidth = 1.5;
-
-    if (entity.prefab === 'flint') {
-      ctx.fillStyle = '#8b949e';
-      ctx.beginPath();
-      ctx.moveTo(-s * 0.28, -s * 0.05);
-      ctx.lineTo(0, -s * 0.45);
-      ctx.lineTo(s * 0.3, -s * 0.12);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-    } else if (entity.prefab === 'twigs') {
-      ctx.strokeStyle = '#8a623e';
-      ctx.lineWidth = Math.max(2, s * 0.08);
-      ctx.beginPath();
-      ctx.moveTo(-s * 0.28, -s * 0.05);
-      ctx.lineTo(s * 0.28, -s * 0.38);
-      ctx.moveTo(-s * 0.18, -s * 0.35);
-      ctx.lineTo(s * 0.25, -s * 0.08);
-      ctx.stroke();
-    } else if (entity.prefab === 'cutgrass') {
-      ctx.fillStyle = '#a7bd4e';
-      ctx.beginPath();
-      ctx.ellipse(0, -s * 0.18, s * 0.28, s * 0.16, -0.3, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    } else if (entity.prefab === 'log') {
-      ctx.fillStyle = '#6e472b';
-      ctx.beginPath();
-      ctx.roundRect(-s * 0.32, -s * 0.28, s * 0.64, s * 0.24, 4);
-      ctx.fill();
-      ctx.stroke();
-    } else if (entity.prefab === 'goldnugget') {
-      ctx.fillStyle = '#f5c542';
-      ctx.beginPath();
-      ctx.arc(0, -s * 0.2, s * 0.22, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    } else if (entity.prefab.startsWith('berries')) {
-      ctx.fillStyle = '#d62828';
-      ctx.beginPath();
-      ctx.arc(-s * 0.08, -s * 0.16, s * 0.14, 0, Math.PI * 2);
-      ctx.arc(s * 0.1, -s * 0.2, s * 0.14, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    } else {
-      ctx.fillStyle = '#d8b874';
-      ctx.beginPath();
-      ctx.arc(0, -s * 0.2, s * 0.22, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    }
-  }
-
-  private drawCreature(ctx: CanvasRenderingContext2D, s: number, entity: SceneEntity, now: number) {
-    const hop = Math.abs(Math.sin(now * 0.009 + entity.guid)) * s * 0.15;
-    ctx.translate(0, -hop);
-    ctx.strokeStyle = '#161412';
-    ctx.lineWidth = 1.6;
-
-    const isMonster = entity.kind === 'monster' || entity.prefab.includes('spider') || entity.prefab.includes('hound');
-    ctx.fillStyle = isMonster ? '#2b252c' : entity.prefab === 'pigman' ? '#d99b82' : '#b89f7d';
-    ctx.beginPath();
-    ctx.ellipse(0, -s * 0.36, s * 0.36, s * 0.28, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    // Eyes
-    ctx.fillStyle = isMonster ? '#e63946' : '#161412';
-    ctx.beginPath();
-    ctx.arc(-s * 0.12, -s * 0.4, Math.max(1.5, s * 0.05), 0, Math.PI * 2);
-    ctx.arc(s * 0.12, -s * 0.4, Math.max(1.5, s * 0.05), 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  private drawStructureOrProp(ctx: CanvasRenderingContext2D, s: number, entity: SceneEntity) {
-    ctx.fillStyle = '#7d6346';
-    ctx.strokeStyle = '#181410';
-    ctx.lineWidth = 1.6;
-    ctx.beginPath();
-    ctx.rect(-s * 0.35, -s * 0.7, s * 0.7, s * 0.7);
-    ctx.fill();
-    ctx.stroke();
-    if (entity.prefab === 'researchlab') {
-      ctx.fillStyle = '#d8b874';
-      ctx.beginPath();
-      ctx.arc(0, -s * 0.85, s * 0.22, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    }
   }
 
   private renderLightingOverlay(
@@ -2335,7 +1907,8 @@ export class GameRenderer {
     if (e.prefab === 'evergreen_sparse') return 'evergreen_lumpy';
     if (e.prefab === 'evergreen') return 'evergreen';
     if (e.prefab === 'deciduoustree') return 'tree_leaf';
-    if (e.kind === 'tree') return 'trees';
+    if (e.prefab === 'marsh_tree') return 'marshtree';
+    if (e.kind === 'tree') return 'evergreen';
     if (e.prefab === 'rock2') return 'rock_gold';
     if (e.prefab === 'rock_flintless') return 'rock_flintless';
     if (e.kind === 'rock') return 'rock';
@@ -2388,7 +1961,7 @@ export class GameRenderer {
     for (let r = 0; r < mm.cols; ++r) {
       for (let c = 0; c < mm.cols; ++c) {
         const tileId = mm.data[r * mm.cols + c] ?? 1;
-        const pat = this.tilePatterns.get(tileId);
+        const pat = this.tilePatterns.get(tileId) ?? (tileId >= 200 ? this.tilePatterns.get(201) : undefined);
         mctx.fillStyle = pat || getTileStyle(tileId).fill;
         mctx.fillRect(originX + c * cellW, originY + r * cellH, Math.ceil(cellW), Math.ceil(cellH));
       }
@@ -2399,7 +1972,7 @@ export class GameRenderer {
     mctx.lineWidth = 2.5;
     mctx.strokeRect(originX, originY, mapSize, mapSize);
 
-    // 3. Draw world entities on full-screen map
+    // 3. Draw world entities on full-screen map using authentic Klei minimap icons
     const span = (mm.radius || 20) * (mm.step || 3) * TILE_SIZE;
     for (const e of snap.entities) {
       if (e.kind === 'player') continue;
@@ -2411,19 +1984,14 @@ export class GameRenderer {
 
       const mmKey = this.resolveMinimapIconKey(e);
       const mmIcon = mmKey ? this.uiIconCanvases.get(mmKey) : undefined;
-      const isLandmark = e.prefab === 'multiplayer_portal' || e.kind === 'fire' || e.kind === 'structure';
-      const isz = Math.max(12, (isLandmark ? 24 : 16) * Math.sqrt(zoom));
       if (mmIcon) {
+        const isLandmark = e.prefab === 'multiplayer_portal' || e.kind === 'fire' || e.kind === 'structure';
+        const isz = Math.max(12, (isLandmark ? 24 : 16) * Math.sqrt(zoom));
         mctx.drawImage(mmIcon, px - isz * 0.5, py - isz * 0.5, isz, isz);
-      } else {
-        mctx.fillStyle = isLandmark ? '#ffb703' : '#d8b874';
-        mctx.beginPath();
-        mctx.arc(px, py, isz * 0.3, 0, Math.PI * 2);
-        mctx.fill();
       }
     }
 
-    // 4. Draw Player at map center
+    // 4. Draw Player at map center using Klei character avatar/minimap icon
     const wx = originX + mapSize * 0.5;
     const wy = originY + mapSize * 0.5;
     const charPrefab = snap.player.prefab || 'wilson';
@@ -2433,16 +2001,11 @@ export class GameRenderer {
       this.uiIconCanvases.get('wilson');
     if (playerIcon) {
       mctx.drawImage(playerIcon, wx - 14, wy - 14, 28, 28);
-    } else {
-      mctx.fillStyle = '#f2d379';
-      mctx.beginPath();
-      mctx.arc(wx, wy, 7, 0, Math.PI * 2);
-      mctx.fill();
     }
     mctx.restore();
   }
 
-  private renderMinimap(ctx: CanvasRenderingContext2D, snap: GameSceneSnapshot, cam: CameraSnapshot) {
+  private renderMinimap(ctx: CanvasRenderingContext2D, snap: GameSceneSnapshot, _cam: CameraSnapshot) {
     const mw = ctx.canvas.width;
     const mh = ctx.canvas.height;
     ctx.fillStyle = '#0c1c29';
@@ -2455,13 +2018,14 @@ export class GameRenderer {
       for (let r = 0; r < mm.cols; ++r) {
         for (let c = 0; c < mm.cols; ++c) {
           const tileId = mm.data[r * mm.cols + c] ?? 1;
-          ctx.fillStyle = getTileStyle(tileId).fill;
+          const pat = this.tilePatterns.get(tileId) ?? (tileId >= 200 ? this.tilePatterns.get(201) : undefined);
+          ctx.fillStyle = pat || getTileStyle(tileId).fill;
           ctx.fillRect(c * cellW, r * cellH, Math.ceil(cellW), Math.ceil(cellH));
         }
       }
     }
 
-    // Draw nearby entities on minimap
+    // Draw nearby entities on minimap using Klei minimap icons
     const span = (mm?.radius ?? 20) * (mm?.step ?? 3) * TILE_SIZE;
     for (const e of snap.entities) {
       if (e.kind === 'player' || e.prefab === 'wilson') continue;
@@ -2477,45 +2041,13 @@ export class GameRenderer {
         const isBig = e.prefab === 'multiplayer_portal' || e.kind === 'fire' || e.kind === 'structure';
         const isz = isBig ? 14 : 9;
         ctx.drawImage(mmIcon, px - isz * 0.5, py - isz * 0.5, isz, isz);
-      } else if (e.prefab === 'multiplayer_portal') {
-        ctx.fillStyle = '#e63946';
-        ctx.beginPath();
-        ctx.arc(px, py, 4, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (e.kind === 'fire') {
-        ctx.fillStyle = '#ffb703';
-        ctx.beginPath();
-        ctx.arc(px, py, 3.5, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (e.kind === 'tree') {
-        ctx.fillStyle = '#2b5832';
-        ctx.fillRect(px - 1, py - 1, 2.2, 2.2);
-      } else if (e.kind === 'rock') {
-        ctx.fillStyle = '#adb5bd';
-        ctx.fillRect(px - 1.2, py - 1.2, 2.5, 2.5);
       }
     }
 
-    // Player marker at center + camera heading arrow
+    // Player marker at center using Klei character minimap icon
     const wilsonIcon = this.uiIconCanvases.get('wilson');
     if (wilsonIcon) {
       ctx.drawImage(wilsonIcon, mw * 0.5 - 8, mh * 0.5 - 8, 16, 16);
-    } else {
-      ctx.save();
-      ctx.translate(mw * 0.5, mh * 0.5);
-      ctx.rotate((cam.heading - 90) * DEG2RAD);
-      ctx.fillStyle = '#f2d379';
-      ctx.strokeStyle = '#141610';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      ctx.moveTo(0, -6);
-      ctx.lineTo(4.5, 5);
-      ctx.lineTo(0, 2.5);
-      ctx.lineTo(-4.5, 5);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-      ctx.restore();
     }
   }
 }

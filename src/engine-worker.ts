@@ -33,8 +33,8 @@ async function digest(bytes: Uint8Array) {
   return Array.from(new Uint8Array(hash), b => b.toString(16).padStart(2, '0')).join('');
 }
 
-function evaluate(code: string): string {
-  return evaluations.evaluate(code);
+function evaluate(code: string, budget = 25000000): string {
+  return evaluations.evaluate(code, budget);
 }
 
 async function initialize(message: any) {
@@ -263,41 +263,6 @@ async function handle(data: any) {
           addZip('anim/teleporter_worm_build.zip');
           addZip('anim/teleporter_worm.zip');
         }
-        if (prefab) {
-          try {
-            const pInfo = JSON.parse(evaluate(`
-              local info = WebPrefabs.Inspect(${JSON.stringify(prefab)})
-              if not info or not info.assets then return "[]" end
-              local out = {}
-              for _, a in ipairs(info.assets) do
-                if a.type == "ANIM" or a.type == "DYNAMIC_ANIM" then
-                  table.insert(out, a.file)
-                end
-              end
-              return require("json").encode(out)
-            `));
-            if (Array.isArray(pInfo)) {
-              for (const z of pInfo) {
-                if (build && z === `anim/${build}.zip`) addZip(z);
-              }
-              for (const z of pInfo) {
-                if (
-                  typeof z === 'string' &&
-                  !z.includes('dust_fx') &&
-                  !z.includes('pine_needles') &&
-                  !z.includes('tree_leaf_fx') &&
-                  !z.includes('tree_leaf_red_build') &&
-                  !z.includes('tree_leaf_orange_build') &&
-                  !z.includes('tree_leaf_yellow_build') &&
-                  !z.includes('tree_leaf_poison_build') &&
-                  !z.includes('tree_leaf_monster')
-                ) {
-                  addZip(z);
-                }
-              }
-            }
-          } catch {}
-        }
         const CHARACTER_PREFABS = new Set([
           'wilson', 'willow', 'wolfgang', 'wendy', 'wx78', 'wickerbottom', 'woodie', 'wes', 'waxwell',
           'wathgrithr', 'webber', 'winona', 'warly', 'wortox', 'wormwood', 'wurt', 'walter', 'wanda',
@@ -349,12 +314,77 @@ async function handle(data: any) {
           addZip('anim/player_actions_shovel.zip');
           addZip('anim/player_actions_eat.zip');
           addZip('anim/player_actions_item.zip');
+          addZip('anim/player_attacks.zip');
+        } else if (prefab) {
+          try {
+            const pInfo = JSON.parse(evaluate(`
+              local info = WebPrefabs.Inspect(${JSON.stringify(prefab)})
+              if not info or not info.assets then return "[]" end
+              local out = {}
+              for _, a in ipairs(info.assets) do
+                if a.type == "ANIM" or a.type == "DYNAMIC_ANIM" then
+                  table.insert(out, a.file)
+                end
+              end
+              return require("json").encode(out)
+            `));
+            if (Array.isArray(pInfo)) {
+              for (const z of pInfo) {
+                if (build && z === `anim/${build}.zip`) addZip(z);
+              }
+              for (const z of pInfo) {
+                if (
+                  typeof z === 'string' &&
+                  !z.includes('dust_fx') &&
+                  !z.includes('pine_needles') &&
+                  !z.includes('tree_leaf_fx') &&
+                  !z.includes('tree_leaf_red_build') &&
+                  !z.includes('tree_leaf_orange_build') &&
+                  !z.includes('tree_leaf_yellow_build') &&
+                  !z.includes('tree_leaf_poison_build') &&
+                  !z.includes('tree_leaf_monster')
+                ) {
+                  addZip(z);
+                }
+              }
+            }
+          } catch {}
+        }
+
+        if (prefab === 'evergreen') {
+          addZip('anim/evergreen_new.zip');
+          addZip('anim/evergreen_short_normal.zip');
+          addZip('anim/evergreen_tall_old.zip');
+        }
+        if (prefab === 'evergreen_sparse') {
+          addZip('anim/evergreen_new_2.zip');
+          addZip('anim/evergreen_short_normal.zip');
+          addZip('anim/evergreen_tall_old.zip');
+        }
+        if (prefab === 'campfire' || prefab === 'firepit') {
+          addZip('anim/campfire_fire.zip');
         }
         if (prefab === 'cookpot' || build === 'cook_pot') addZip('anim/cook_pot.zip');
         if (prefab === 'icebox' || build === 'ice_box') addZip('anim/ice_box.zip');
         if (prefab === 'meatrack' || build === 'meat_rack') addZip('anim/meat_rack.zip');
         if (prefab === 'treasurechest' || build === 'treasure_chest') addZip('anim/treasure_chest.zip');
         if (prefab === 'researchlab2' || build === 'researchlab2') addZip('anim/researchlab2.zip');
+        if (prefab === 'firehound' || bank === 'hound') {
+          addZip('anim/hound_red_ocean.zip');
+          addZip('anim/hound_basic.zip');
+        }
+        if (prefab === 'mole' || prefab === 'molehill' || bank === 'mole') {
+          addZip('anim/mole_build.zip');
+          addZip('anim/mole_basic.zip');
+        }
+        if (prefab === 'wobster_den' || bank === 'lobster_den') {
+          addZip('anim/lobster_den_build.zip');
+          addZip('anim/lobster_den.zip');
+        }
+        if (prefab === 'fence_junk' || bank === 'fence_junk') {
+          addZip('anim/fence_junk_build3.zip');
+          addZip('anim/fence_junk.zip');
+        }
 
         if (bank && bank !== build) {
           for (const c of [`anim/${bank}.zip`, `anim/ds_${bank}_basic.zip`, `anim/${bank}_normal.zip`, `anim/${bank}_short.zip`, `anim/${bank}_tall.zip`]) {
@@ -381,7 +411,7 @@ async function handle(data: any) {
         const overrides: Record<string, { model: any; atlases: Array<{ name: string; width: number; height: number; rgba: ArrayBuffer }> }> = {};
 
         for (const z of candidateZips.slice(0, 14)) {
-          const isSupplementaryBuild = z.endsWith('_build.zip');
+          const isSupplementaryBuild = z.endsWith('_build.zip') || z === 'anim/campfire_fire.zip';
           const needBuild = !model || !Array.isArray(model.vertices) || model.vertices.length === 0 || isSupplementaryBuild;
           capturedMip0.clear();
           try {
@@ -493,7 +523,7 @@ async function handle(data: any) {
           { tileIds: [12], path: 'levels/textures/mini_checker_noise.tex' },
           { tileIds: [42], path: 'levels/textures/mini_pebblebeach.tex' },
           { tileIds: [43], path: 'levels/textures/mini_meteor.tex' },
-          { tileIds: [0, 1, 201, 202, 203, 204], path: 'levels/textures/ocean_noise.tex' },
+          { tileIds: [0, 1, 201, 202, 203, 204, 272], path: 'levels/textures/ocean_noise.tex' },
         ];
 
         const captured = new Map<number, { width: number; height: number; rgba: ArrayBuffer }>();
@@ -522,6 +552,28 @@ async function handle(data: any) {
       }
       case 'load-ui-icons': {
         if (!ready || !resources) throw new Error('Engine or resources not initialized');
+        // All inventory/recipe/ingredient/structure/food/tool icons across inventoryimages1..3.xml
+        const wantedInventoryItems = [
+          'flint.tex', 'twigs.tex', 'cutgrass.tex', 'berries.tex', 'berries_juicy.tex', 'log.tex', 'rocks.tex',
+          'goldnugget.tex', 'nitre.tex', 'marble.tex', 'axe.tex', 'goldenaxe.tex', 'pickaxe.tex', 'goldenpickaxe.tex',
+          'shovel.tex', 'goldenshovel.tex', 'hammer.tex', 'compass.tex', 'razor.tex', 'torch.tex', 'lantern.tex',
+          'lighter.tex', 'lucy.tex', 'spear.tex', 'spear_wathgrithr.tex', 'hambat.tex', 'cane.tex', 'slingshot.tex',
+          'firestaff.tex', 'panflute.tex', 'pocketwatch_weapon.tex',
+          'armorgrass.tex', 'armorwood.tex', 'armormarble.tex', 'backpack.tex',
+          'flowerhat.tex', 'strawhat.tex', 'footballhat.tex', 'wathgrithrhat.tex', 'tophat.tex', 'winterhat.tex', 'minerhat.tex',
+          'campfire.tex', 'firepit.tex', 'researchlab.tex', 'researchlab2.tex', 'treasurechest.tex',
+          'cookpot.tex', 'icebox.tex', 'meatrack.tex', 'homesign.tex', 'pighouse.tex',
+          'trap.tex', 'birdtrap.tex', 'bugnet.tex', 'fishingrod.tex', 'umbrella.tex', 'heatrock.tex', 'bedroll_straw.tex',
+          'carrot.tex', 'petals.tex', 'red_cap.tex', 'green_cap.tex', 'blue_cap.tex',
+          'pinecone.tex', 'charcoal.tex', 'ash.tex', 'rope.tex', 'boards.tex', 'cutstone.tex', 'papyrus.tex', 'transistor.tex',
+          'silk.tex', 'spidergland.tex', 'pigskin.tex', 'poop.tex', 'beefalowool.tex', 'houndstooth.tex', 'stinger.tex',
+          'healingsalve.tex', 'bandage.tex', 'sewing_tape.tex', 'abigail_flower.tex', 'bathbomb.tex', 'messagebottle.tex',
+          'monstermeat.tex', 'meat.tex', 'smallmeat.tex', 'drumstick.tex', 'froglegs.tex',
+          'berries_cooked.tex', 'berries_juicy_cooked.tex', 'carrot_cooked.tex',
+          'cookedmeat.tex', 'cookedsmallmeat.tex', 'cookedmonstermeat.tex', 'drumstick_cooked.tex', 'froglegs_cooked.tex',
+          'red_cap_cooked.tex', 'green_cap_cooked.tex', 'blue_cap_cooked.tex',
+          'meatballs.tex', 'kabobs.tex', 'ratatouille.tex', 'spoiled_food.tex',
+        ];
         const wantedIcons: Record<string, string[]> = {
           'images/hud.xml': [
             'inv_slot.tex', 'inv_slot_spoiled.tex', 'slot_select.tex', 'resource_needed.tex',
@@ -539,9 +591,11 @@ async function handle(data: any) {
             'self_inspect_wendy.tex', 'self_inspect_wx78.tex', 'self_inspect_wickerbottom.tex',
             'self_inspect_woodie.tex', 'self_inspect_wes.tex', 'self_inspect_waxwell.tex',
             'self_inspect_wathgrithr.tex', 'self_inspect_webber.tex', 'self_inspect_winona.tex',
-            'self_inspect_warly.tex', 'effigy_button.tex', 'stat_bar.tex',
+            'self_inspect_warly.tex', 'self_inspect_wortox.tex', 'self_inspect_wormwood.tex',
+            'self_inspect_wurt.tex', 'self_inspect_walter.tex', 'effigy_button.tex', 'stat_bar.tex',
           ],
           'images/crafting_menu_icons.xml': [
+            'filter_none.tex', 'filter_skull.tex',
             'filter_tool.tex', 'filter_fire.tex', 'filter_weapon.tex', 'filter_armour.tex',
             'filter_science.tex', 'filter_refine.tex', 'filter_structure.tex', 'filter_containers.tex',
             'filter_warable.tex', 'filter_health.tex', 'filter_cooking.tex', 'filter_gardening.tex',
@@ -573,36 +627,16 @@ async function handle(data: any) {
             'avatar_warly.tex', 'avatar_wortox.tex', 'avatar_wormwood.tex', 'avatar_wurt.tex',
             'avatar_walter.tex', 'avatar_wanda.tex',
           ],
-          'images/inventoryimages1.xml': [
-            'flint.tex', 'twigs.tex', 'cutgrass.tex', 'berries.tex', 'log.tex', 'rocks.tex',
-            'goldnugget.tex', 'nitre.tex', 'axe.tex', 'pickaxe.tex', 'shovel.tex', 'hammer.tex',
-            'torch.tex', 'spear.tex', 'armorgrass.tex', 'armorwood.tex', 'armormarble.tex',
-            'campfire.tex', 'firepit.tex', 'researchlab.tex', 'researchlab2.tex', 'treasurechest.tex',
-            'flowerhat.tex', 'strawhat.tex', 'backpack.tex', 'trap.tex', 'birdtrap.tex', 'bugnet.tex',
-            'carrot.tex', 'petals.tex', 'red_cap.tex', 'green_cap.tex', 'blue_cap.tex',
-            'pinecone.tex', 'charcoal.tex', 'ash.tex', 'rope.tex', 'boards.tex', 'cutstone.tex',
-            'silk.tex', 'spidergland.tex', 'monstermeat.tex', 'meat.tex', 'smallmeat.tex',
-            'poop.tex', 'beefalowool.tex', 'houndstooth.tex', 'stinger.tex',
-            'bandage.tex', 'cookpot.tex', 'berries_cooked.tex', 'berries_juicy_cooked.tex',
-            'carrot_cooked.tex', 'cookedmeat.tex', 'cookedsmallmeat.tex', 'cookedmonstermeat.tex',
-            'blue_cap_cooked.tex', 'abigail_flower.tex',
-          ],
-          'images/inventoryimages2.xml': [
-            'berries_juicy.tex', 'twiggytree.tex', 'goldenaxe.tex', 'goldenpickaxe.tex', 'goldenshovel.tex',
-            'fishingrod.tex', 'minerhat.tex', 'lantern.tex', 'hambat.tex', 'footballhat.tex',
-            'healingsalve.tex', 'icebox.tex', 'meatrack.tex', 'umbrella.tex', 'papyrus.tex',
-            'green_cap_cooked.tex', 'lighter.tex', 'lucy.tex', 'pigskin.tex',
-          ],
-          'images/inventoryimages3.xml': [
-            'razor.tex', 'tophat.tex', 'winterhat.tex', 'transistor.tex', 'red_cap_cooked.tex',
-            'spear_wathgrithr.tex', 'wathgrithrhat.tex', 'sewing_tape.tex', 'slingshot.tex',
-          ],
+          'images/inventoryimages1.xml': wantedInventoryItems,
+          'images/inventoryimages2.xml': wantedInventoryItems,
+          'images/inventoryimages3.xml': wantedInventoryItems,
           'minimap/minimap_data.xml': [
-            'portal_dst.png', 'wilson.png', 'evergreen.png', 'evergreen_lumpy.png', 'trees.png',
-            'tree_leaf.png', 'rock.png', 'rock_gold.png', 'rock_flintless.png', 'campfire.png', 'firepit.png',
-            'researchlab.png', 'berrybush.png', 'berrybush2.png', 'berrybush_juicy.png',
-            'grass.png', 'sapling.png', 'rabbithole.png', 'wormhole.png', 'pond.png',
-            'cave_closed.png', 'cave_open.png', 'pighouse.png', 'spiderden.png', 'treasurechest.png',
+            'portal_dst.png', 'wilson.png', 'evergreen.png', 'evergreen_lumpy.png', 'marshtree.png',
+            'tree_leaf.png', 'livingtree.png', 'moon_tree.png', 'rock.png', 'rock_gold.png', 'rock_flintless.png',
+            'firepit.png', 'researchlab.png', 'researchlab2.png', 'cookpot.png', 'icebox.png', 'meatrack.png',
+            'berrybush.png', 'berrybush2.png', 'berrybush_juicy.png', 'bananabush.png', 'marsh_bush.png',
+            'grass.png', 'sapling.png', 'wormhole.png', 'pond.png', 'lava_pond.png',
+            'cave_closed.png', 'cave_open.png', 'pighouse.png', 'pigking.png', 'spiderden.png', 'treasurechest.png',
           ],
         };
 

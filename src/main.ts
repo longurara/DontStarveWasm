@@ -595,7 +595,7 @@ function applyKleiHudTextures() {
   const rootStyle = document.documentElement.style;
   const cssTexMap: Array<[string, string]> = [
     ['--tex-inv-slot', 'inv_slot'],
-    ['--tex-inv-slot-Spoiled', 'spoilage_bg'],
+    ['--tex-inv-slot-Spoiled', 'inv_slot_spoiled'],
     ['--tex-res-needed', 'resource_needed'],
     ['--tex-equip-slot', 'equip_slot'],
     ['--tex-inv-bg', 'inventory_bg'],
@@ -603,32 +603,32 @@ function applyKleiHudTextures() {
     ['--tex-chest-9slot', 'chest_bg_9slot'],
     ['--tex-badge-frame', 'badge_frame_circle'],
     ['--tex-badge-bg', 'badge_bg'],
-    ['--tex-cm-top', 'cm_top'],
-    ['--tex-cm-bottom', 'cm_bottom'],
-    ['--tex-cm-side', 'cm_side'],
-    ['--tex-cm-backing', 'cm_backing'],
-    ['--tex-cm-hbar', 'cm_hbar'],
-    ['--tex-cm-tab', 'cm_tab'],
-    ['--tex-cm-filterslot-bg', 'cm_filterslot_bg'],
-    ['--tex-cm-filterslot-bg-hi', 'cm_filterslot_bg_hi'],
-    ['--tex-cm-filterslot-frame', 'cm_filterslot_frame'],
-    ['--tex-cm-filterslot-frame-sel', 'cm_filterslot_frame_select'],
-    ['--tex-cm-slot-bg', 'cm_slot_bg'],
-    ['--tex-cm-slot-bg-ing', 'cm_slot_bg_missing'],
-    ['--tex-cm-slot-fg-lock', 'cm_slot_fg_lock'],
-    ['--tex-cm-slot-frame', 'cm_slot_frame'],
-    ['--tex-cm-slot-frame-hi', 'cm_slot_frame_hi'],
-    ['--tex-cm-slot-frame-sel', 'cm_slot_frame_select'],
-    ['--tex-cm-fav-on', 'cm_fav_checked'],
-    ['--tex-cm-fav-off', 'cm_fav_unchecked'],
-    ['--tex-btn-carny-long', 'btn_carny_long_normal'],
-    ['--tex-btn-carny-long-over', 'btn_carny_long_over'],
-    ['--tex-btn-carny-long-down', 'btn_carny_long_down'],
-    ['--tex-btn-carny-long-dis', 'btn_carny_long_disabled'],
-    ['--tex-btn-carny-xlong', 'btn_carny_xlong_normal'],
-    ['--tex-btn-carny-xlong-over', 'btn_carny_xlong_over'],
-    ['--tex-char-select-bg', 'char_selection_bg'],
-    ['--tex-textbox-gold', 'textbox_gold'],
+    ['--tex-cm-top', 'top'],
+    ['--tex-cm-bottom', 'bottom'],
+    ['--tex-cm-side', 'side'],
+    ['--tex-cm-backing', 'backing'],
+    ['--tex-cm-hbar', 'horizontal_bar'],
+    ['--tex-cm-tab', 'crafting_tab'],
+    ['--tex-cm-filterslot-bg', 'filterslot_bg'],
+    ['--tex-cm-filterslot-bg-hi', 'filterslot_bg_highlight'],
+    ['--tex-cm-filterslot-frame', 'filterslot_frame'],
+    ['--tex-cm-filterslot-frame-sel', 'filterslot_frame_select'],
+    ['--tex-cm-slot-bg', 'slot_bg'],
+    ['--tex-cm-slot-bg-ing', 'slot_bg_missing_mats'],
+    ['--tex-cm-slot-fg-lock', 'slot_fg_lock'],
+    ['--tex-cm-slot-frame', 'slot_frame'],
+    ['--tex-cm-slot-frame-hi', 'slot_frame_highlight'],
+    ['--tex-cm-slot-frame-sel', 'slot_frame_select'],
+    ['--tex-cm-fav-on', 'favorite_checked'],
+    ['--tex-cm-fav-off', 'favorite_unchecked'],
+    ['--tex-btn-carny-long', 'button_carny_long_normal'],
+    ['--tex-btn-carny-long-over', 'button_carny_long_hover'],
+    ['--tex-btn-carny-long-down', 'button_carny_long_down'],
+    ['--tex-btn-carny-long-dis', 'button_carny_long_disabled'],
+    ['--tex-btn-carny-xlong', 'button_carny_xlong_normal'],
+    ['--tex-btn-carny-xlong-over', 'button_carny_xlong_hover'],
+    ['--tex-char-select-bg', 'char_selection'],
+    ['--tex-textbox-gold', 'textbox3_gold_normal'],
     ['--tex-map-btn', 'map_button'],
     ['--tex-pause-btn', 'pause'],
     ['--tex-turnarrow', 'turnarrow_icon'],
@@ -643,9 +643,9 @@ function applyKleiHudTextures() {
 
   // Populate real Klei status badge icons (status_hunger, status_sanity, status_health, status_wet)
   const badgeIconMap: Array<[string, string, string]> = [
-    ['badge-hunger', 'status_hunger_icon', 'badge_hunger'],
-    ['badge-sanity', 'status_sanity_icon', 'badge_sanity'],
-    ['badge-health', 'status_health_icon', 'badge_health'],
+    ['badge-hunger', 'badge_hunger', 'status_hunger'],
+    ['badge-sanity', 'badge_sanity', 'status_sanity'],
+    ['badge-health', 'badge_health', 'status_health'],
     ['badge-climate', 'badge_wet', 'badge_temp'],
   ];
   for (const [badgeId, primaryKey, fallbackKey] of badgeIconMap) {
@@ -917,24 +917,31 @@ function display(value: Snapshot) {
   void workers.get('client')?.request('preview-tick', { tick: value.tick }).catch(error => status(String(error)));
 }
 
+const bootPromises = new Map<Role, Promise<any>>();
+let masterAssetsRequested = false;
+
 async function boot(role: Role) {
-  if (workers.has(role)) return;
-  const localUserId = role === 'client' ? await database.localIdentity() : '';
-  const worker = new EngineWorker(role);
-  workers.set(role, worker);
-  worker.onLog = log;
-  worker.onPlatform = state => { if (role === 'client') element('preview').style.cursor = state.cursorVisible ? 'default' : 'none'; };
-  const viewport = role === 'client' ? { width: element<HTMLCanvasElement>('preview').width, height: element<HTMLCanvasElement>('preview').height } : undefined;
-  const info = await worker.request('init', { focus: document.hasFocus(), expected: compatibility, session: { localUserId }, viewport });
-  if (compatibility) assertCompatibility(info.manifest, compatibility); else compatibility = info.manifest;
-  element('worker-' + role).classList.add('ready');
-  log(`${role}: ${info.boot}; heap ${(info.heap / 1048576).toFixed(0)} MiB`);
-  if (role === 'client') {
-    const canvas = element<HTMLCanvasElement>('preview').transferControlToOffscreen();
-    log(JSON.stringify(await worker.request('preview', { canvas }, [canvas])));
-    attachCanvasInput(element<HTMLCanvasElement>('preview'), (event: any) => worker.request('input', { event }), (error: unknown) => status(String(error)));
-  }
-  return info;
+  if (bootPromises.has(role)) return bootPromises.get(role);
+  const p = (async () => {
+    const localUserId = role === 'client' ? await database.localIdentity() : '';
+    const worker = new EngineWorker(role);
+    workers.set(role, worker);
+    worker.onLog = log;
+    worker.onPlatform = state => { if (role === 'client') element('preview').style.cursor = state.cursorVisible ? 'default' : 'none'; };
+    const viewport = role === 'client' ? { width: element<HTMLCanvasElement>('preview').width, height: element<HTMLCanvasElement>('preview').height } : undefined;
+    const info = await worker.request('init', { focus: document.hasFocus(), expected: compatibility, session: { localUserId }, viewport });
+    if (compatibility) assertCompatibility(info.manifest, compatibility); else compatibility = info.manifest;
+    element('worker-' + role).classList.add('ready');
+    log(`${role}: ${info.boot}; heap ${(info.heap / 1048576).toFixed(0)} MiB`);
+    if (role === 'client') {
+      const canvas = element<HTMLCanvasElement>('preview').transferControlToOffscreen();
+      log(JSON.stringify(await worker.request('preview', { canvas }, [canvas])));
+      attachCanvasInput(element<HTMLCanvasElement>('preview'), (event: any) => worker.request('input', { event }), (error: unknown) => status(String(error)));
+    }
+    return info;
+  })();
+  bootPromises.set(role, p);
+  return p;
 }
 
 async function checkpoint() {
@@ -970,7 +977,7 @@ async function command(peer: string, data: any) {
 localInput.port1.onmessage = event => { void enqueue(() => command('host', event.data)).catch(error => status(String(error))); };
 
 async function start() {
-  if (workers.size) throw new Error('Runtime already started; reload to change role');
+  if (workers.has('client') && workers.has('master') && workers.has('caves')) throw new Error('Runtime already started; reload to change role');
   button('start').disabled = true;
   button('join').disabled = true;
   status('Loading WASM & verifying script hashes…');
@@ -986,22 +993,23 @@ async function start() {
 }
 
 async function ensureMasterAssetsLoaded() {
-  if (!workers.has('master')) {
-    await boot('master');
-  }
+  await boot('master');
   const master = workers.get('master')!;
-  void master.request('load-tile-textures').then((res: any) => {
-    if (res?.tiles) gameRenderer.ingestTileTextures(res.tiles);
-  }).catch(() => {});
-  void master.request('load-ui-icons').then((res: any) => {
-    if (res?.icons) {
-      gameRenderer.ingestUiIcons(res.icons);
-      applyKleiHudTextures();
-      renderCraftingHud(gameScene);
-      renderInventoryHud(gameScene);
-      if (gameScene) gameRenderer.renderWorldClock(clockCanvas, gameScene);
-    }
-  }).catch(() => {});
+  if (!masterAssetsRequested) {
+    masterAssetsRequested = true;
+    void master.request('load-tile-textures').then((res: any) => {
+      if (res?.tiles) gameRenderer.ingestTileTextures(res.tiles);
+    }).catch(() => {});
+    void master.request('load-ui-icons').then((res: any) => {
+      if (res?.icons) {
+        gameRenderer.ingestUiIcons(res.icons);
+        applyKleiHudTextures();
+        renderCraftingHud(gameScene);
+        renderInventoryHud(gameScene);
+        if (gameScene) gameRenderer.renderWorldClock(clockCanvas, gameScene);
+      }
+    }).catch(() => {});
+  }
   return master;
 }
 
