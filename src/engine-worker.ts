@@ -618,8 +618,11 @@ async function handle(data: any) {
           'images/global_redux.xml': [
             'button_carny_long_normal.tex', 'button_carny_long_hover.tex', 'button_carny_long_down.tex', 'button_carny_long_disabled.tex',
             'button_carny_xlong_normal.tex', 'button_carny_xlong_hover.tex', 'button_carny_xlong_down.tex',
-            'char_selection.tex', 'textbox3_gold_normal.tex', 'close.tex',
+            'char_selection.tex', 'char_selection_hover.tex', 'textbox3_gold_normal.tex', 'close.tex',
             'status_health.tex', 'status_hunger.tex', 'status_sanity.tex',
+            'menu_focus.tex as fe_menu_focus', 'menu_selected.tex as fe_menu_selected',
+            'arrow2_left.tex as fe_arrow_left', 'arrow2_left_over.tex as fe_arrow_left_over',
+            'arrow2_right.tex as fe_arrow_right', 'value_gold.tex as fe_value_gold',
           ],
           'images/crafting_menu_avatars.xml': [
             'avatar_wilson.tex', 'avatar_willow.tex', 'avatar_wolfgang.tex', 'avatar_wendy.tex',
@@ -633,6 +636,27 @@ async function handle(data: any) {
             'kleipresents.tex as fe_kleipresents',
             'play_highlight.tex as fe_play_highlight',
           ],
+          'images/bg_redux_black_sidebar.xml': [
+            'black_sidebar.tex as fe_black_sidebar',
+          ],
+          'images/bg_redux_motd_frame_large_gold.xml': [
+            'motd_frame_large_gold.tex as fe_motd_frame_large',
+          ],
+          'images/bg_redux_motd_frame_small_gold.xml': [
+            'motd_frame_small_gold.tex as fe_motd_frame_small',
+          ],
+          'images/bg_redux_wardrobe_bg.xml': [
+            'wardrobe_bg.tex as fe_wardrobe_bg',
+          ],
+          'images/bg_loading_loading_dst10_unsigned.xml': [
+            'loading_dst10_unsigned.tex as fe_banner_dst10',
+          ],
+          'images/bg_loading_loading_magma.xml': [
+            'loading_magma.tex as fe_banner_magma',
+          ],
+          'images/bg_loading_loading_goats_victorian.xml': [
+            'loading_goats_victorian.tex as fe_banner_gorge',
+          ],
           'images/bg_animated_portal.xml': [
             'bg_plate.tex as fe_portal_bg',
           ],
@@ -641,6 +665,43 @@ async function handle(data: any) {
           ],
           'images/fg_trees.xml': [
             'trees.tex as fe_fg_trees',
+          ],
+          'images/frontend_redux.xml': [
+            'list_tabs_normal.tex as fe_tab_normal',
+            'list_tabs_selected.tex as fe_tab_selected',
+            'list_tabs_hover.tex as fe_tab_hover',
+            'serverlist_listitem_normal.tex as fe_server_row_normal',
+            'serverlist_listitem_hover.tex as fe_server_row_hover',
+            'serverlist_listitem_selected.tex as fe_server_row_sel',
+            'achievements_wide_divider_top.tex as fe_div_top',
+            'achievements_wide_divider_bottom.tex as fe_div_bottom',
+            'kleishop.tex as fe_kleishop',
+          ],
+          'images/button_icons.xml': [
+            'folder.tex as btn_icon_folder',
+            'profile.tex as btn_icon_profile',
+            'forums.tex as btn_icon_forums',
+            'more_games.tex as btn_icon_moregames',
+            'save.tex as btn_icon_save',
+            'refresh.tex as btn_icon_refresh',
+            'mods.tex as btn_icon_mods',
+            'world.tex as btn_icon_world',
+            'customization.tex as btn_icon_custom',
+            'apply_skins.tex as btn_icon_skins',
+            'death.tex as btn_icon_death',
+          ],
+          'images/avatars.xml': [
+            'avatar_frame.tex as fe_avatar_frame',
+            'avatar_bg.tex as fe_avatar_bg',
+            'avatar_ghost_frame.tex as fe_avatar_ghost_frame',
+            'loading_indicator.tex as fe_loading_indicator',
+          ],
+          'images/scoreboard.xml': [
+            'scoreboard_frame.tex as sb_frame',
+            'row.tex as sb_row',
+            'row_goldoutline.tex as sb_row_gold',
+            'host_indicator.tex as sb_host',
+            'performance_indicator3.tex as sb_ping_good',
           ],
           'images/serverplaystyles.xml': [
             'relaxed.tex as playstyle_relaxed',
@@ -670,12 +731,52 @@ async function handle(data: any) {
             'lavaarena_inventorybar.tex as forge_inv_bar',
             'victory_dialog.tex as forge_victory_dialog',
           ],
+          'images/lavaarena_unlocks.xml': [
+            'unlock_bg.tex as forge_book_bg',
+            'tab_active.tex as forge_tab_active',
+            'tab_inactive.tex as forge_tab_inactive',
+            'boarrior.tex as forge_boss_boarrior',
+            'beetletaur.tex as forge_boss_swineclops',
+            'rhinodrill.tex as forge_boss_rhinocebros',
+            'trails.tex as forge_boss_boarilla',
+            'book_elemental.tex as forge_item_tome',
+            'divider.tex as forge_divider',
+          ],
+          'images/lavaarena_achievements.xml': [
+            'wilson_victory.tex as forge_ach_wilson',
+            'willow_moltenbolt.tex as forge_ach_willow',
+            'wathgrithr_battlecry.tex as forge_ach_wigfrid',
+            'woodie_lucychuck.tex as forge_ach_woodie',
+            'wolfgang_guardsbroken.tex as forge_ach_wolfgang',
+            'wickerbottom_meteor.tex as forge_ach_wicker',
+          ],
           'images/quagmire_frontend.xml': [
             'gorge_tournament_info.tex as mode_gorge_title',
           ],
           'images/quagmire_hud.xml': [
             'quagmire_hangry_bar.tex as gorge_hangry_bar',
             'quagmire_announcement_bg_centered.tex as gorge_announce_bg',
+          ],
+          'images/quagmire_recipebook.xml': [
+            'quagmire_recipe_menu_bg.tex as gorge_book_bg',
+            'quagmire_recipe_tab_active.tex as gorge_tab_active',
+            'quagmire_recipe_tab_inactive.tex as gorge_tab_inactive',
+            'coin1.tex as gorge_coin1',
+            'coin2.tex as gorge_coin2',
+            'coin3.tex as gorge_coin3',
+            'coin4.tex as gorge_coin4',
+            'pot.tex as gorge_station_pot',
+            'grill.tex as gorge_station_grill',
+            'casseroledish.tex as gorge_station_oven',
+            'quagmire_recipe_line_break2.tex as gorge_divider',
+          ],
+          'images/quagmire_achievements.xml': [
+            'win.tex as gorge_ach_win',
+            'cook_full_book.tex as gorge_ach_book',
+            'tribute_coin4.tex as gorge_ach_coin4',
+            'cook_all_stations.tex as gorge_ach_stations',
+            'gather_safe.tex as gorge_ach_safe',
+            'quag_win_perfect.tex as gorge_ach_perfect',
           ],
           'images/plantregistry.xml': [
             'season_autumn.tex as season_icon_autumn',
@@ -723,8 +824,9 @@ async function handle(data: any) {
             );
             const texPath = String(atlas.texture || '');
             if (!texPath || !resources.exists(texPath)) continue;
+            const maxMip = names.length <= 2 ? 768 : 2048;
             const texInfo = JSON.parse(
-              await evaluations.evaluateAsync(`return require("json").encode_compliant(WebTextures.DecodeMip(${JSON.stringify(texPath)}, 2048))`, 50000000),
+              await evaluations.evaluateAsync(`return require("json").encode_compliant(WebTextures.DecodeMip(${JSON.stringify(texPath)}, ${maxMip}))`, 50000000),
             );
             const mip = captured.get(texInfo.id >>> 0);
             if (!mip || !Array.isArray(atlas.elements)) continue;
@@ -890,6 +992,109 @@ async function handle(data: any) {
                 transfers.push(icon.rgba);
               }
             }
+          } catch {}
+        }
+
+        result = { icons };
+        break;
+      }
+      case 'load-frontend-assets': {
+        if (!ready || !resources) throw new Error('Engine or resources not initialized');
+        const rosterChars = [
+          'wilson', 'willow', 'wolfgang', 'wendy', 'wx78', 'wickerbottom',
+          'woodie', 'wes', 'waxwell', 'wathgrithr', 'webber', 'winona',
+          'warly', 'wortox', 'wormwood', 'wurt', 'walter', 'wanda',
+        ];
+        const cookbookDishes = [
+          'meatballs', 'bonestew', 'perogies', 'kabobs', 'ratatouille',
+          'trailmix', 'monsterlasagna', 'wetgoop', 'dragonpie', 'honeyham',
+          'baconeggs', 'waffles',
+        ];
+        const feAtlases: Record<string, string[]> = {};
+        for (const c of rosterChars) {
+          feAtlases[`bigportraits/${c}_none.xml`] = [`${c}_none_oval.tex as oval_${c}`];
+          feAtlases[`images/names_gold_${c}.xml`] = [`${c}.tex as name_gold_${c}`];
+        }
+        for (const d of cookbookDishes) {
+          feAtlases[`images/cookbook_${d}.xml`] = [`${d}.tex as cookbook_hi_${d}`];
+        }
+
+        const captured = new Map<number, { width: number; height: number; rgba: Uint8Array }>();
+        engine.nativeTextureBackendReady = () => true;
+        engine.hasNativeTexture = (id: number) => captured.has(id >>> 0);
+        engine.beginNativeTexture = () => {};
+        engine.uploadNativeTexture = (id: number, level: number, width: number, height: number, bytes: Uint8Array) => {
+          if (level === 0) {
+            captured.set(id >>> 0, { width, height, rgba: bytes.slice() });
+          }
+        };
+        engine.finishNativeTexture = () => {};
+        engine.releaseNativeTexture = (id: number) => captured.delete(id >>> 0);
+
+        const icons: Record<string, { width: number; height: number; rgba: ArrayBuffer }> = {};
+        for (const [xmlPath, names] of Object.entries(feAtlases)) {
+          if (!resources.exists(xmlPath)) continue;
+          try {
+            const atlas = JSON.parse(
+              await evaluations.evaluateAsync(`return require("json").encode_compliant(WebAtlases.Decode(${JSON.stringify(xmlPath)}))`, 50000000),
+            );
+            const texPath = String(atlas.texture || '');
+            if (!texPath || !resources.exists(texPath)) continue;
+            const maxMip = xmlPath.startsWith('bigportraits/') ? 512 : 384;
+            const texInfo = JSON.parse(
+              await evaluations.evaluateAsync(`return require("json").encode_compliant(WebTextures.DecodeMip(${JSON.stringify(texPath)}, ${maxMip}))`, 50000000),
+            );
+            const mip = captured.get(texInfo.id >>> 0);
+            if (!mip || !Array.isArray(atlas.elements)) continue;
+
+            const elemMap = new Map<string, { u1: number; u2: number; v1: number; v2: number }>();
+            for (const el of atlas.elements) elemMap.set(el.name, el);
+
+            const W = mip.width;
+            const H = mip.height;
+            const src = mip.rgba;
+
+            for (const rawName of names) {
+              const parts = rawName.trim().split(/\s+as\s+/i);
+              const name = parts[0].trim();
+              const customKey = parts[1]?.trim();
+              const el = elemMap.get(name);
+              if (!el) continue;
+              const x0 = Math.max(0, Math.min(W - 1, Math.floor(el.u1 * W)));
+              const x1 = Math.max(x0 + 1, Math.min(W, Math.ceil(el.u2 * W)));
+              const yMin = Math.max(0, Math.min(H - 1, Math.floor(el.v1 * H)));
+              const yMax = Math.max(yMin + 1, Math.min(H, Math.ceil(el.v2 * H)));
+              const cw = x1 - x0;
+              const ch = yMax - yMin;
+              if (cw < 2 || ch < 2) continue;
+
+              const out = new Uint8Array(cw * ch * 4);
+              for (let ry = 0; ry < ch; ++ry) {
+                const sy = yMax - 1 - ry;
+                for (let rx = 0; rx < cw; ++rx) {
+                  const sx = x0 + rx;
+                  const si = (sy * W + sx) * 4;
+                  const di = (ry * cw + rx) * 4;
+                  const a = src[si + 3];
+                  if (a > 0 && a < 255) {
+                    out[di] = Math.min(255, Math.round((src[si] * 255) / a));
+                    out[di + 1] = Math.min(255, Math.round((src[si + 1] * 255) / a));
+                    out[di + 2] = Math.min(255, Math.round((src[si + 2] * 255) / a));
+                    out[di + 3] = a;
+                  } else {
+                    out[di] = src[si];
+                    out[di + 1] = src[si + 1];
+                    out[di + 2] = src[si + 2];
+                    out[di + 3] = a;
+                  }
+                }
+              }
+              const key = customKey || name.replace(/\.(tex|png)$/, '');
+              icons[key] = { width: cw, height: ch, rgba: out.buffer };
+              transfers.push(out.buffer);
+            }
+            captured.delete(texInfo.id >>> 0);
+            try { evaluate(`WebAtlases.Release(${JSON.stringify(xmlPath)})`); } catch {}
           } catch {}
         }
 
