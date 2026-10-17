@@ -26,6 +26,7 @@ test('playable game loop spawns Wilson, attaches PlayerHud, steps at <5ms/tick, 
   evaluate(`
     WebPrefabs.SetDeferAnimations(true)
     WebInput.SetDesktopMode(true)
+    TheSim.GetScreenPos = function(self, x, y, z) return 640, 360 end
     TheNet:StartServer(false)
     RUN_GLOBAL_INIT = false
     json_settings = [=[{"reset_action":1,"save_slot":1}]=]
@@ -142,7 +143,13 @@ test('playable game loop spawns Wilson, attaches PlayerHud, steps at <5ms/tick, 
   `));
   assert.ok(invCount >= 1, `Expected Wilson to pick up flint into inventory, got count=${invCount}`);
 
-  // Verify WebScene.Snapshot returns camera, ambient, map window, and nearby entities including Wilson
+  // Equip an axe on Wilson to verify AnimState:OverrideSymbol and Hide("ARM_normal") in WebScene.Snapshot
+  evaluate(`
+    local axe = SpawnPrefab("axe")
+    ThePlayer.components.inventory:Equip(axe)
+  `);
+
+  // Verify WebScene.Snapshot returns camera, ambient, map window, and nearby entities including Wilson with equipped overrides
   const scene = JSON.parse(evaluate(`
     local json = require("json")
     local x, y, z = ThePlayer.Transform:GetWorldPosition()
@@ -153,13 +160,45 @@ test('playable game loop spawns Wilson, attaches PlayerHud, steps at <5ms/tick, 
   assert.ok(wilsonEntity, 'Expected Wilson in WebScene.Snapshot entities');
   assert.equal(wilsonEntity.bank, 'wilson');
   assert.equal(wilsonEntity.build, 'wilson');
+  assert.equal(wilsonEntity.overrides?.swap_object?.build, 'swap_axe');
+  assert.equal(wilsonEntity.overrides?.swap_object?.symbol, 'swap_axe');
+  assert.ok(Array.isArray(wilsonEntity.hiddenLayers) && wilsonEntity.hiddenLayers.includes('ARM_normal'));
+
+  // Verify TileWindow fields match GameRenderer expectations
   assert.equal(scene.tiles.cols, 27);
+  assert.equal(scene.tiles.radius, 13);
+  assert.equal(scene.tiles.step, 1);
+  assert.ok(scene.tiles.width > 0 && scene.tiles.height > 0);
+  assert.ok(Number.isInteger(scene.tiles.centerTileX) && Number.isInteger(scene.tiles.centerTileY));
   assert.equal(scene.tiles.data.length, 729);
 
-  // Verify C++ WebAssets.DecodeRenderJson serializes original BILD + ANIM geometry in <5ms
-  const flintModel = JSON.parse(await evaluateAsync('return WebAssets.DecodeRenderJson("anim/flint.zip", 20)', 50000000));
-  assert.ok(Array.isArray(flintModel.atlases) && flintModel.atlases.length >= 1);
-  assert.ok(Array.isArray(flintModel.vertices) && flintModel.vertices.length >= 6);
-  assert.ok(Array.isArray(flintModel.animations) && flintModel.animations.length >= 1);
-  evaluate('WebAssets.Release("anim/flint.zip")');
+  // Verify single-pass C++ WebAssets.DecodeRenderJson(..., true) uploads KTEX mip-0 RGBA and emits layer names
+  const uploadedMips = new Map();
+  engine.nativeTextureBackendReady = () => true;
+  engine.uploadNativeTexture = (id, level, width, height, bytes) => {
+    if (level === 0) uploadedMips.set(id >>> 0, { width, height, byteLength: bytes.byteLength });
+  };
+  const wilsonModel = JSON.parse(await evaluateAsync('return WebAssets.DecodeRenderJson("anim/wilson.zip", 20, true)', 50000000));
+  assert.ok(Array.isArray(wilsonModel.atlases) && wilsonModel.atlases.length >= 1);
+  assert.ok(Array.isArray(wilsonModel.vertices) && wilsonModel.vertices.length >= 100);
+  const wilsonMip0 = uploadedMips.get(0);
+  assert.ok(wilsonMip0 && wilsonMip0.width > 0 && wilsonMip0.byteLength === wilsonMip0.width * wilsonMip0.height * 4);
+
+  const basicModel = JSON.parse(await evaluateAsync('return WebAssets.DecodeRenderJson("anim/player_basic.zip", 20, false)', 50000000));
+  assert.ok(Array.isArray(basicModel.animations) && basicModel.animations.length > 10);
+  const firstElem = basicModel.animations[0]?.frames?.[0]?.elements?.[0];
+  assert.equal(typeof firstElem?.layer, 'string');
+
+  // Verify WebTextures.DecodeMip decodes real Klei ground tile textures and UI icon atlases
+  uploadedMips.clear();
+  const grassInfo = JSON.parse(
+    await evaluateAsync('return require("json").encode_compliant(WebTextures.DecodeMip("levels/textures/mini_grass_noise.tex", 128))', 50000000),
+  );
+  const grassMip = uploadedMips.get(grassInfo.id >>> 0);
+  assert.ok(grassMip && grassMip.width <= 128 && grassMip.byteLength === grassMip.width * grassMip.height * 4);
+
+  const invAtlas = JSON.parse(
+    await evaluateAsync('return require("json").encode_compliant(WebAtlases.Decode("images/inventoryimages1.xml"))', 50000000),
+  );
+  assert.ok(Array.isArray(invAtlas.elements) && invAtlas.elements.some(e => e.name === 'axe.tex'));
 });

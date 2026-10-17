@@ -1033,7 +1033,7 @@ int snapshot_scene(lua_State* L){
         }
         float wx=0,wy=0,wz=0;
         if(!entity_world_pos(e,wx,wy,wz))continue;
-        lua_createtable(L,0,16);
+        lua_createtable(L,0,20);
         lua_pushinteger(L,static_cast<lua_Integer>(e.guid));lua_setfield(L,-2,"guid");
         lua_pushlstring(L,e.prefab.data(),e.prefab.size());lua_setfield(L,-2,"prefab");
         lua_pushlstring(L,e.name.data(),e.name.size());lua_setfield(L,-2,"name");
@@ -1041,9 +1041,12 @@ int snapshot_scene(lua_State* L){
         lua_pushnumber(L,wx);lua_setfield(L,-2,"x");
         lua_pushnumber(L,wy);lua_setfield(L,-2,"y");
         lua_pushnumber(L,wz);lua_setfield(L,-2,"z");
-        lua_pushnumber(L,e.rotation/0.01745329238474369f);lua_setfield(L,-2,"rotation");
+        float deg_rot=e.rotation/0.01745329238474369f;
+        lua_pushnumber(L,deg_rot);lua_setfield(L,-2,"rotation");
+        lua_pushnumber(L,deg_rot);lua_setfield(L,-2,"rot");
         lua_pushnumber(L,e.sx);lua_setfield(L,-2,"sx");
         lua_pushnumber(L,e.sy);lua_setfield(L,-2,"sy");
+        lua_pushnumber(L,e.sz);lua_setfield(L,-2,"sz");
         lua_pushboolean(L,e.clickable);lua_setfield(L,-2,"clickable");
         lua_pushboolean(L,!e.sleeping);lua_setfield(L,-2,"awake");
         lua_pushboolean(L,e.tags.count("CHOP_workable")>0);lua_setfield(L,-2,"choppable");
@@ -1060,9 +1063,18 @@ int snapshot_scene(lua_State* L){
             lua_pushinteger(L,anim.facing);lua_setfield(L,-2,"facing");
             lua_pushinteger(L,anim.current_frame);lua_setfield(L,-2,"frame");
             lua_pushinteger(L,anim.num_frames);lua_setfield(L,-2,"numFrames");
+            web_world_components::push_anim_extra(L,id);
         }
         web_world_components::LightSnapshot light{};
         if(web_world_components::get_light_snapshot(id,light)){
+            lua_pushnumber(L,light.radius);lua_setfield(L,-2,"lightRadius");
+            lua_pushnumber(L,light.intensity);lua_setfield(L,-2,"lightIntensity");
+            lua_pushnumber(L,light.falloff);lua_setfield(L,-2,"lightFalloff");
+            lua_createtable(L,3,0);
+            lua_pushinteger(L,static_cast<int>(std::clamp(light.r*255.0f,0.0f,255.0f)));lua_rawseti(L,-2,1);
+            lua_pushinteger(L,static_cast<int>(std::clamp(light.g*255.0f,0.0f,255.0f)));lua_rawseti(L,-2,2);
+            lua_pushinteger(L,static_cast<int>(std::clamp(light.b*255.0f,0.0f,255.0f)));lua_rawseti(L,-2,3);
+            lua_setfield(L,-2,"lightColour");
             lua_createtable(L,0,6);
             lua_pushnumber(L,light.radius);lua_setfield(L,-2,"radius");
             lua_pushnumber(L,light.intensity);lua_setfield(L,-2,"intensity");

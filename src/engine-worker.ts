@@ -237,11 +237,61 @@ async function handle(data: any) {
         result = JSON.parse(evaluate('return _WEB_Snapshot()')); break;
       case 'load-anim-asset': {
         if (!ready || !resources) throw new Error('Engine or resources not initialized');
+        const prefab = String(data.prefab || '').trim();
         const build = String(data.build || '').trim();
         const bank = String(data.bank || '').trim();
-        if (!build) { result = null; break; }
-        const buildZip = `anim/${build}.zip`;
-        if (!resources.exists(buildZip)) { result = null; break; }
+        if (!build && !prefab) { result = null; break; }
+
+        const candidateZips: string[] = [];
+        const addZip = (z: string) => {
+          if (z && resources.exists(z) && !candidateZips.includes(z)) candidateZips.push(z);
+        };
+
+        if (build) addZip(`anim/${build}.zip`);
+        if (prefab) {
+          try {
+            const pInfo = JSON.parse(evaluate(`
+              local info = WebPrefabs.Inspect(${JSON.stringify(prefab)})
+              if not info or not info.assets then return "[]" end
+              local out = {}
+              for _, a in ipairs(info.assets) do
+                if a.type == "ANIM" or a.type == "DYNAMIC_ANIM" then
+                  table.insert(out, a.file)
+                end
+              end
+              return require("json").encode(out)
+            `));
+            if (Array.isArray(pInfo)) {
+              // Put the zip matching build first if present
+              for (const z of pInfo) {
+                if (build && z === `anim/${build}.zip`) addZip(z);
+              }
+              for (const z of pInfo) {
+                if (typeof z === 'string' && !z.includes('dust_fx') && !z.includes('pine_needles') && !z.includes('tree_leaf_fx')) {
+                  addZip(z);
+                }
+              }
+            }
+          } catch {}
+        }
+        if (build === 'wilson' || prefab === 'wilson') {
+          addZip('anim/wilson.zip');
+          addZip('anim/player_basic.zip');
+          addZip('anim/player_idles.zip');
+          addZip('anim/player_actions.zip');
+          addZip('anim/swap_axe.zip');
+          addZip('anim/swap_pickaxe.zip');
+          addZip('anim/swap_torch.zip');
+          addZip('anim/swap_spear.zip');
+          addZip('anim/hat_flower.zip');
+        }
+        if (bank && bank !== build) {
+          for (const c of [`anim/${bank}.zip`, `anim/ds_${bank}_basic.zip`, `anim/${bank}_normal.zip`, `anim/${bank}_short.zip`, `anim/${bank}_tall.zip`]) {
+            addZip(c);
+          }
+        }
+
+        if (candidateZips.length === 0) { result = null; break; }
 
         const capturedMip0 = new Map<number, { width: number; height: number; rgba: ArrayBuffer }>();
         engine.nativeTextureBackendReady = () => true;
@@ -255,54 +305,200 @@ async function handle(data: any) {
         engine.finishNativeTexture = () => {};
         engine.releaseNativeTexture = (id: number) => capturedMip0.delete(id >>> 0);
 
-        const model = JSON.parse(await evaluations.evaluateAsync(`return WebAssets.DecodeRenderJson("${buildZip}", 20)`, 50000000));
-        const extraBankZips: string[] = [];
-        if (build === 'wilson') {
-          extraBankZips.push('anim/player_basic.zip', 'anim/player_idles.zip', 'anim/player_actions.zip');
-        } else if (bank && bank !== build) {
-          for (const candidate of [`anim/${bank}.zip`, `anim/ds_${bank}_basic.zip`, `anim/${bank}_normal.zip`, `anim/${bank}_short.zip`]) {
-            if (resources.exists(candidate)) {
-              extraBankZips.push(candidate);
-              break;
-            }
-          }
-        }
-        for (const bZip of extraBankZips) {
-          if (resources.exists(bZip)) {
+        let model: any = null;
+        const atlases: Array<{ name: string; width: number; height: number; rgba: ArrayBuffer }> = [];
+        const overrides: Record<string, { model: any; atlases: Array<{ name: string; width: number; height: number; rgba: ArrayBuffer }> }> = {};
+
+        for (const z of candidateZips.slice(0, 12)) {
+          const isEquipOverride = (build === 'wilson' || prefab === 'wilson') && (z.startsWith('anim/swap_') || z.startsWith('anim/hat_'));
+          if (isEquipOverride) {
+            capturedMip0.clear();
             try {
-              const bankData = JSON.parse(await evaluations.evaluateAsync(`return WebAssets.DecodeRenderJson("${bZip}", 20)`, 50000000));
-              if (Array.isArray(bankData?.animations)) {
-                model.animations.push(...bankData.animations);
+              const eqModel = JSON.parse(await evaluations.evaluateAsync(`return WebAssets.DecodeRenderJson(${JSON.stringify(z)}, 4, true)`, 50000000));
+              const eqAtlases: Array<{ name: string; width: number; height: number; rgba: ArrayBuffer }> = [];
+              for (let i = 0; i < (eqModel.atlases?.length || 0); ++i) {
+                const mip = capturedMip0.get(i);
+                if (mip) {
+                  eqAtlases.push({ name: eqModel.atlases[i], width: mip.width, height: mip.height, rgba: mip.rgba });
+                  transfers.push(mip.rgba);
+                }
               }
-            } catch {} finally {
-              try { evaluate(`WebAssets.Release(${JSON.stringify(bZip)})`); } catch {}
-            }
+              const eqName = z.slice(5, -4);
+              overrides[eqName] = { model: eqModel, atlases: eqAtlases };
+            } catch {}
+            continue;
           }
+
+          const needBuild = !model || !Array.isArray(model.vertices) || model.vertices.length === 0;
+          capturedMip0.clear();
+          try {
+            const parsed = JSON.parse(
+              await evaluations.evaluateAsync(`return WebAssets.DecodeRenderJson(${JSON.stringify(z)}, 20, ${needBuild ? 'true' : 'false'})`, 50000000),
+            );
+            if (!model) {
+              model = parsed;
+            } else {
+              if (needBuild && Array.isArray(parsed.vertices) && parsed.vertices.length > 0) {
+                model.name = parsed.name || model.name;
+                model.atlases = parsed.atlases;
+                model.symbols = parsed.symbols;
+                model.vertices = parsed.vertices;
+              }
+              if (Array.isArray(parsed.animations) && parsed.animations.length > 0) {
+                model.animations.push(...parsed.animations);
+              }
+            }
+            if (needBuild && Array.isArray(parsed.atlases) && parsed.atlases.length > 0 && atlases.length === 0) {
+              for (let i = 0; i < parsed.atlases.length; ++i) {
+                const mip = capturedMip0.get(i);
+                if (mip) {
+                  atlases.push({ name: parsed.atlases[i], width: mip.width, height: mip.height, rgba: mip.rgba });
+                  transfers.push(mip.rgba);
+                }
+              }
+            }
+          } catch {}
         }
 
-        const atlases: Array<{ name: string; width: number; height: number; rgba: ArrayBuffer }> = [];
-        try {
-          if (Array.isArray(model.atlases) && model.atlases.length > 0) {
-            for (const atlasName of model.atlases) {
-              const info = JSON.parse(
-                await evaluations.evaluateAsync(
-                  `return require("json").encode_compliant(WebTextures.UploadAnimation("${buildZip}", ${JSON.stringify(atlasName)}))`,
-                  50000000,
-                ),
-              );
-              const mip = capturedMip0.get(info.id >>> 0);
-              if (mip) {
-                atlases.push({ name: atlasName, width: mip.width, height: mip.height, rgba: mip.rgba });
-                transfers.push(mip.rgba);
-                capturedMip0.delete(info.id >>> 0);
-              }
-              try { evaluate(`WebTextures.Release(${JSON.stringify(buildZip + '#' + atlasName)})`); } catch {}
+        if (!model || !atlases.length) { result = null; break; }
+        result = { prefab, build: build || model.name || prefab, bank, model, atlases, overrides };
+        break;
+      }
+      case 'load-tile-textures': {
+        if (!ready || !resources) throw new Error('Engine or resources not initialized');
+        const tileFiles: Array<{ tileIds: number[]; path: string }> = [
+          { tileIds: [6, 35], path: 'levels/textures/mini_grass_noise.tex' },
+          { tileIds: [7], path: 'levels/textures/mini_forest_noise.tex' },
+          { tileIds: [5], path: 'levels/textures/mini_grass2_noise.tex' },
+          { tileIds: [3], path: 'levels/textures/mini_rocky_noise.tex' },
+          { tileIds: [4], path: 'levels/textures/mini_dirt_noise.tex' },
+          { tileIds: [8], path: 'levels/textures/mini_marsh_noise.tex' },
+          { tileIds: [2], path: 'levels/textures/mini_cobblestone_noise.tex' },
+          { tileIds: [30], path: 'levels/textures/mini_deciduous_noise.tex' },
+          { tileIds: [31], path: 'levels/textures/mini_desert_dirt_noise.tex' },
+          { tileIds: [10], path: 'levels/textures/mini_woodfloor_noise.tex' },
+          { tileIds: [11], path: 'levels/textures/mini_carpet_noise.tex' },
+          { tileIds: [12], path: 'levels/textures/mini_checker_noise.tex' },
+          { tileIds: [42], path: 'levels/textures/mini_pebblebeach.tex' },
+          { tileIds: [43], path: 'levels/textures/mini_meteor.tex' },
+          { tileIds: [0, 1, 201, 202, 203, 204], path: 'levels/textures/ocean_noise.tex' },
+        ];
+
+        const captured = new Map<number, { width: number; height: number; rgba: ArrayBuffer }>();
+        engine.nativeTextureBackendReady = () => true;
+        engine.uploadNativeTexture = (id: number, _level: number, width: number, height: number, bytes: Uint8Array) => {
+          captured.set(id >>> 0, { width, height, rgba: bytes.slice().buffer });
+        };
+
+        const tiles: Array<{ tileIds: number[]; width: number; height: number; rgba: ArrayBuffer }> = [];
+        for (const entry of tileFiles) {
+          if (!resources.exists(entry.path)) continue;
+          try {
+            const info = JSON.parse(
+              await evaluations.evaluateAsync(`return require("json").encode_compliant(WebTextures.DecodeMip(${JSON.stringify(entry.path)}, 128))`, 50000000),
+            );
+            const mip = captured.get(info.id >>> 0);
+            if (mip) {
+              tiles.push({ tileIds: entry.tileIds, width: mip.width, height: mip.height, rgba: mip.rgba });
+              transfers.push(mip.rgba);
+              captured.delete(info.id >>> 0);
             }
-          }
-        } finally {
-          try { evaluate(`WebAssets.Release(${JSON.stringify(buildZip)})`); } catch {}
+          } catch {}
         }
-        result = { build, bank, model, atlases };
+        result = { tiles };
+        break;
+      }
+      case 'load-ui-icons': {
+        if (!ready || !resources) throw new Error('Engine or resources not initialized');
+        const wantedIcons: Record<string, string[]> = {
+          'images/inventoryimages1.xml': [
+            'flint.tex', 'twigs.tex', 'cutgrass.tex', 'berries.tex', 'log.tex', 'rocks.tex',
+            'goldnugget.tex', 'nitre.tex', 'axe.tex', 'pickaxe.tex', 'torch.tex', 'spear.tex',
+            'campfire.tex', 'firepit.tex', 'researchlab.tex', 'flowerhat.tex', 'strawhat.tex',
+            'backpack.tex', 'carrot.tex', 'petals.tex', 'red_cap.tex', 'green_cap.tex', 'blue_cap.tex',
+            'pinecone.tex', 'charcoal.tex', 'ash.tex', 'rope.tex', 'boards.tex', 'cutstone.tex',
+          ],
+          'images/inventoryimages2.xml': [
+            'berries_juicy.tex', 'twiggytree.tex',
+          ],
+          'minimap/minimap_data.xml': [
+            'portal_dst.png', 'wilson.png', 'evergreen.png', 'evergreen_lumpy.png', 'trees.png',
+            'rock.png', 'rock_gold.png', 'rock_flintless.png', 'campfire.png', 'firepit.png',
+            'researchlab.png', 'berrybush.png', 'grass.png', 'sapling.png', 'rabbithole.png',
+            'pighouse.png', 'spiderden.png',
+          ],
+        };
+
+        const captured = new Map<number, { width: number; height: number; rgba: Uint8Array }>();
+        engine.nativeTextureBackendReady = () => true;
+        engine.uploadNativeTexture = (id: number, _level: number, width: number, height: number, bytes: Uint8Array) => {
+          captured.set(id >>> 0, { width, height, rgba: bytes.slice() });
+        };
+
+        const icons: Record<string, { width: number; height: number; rgba: ArrayBuffer }> = {};
+        for (const [xmlPath, names] of Object.entries(wantedIcons)) {
+          if (!resources.exists(xmlPath)) continue;
+          try {
+            const atlas = JSON.parse(
+              await evaluations.evaluateAsync(`return require("json").encode_compliant(WebAtlases.Decode(${JSON.stringify(xmlPath)}))`, 50000000),
+            );
+            const texPath = String(atlas.texture || '');
+            if (!texPath || !resources.exists(texPath)) continue;
+            const texInfo = JSON.parse(
+              await evaluations.evaluateAsync(`return require("json").encode_compliant(WebTextures.DecodeMip(${JSON.stringify(texPath)}, 2048))`, 50000000),
+            );
+            const mip = captured.get(texInfo.id >>> 0);
+            if (!mip || !Array.isArray(atlas.elements)) continue;
+
+            const elemMap = new Map<string, { u1: number; u2: number; v1: number; v2: number }>();
+            for (const el of atlas.elements) elemMap.set(el.name, el);
+
+            const W = mip.width;
+            const H = mip.height;
+            const src = mip.rgba;
+
+            for (const rawName of names) {
+              const name = rawName.trim();
+              const el = elemMap.get(name);
+              if (!el) continue;
+              const x0 = Math.max(0, Math.min(W - 1, Math.floor(el.u1 * W)));
+              const x1 = Math.max(x0 + 1, Math.min(W, Math.ceil(el.u2 * W)));
+              const yMin = Math.max(0, Math.min(H - 1, Math.floor(el.v1 * H)));
+              const yMax = Math.max(yMin + 1, Math.min(H, Math.ceil(el.v2 * H)));
+              const cw = x1 - x0;
+              const ch = yMax - yMin;
+              if (cw < 2 || ch < 2) continue;
+
+              const out = new Uint8Array(cw * ch * 4);
+              for (let ry = 0; ry < ch; ++ry) {
+                const sy = yMax - 1 - ry;
+                for (let rx = 0; rx < cw; ++rx) {
+                  const sx = x0 + rx;
+                  const si = (sy * W + sx) * 4;
+                  const di = (ry * cw + rx) * 4;
+                  const a = src[si + 3];
+                  if (a > 0 && a < 255) {
+                    out[di] = Math.min(255, Math.round((src[si] * 255) / a));
+                    out[di + 1] = Math.min(255, Math.round((src[si + 1] * 255) / a));
+                    out[di + 2] = Math.min(255, Math.round((src[si + 2] * 255) / a));
+                    out[di + 3] = a;
+                  } else {
+                    out[di] = src[si];
+                    out[di + 1] = src[si + 1];
+                    out[di + 2] = src[si + 2];
+                    out[di + 3] = a;
+                  }
+                }
+              }
+              const key = name.replace(/\.(tex|png)$/, '');
+              icons[key] = { width: cw, height: ch, rgba: out.buffer };
+              transfers.push(out.buffer);
+            }
+            captured.delete(texInfo.id >>> 0);
+            try { evaluate(`WebAtlases.Release(${JSON.stringify(xmlPath)})`); } catch {}
+          } catch {}
+        }
+        result = { icons };
         break;
       }
       case 'start-game': {
@@ -347,6 +543,7 @@ async function handle(data: any) {
         evaluate(`
           WebPrefabs.SetDeferAnimations(true)
           WebInput.SetDesktopMode(true)
+          TheSim.GetScreenPos = function(self, x, y, z) return 640, 360 end
           TheNet:StartServer(false)
           RUN_GLOBAL_INIT = false
           json_settings = [=[{"reset_action":1,"save_slot":1}]=]

@@ -8,9 +8,13 @@
 #include <cmath>
 #include <cstring>
 #include <memory>
+#include <emscripten.h>
 extern "C" {
 #include "lauxlib.h"
 }
+EM_JS(void,dst_anim_upload_atlas,(uint32_t id,uint32_t width,uint32_t height,const uint8_t* data,uint32_t size),{
+    try{Module['uploadNativeTexture']?.(id,0,width,height,HEAPU8.subarray(data,data+size));}catch(_){}
+});
 namespace web_animation_asset {
 namespace {
 constexpr size_t budget=192*1024*1024;
@@ -230,6 +234,7 @@ int decode_render_lua(lua_State* L){
 int decode_render_json_lua(lua_State* L){
     const char* path=luaL_checkstring(L,1);
     int max_frames=static_cast<int>(luaL_optinteger(L,2,24));
+    bool upload_atlases=lua_toboolean(L,3)!=0;
     if(max_frames<1)max_frames=1;
     std::string error;std::vector<uint8_t> bytes;
     if(!web_resource_io::read(path,bytes,error)){lua_pushlstring(L,error.data(),error.size());return lua_error(L);}
@@ -239,6 +244,20 @@ int decode_render_json_lua(lua_State* L){
     auto anim=files.find("anim.bin"),bild=files.find("build.bin");
     if(bild!=files.end()&&!build(bild->second,out)){lua_pushliteral(L,"Invalid BILD");return lua_error(L);}
     if(anim!=files.end()&&!animation(anim->second,out)){lua_pushliteral(L,"Invalid ANIM");return lua_error(L);}
+    if(upload_atlases){
+        std::vector<uint8_t> rgba;
+        for(size_t i=0;i<out.atlases.size();++i){
+            auto tf=files.find(out.atlases[i]);
+            if(tf==files.end())continue;
+            web_ktex::Texture kt;
+            std::string kerr;
+            if(web_ktex::parse(tf->second,kt,kerr)&&!kt.mips.empty()){
+                if(web_ktex::decode(tf->second,kt,0,rgba,kerr)){
+                    dst_anim_upload_atlas(static_cast<uint32_t>(i),kt.mips[0].width,kt.mips[0].height,rgba.data(),static_cast<uint32_t>(rgba.size()));
+                }
+            }
+        }
+    }
     std::string json;
     json.reserve(131072);
     char buf[256];
@@ -274,8 +293,10 @@ int decode_render_json_lua(lua_State* L){
     for(size_t c=0;c<out.clips.size();++c){
         if(c)json+=',';
         const auto& cl=out.clips[c];
-        std::snprintf(buf,sizeof(buf),"{\"name\":\"%s\",\"facing\":%u,\"bank\":%u,\"rate\":%.4g,\"frames\":[",
-            cl.name.c_str(),cl.facing,cl.bank,cl.rate);
+        auto bname_it=out.names.find(cl.bank);
+        const char* bname=bname_it!=out.names.end()?bname_it->second.c_str():"";
+        std::snprintf(buf,sizeof(buf),"{\"name\":\"%s\",\"facing\":%u,\"bank\":%u,\"bankName\":\"%s\",\"rate\":%.4g,\"frames\":[",
+            cl.name.c_str(),cl.facing,cl.bank,bname,cl.rate);
         json+=buf;
         size_t total_f=cl.frames.size();
         size_t step=total_f>static_cast<size_t>(max_frames)?(total_f+max_frames-1)/max_frames:1;
@@ -288,8 +309,10 @@ int decode_render_json_lua(lua_State* L){
             for(size_t e=0;e<fr.elements.size();++e){
                 if(e)json+=',';
                 const auto& el=fr.elements[e];
-                std::snprintf(buf,sizeof(buf),"{\"symbol\":\"%u\",\"frame\":%u,\"depth\":%.4g,\"matrix\":[%.5g,%.5g,%.5g,%.5g,%.5g,%.5g]}",
-                    el.symbol,el.frame,el.depth,el.matrix[0],el.matrix[1],el.matrix[2],el.matrix[3],el.matrix[4],el.matrix[5]);
+                auto lname_it=out.names.find(el.layer);
+                const char* lname=lname_it!=out.names.end()?lname_it->second.c_str():"";
+                std::snprintf(buf,sizeof(buf),"{\"symbol\":\"%u\",\"frame\":%u,\"layer\":\"%s\",\"depth\":%.4g,\"matrix\":[%.5g,%.5g,%.5g,%.5g,%.5g,%.5g]}",
+                    el.symbol,el.frame,lname,el.depth,el.matrix[0],el.matrix[1],el.matrix[2],el.matrix[3],el.matrix[4],el.matrix[5]);
                 json+=buf;
             }
             json+="]}";

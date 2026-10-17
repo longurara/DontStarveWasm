@@ -110,7 +110,7 @@ let lastAudioResult: any;
 
 const gameCanvas = element<HTMLCanvasElement>('game-canvas');
 const minimapCanvas = element<HTMLCanvasElement>('minimap-canvas');
-const assetQueue: Array<{ build: string; bank: string }> = [];
+const assetQueue: Array<{ prefab: string; build: string; bank: string }> = [];
 let assetPumpActive = false;
 
 async function pumpAnimAssets() {
@@ -123,23 +123,23 @@ async function pumpAnimAssets() {
       const next = assetQueue.shift()!;
       try {
         const payload = await worker.request('load-anim-asset', next);
-        gameRenderer.ingestAnimAsset(next.build, next.bank, payload);
+        gameRenderer.ingestAnimAsset(next.prefab, next.build, next.bank, payload);
       } catch {
-        gameRenderer.ingestAnimAsset(next.build, next.bank, null);
+        gameRenderer.ingestAnimAsset(next.prefab, next.build, next.bank, null);
       }
-      // Yield 12ms between asset uploads so 30 Hz game ticks stay responsive
-      await new Promise(r => setTimeout(r, 12));
+      // Yield 10ms between asset uploads so 30 Hz game ticks stay responsive
+      await new Promise(r => setTimeout(r, 10));
     }
   } finally {
     assetPumpActive = false;
   }
 }
 
-const gameRenderer = new GameRenderer(gameCanvas, minimapCanvas, (build, bank) => {
-  if (build === 'wilson') {
-    assetQueue.unshift({ build, bank });
+const gameRenderer = new GameRenderer(gameCanvas, minimapCanvas, (prefab, build, bank) => {
+  if (prefab === 'wilson' || build === 'wilson' || prefab === 'multiplayer_portal') {
+    assetQueue.unshift({ prefab, build, bank });
   } else {
-    assetQueue.push({ build, bank });
+    assetQueue.push({ prefab, build, bank });
   }
   void pumpAnimAssets();
 });
@@ -165,6 +165,33 @@ const ITEM_ICONS: Record<string, string> = {
   seeds: '🌱 Hạt',
 };
 
+function formatSlotIconHtml(prefab: string, emptyFallback = ''): string {
+  if (!prefab) return emptyFallback;
+  const iconKey =
+    prefab === 'red_mushroom' ? 'red_cap' :
+    prefab === 'green_mushroom' ? 'green_cap' :
+    prefab === 'blue_mushroom' ? 'blue_cap' :
+    prefab;
+  const url = gameRenderer.getIconDataUrl(iconKey);
+  if (url) {
+    return `<img class="real-inv-icon" src="${url}" alt="${prefab}">`;
+  }
+  return ITEM_ICONS[prefab] ?? prefab.slice(0, 6);
+}
+
+function refreshCraftButtons() {
+  document.querySelectorAll<HTMLButtonElement>('.craft-btn').forEach(btn => {
+    const recipe = btn.dataset.craft || '';
+    const url = gameRenderer.getIconDataUrl(recipe);
+    if (!url) return;
+    const span = btn.querySelector('span');
+    if (span && !span.querySelector('img')) {
+      const label = span.textContent?.replace(/^[^\s]+\s*/, '') || recipe;
+      span.innerHTML = `<img class="real-craft-icon" src="${url}" alt="${recipe}"> ${label}`;
+    }
+  });
+}
+
 function renderInventoryHud(scene?: GameSceneSnapshot) {
   const bar = element('hud-inventory');
   const invMap = new Map<number, { prefab: string; name: string; count: number; uses?: number }>();
@@ -174,7 +201,7 @@ function renderInventoryHud(scene?: GameSceneSnapshot) {
   const slotsHtml: string[] = [];
   for (let s = 1; s <= 15; ++s) {
     const item = invMap.get(s);
-    const icon = item ? (ITEM_ICONS[item.prefab] ?? item.prefab.slice(0, 6)) : '';
+    const icon = item ? formatSlotIconHtml(item.prefab) : '';
     const badge = item ? (item.uses !== undefined ? `${item.uses}%` : item.count > 1 ? `×${item.count}` : '') : '';
     const title = item ? `${formatPrefabName(item.prefab)} (Click để Dùng / Trang bị / Thả)` : `Ô hành trang ${s}`;
     slotsHtml.push(
@@ -184,8 +211,8 @@ function renderInventoryHud(scene?: GameSceneSnapshot) {
   const eqHand = scene?.player?.equippedHand || '';
   const eqHead = scene?.player?.equippedHead || '';
   slotsHtml.push(
-    `<div class="inv-slot equip" title="Trang bị Tay (Hands): ${eqHand ? formatPrefabName(eqHand) : 'Trống'}"><span class="slot-num">TAY</span><span class="slot-icon">${eqHand ? (ITEM_ICONS[eqHand] ?? eqHand.slice(0, 6)) : '✋'}</span><span class="slot-count"></span></div>`,
-    `<div class="inv-slot equip" title="Trang bị Đầu (Head): ${eqHead ? formatPrefabName(eqHead) : 'Trống'}"><span class="slot-num">ĐẦU</span><span class="slot-icon">${eqHead ? (ITEM_ICONS[eqHead] ?? eqHead.slice(0, 6)) : '🎩'}</span><span class="slot-count"></span></div>`,
+    `<div class="inv-slot equip" title="Trang bị Tay (Hands): ${eqHand ? formatPrefabName(eqHand) : 'Trống'}"><span class="slot-num">TAY</span><span class="slot-icon">${formatSlotIconHtml(eqHand, '✋')}</span><span class="slot-count"></span></div>`,
+    `<div class="inv-slot equip" title="Trang bị Đầu (Head): ${eqHead ? formatPrefabName(eqHead) : 'Trống'}"><span class="slot-num">ĐẦU</span><span class="slot-icon">${formatSlotIconHtml(eqHead, '🎩')}</span><span class="slot-count"></span></div>`,
   );
   bar.innerHTML = slotsHtml.join('');
 }
@@ -348,6 +375,19 @@ async function startGame() {
   updateGameHud(initialScene);
   gameRenderer.render(performance.now());
   status(`Thế giới DST đã sẵn sàng! Wilson tại (${initialScene.player.x.toFixed(1)}, ${initialScene.player.z.toFixed(1)}) · <5ms/tick.`);
+
+  // Load real Klei terrain tile textures & HUD/minimap icons asynchronously
+  void master.request('load-tile-textures').then((res: any) => {
+    if (res?.tiles) gameRenderer.ingestTileTextures(res.tiles);
+  }).catch(() => {});
+  void master.request('load-ui-icons').then((res: any) => {
+    if (res?.icons) {
+      gameRenderer.ingestUiIcons(res.icons);
+      refreshCraftButtons();
+      renderInventoryHud(gameScene);
+    }
+  }).catch(() => {});
+
   return initialScene;
 }
 

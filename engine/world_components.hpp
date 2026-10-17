@@ -22,6 +22,7 @@ void retire(uint32_t id);
 void clear();
 void step(lua_State* L,float dt);
 bool get_anim_snapshot(uint32_t id,AnimSnapshot& out);
+void push_anim_extra(lua_State* L,uint32_t id);
 bool get_light_snapshot(uint32_t id,LightSnapshot& out);
 void push_map_window(lua_State* L,float cx,float cz,int tile_radius,int stride);
 }

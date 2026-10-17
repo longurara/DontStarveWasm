@@ -88,6 +88,35 @@ int animation_lua(lua_State* L){const char* path=luaL_checkstring(L,1);const cha
         if(ok){lua_settop(L,0);lua_pushlstring(L,key.data(),key.size());}else lua_pushlstring(L,error.data(),error.size());}
     if(!ok)return lua_error(L);return inspect(L);
 }
+int decode_mip_lua(lua_State* L){
+    const char* path=luaL_checkstring(L,1);
+    uint32_t max_dim=static_cast<uint32_t>(luaL_optinteger(L,2,0));
+    std::string error;
+    std::vector<uint8_t> bytes;
+    if(!web_resource_io::read(path,bytes,error)){lua_pushlstring(L,error.data(),error.size());return lua_error(L);}
+    web_ktex::Texture kt;
+    if(!web_ktex::parse(bytes,kt,error)||kt.mips.empty()){lua_pushlstring(L,error.data(),error.size());return lua_error(L);}
+    size_t lvl=0;
+    if(max_dim>0){
+        for(size_t i=0;i<kt.mips.size();++i){
+            lvl=i;
+            if(kt.mips[i].width<=max_dim&&kt.mips[i].height<=max_dim)break;
+        }
+    }
+    std::vector<uint8_t> rgba;
+    if(!web_ktex::decode(bytes,kt,lvl,rgba,error)){lua_pushlstring(L,error.data(),error.size());return lua_error(L);}
+    uint32_t id=web_strings::hash(path);
+    char detail[512]={0};
+    dst_texture_upload(id,0,kt.mips[lvl].width,kt.mips[lvl].height,rgba.data(),static_cast<uint32_t>(rgba.size()),detail,sizeof(detail));
+    lua_newtable(L);
+    integer(L,"id",id);
+    integer(L,"level",lvl);
+    integer(L,"width",kt.mips[lvl].width);
+    integer(L,"height",kt.mips[lvl].height);
+    integer(L,"fullWidth",kt.mips[0].width);
+    integer(L,"fullHeight",kt.mips[0].height);
+    return 1;
+}
 int release_lua(lua_State* L){auto path=luaL_checkstring(L,1);auto found=cache.find(web_strings::hash(path));
     if(found!=cache.end()&&found->second.references)return luaL_error(L,"Texture is owned by loaded resources");release(path);return 0;
 }
@@ -112,5 +141,5 @@ void release(const std::string& path){auto found=cache.find(web_strings::hash(pa
     if(!found->second.references){if(found->second.uploaded)dst_texture_release(found->first);retained-=found->second.retained_bytes;cache.erase(found);}
 }
 void clear(){for(const auto& pair:cache)if(pair.second.uploaded)dst_texture_release(pair.first);cache.clear();retained=0;}
-void install(lua_State* L){clear();lua_newtable(L);const luaL_Reg methods[]={{"Decode",decode_lua},{"Inspect",inspect},{"MipSha256",mip_lua},{"Upload",upload_lua},{"UploadAnimation",animation_lua},{"Release",release_lua},{nullptr,nullptr}};luaL_register(L,nullptr,methods);lua_setglobal(L,"WebTextures");}
+void install(lua_State* L){clear();lua_newtable(L);const luaL_Reg methods[]={{"Decode",decode_lua},{"DecodeMip",decode_mip_lua},{"Inspect",inspect},{"MipSha256",mip_lua},{"Upload",upload_lua},{"UploadAnimation",animation_lua},{"Release",release_lua},{nullptr,nullptr}};luaL_register(L,nullptr,methods);lua_setglobal(L,"WebTextures");}
 }

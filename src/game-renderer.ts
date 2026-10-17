@@ -17,6 +17,9 @@ export interface SceneEntity {
   frame?: number;
   multColour?: [number, number, number, number];
   addColour?: [number, number, number, number];
+  overrides?: Record<string, { build: string; symbol: string }>;
+  hiddenLayers?: string[];
+  hiddenSymbols?: string[];
   lightRadius?: number;
   lightIntensity?: number;
   lightFalloff?: number;
@@ -221,6 +224,7 @@ export function defaultActionForEntity(e: SceneEntity, equippedHand: string): { 
 }
 
 export interface LoadedAnimAsset {
+  prefab?: string;
   build: string;
   bank: string;
   model: {
@@ -236,6 +240,7 @@ export interface LoadedAnimAsset {
     vertices: Array<[number, number, number, number, number, number]>;
     animations: Array<{
       name: string;
+      bankName?: string;
       facing: number;
       rate: number;
       numFrames?: number;
@@ -243,6 +248,7 @@ export interface LoadedAnimAsset {
         bbox?: number[];
         elements: Array<{
           symbol: number;
+          layer?: string;
           frame: number;
           depth: number;
           matrix: [number, number, number, number, number, number];
@@ -252,6 +258,13 @@ export interface LoadedAnimAsset {
     }>;
   };
   atlases: Array<{ name: string; width: number; height: number; rgba: ArrayBuffer }>;
+  overrides?: Record<
+    string,
+    {
+      model: LoadedAnimAsset['model'];
+      atlases: Array<{ name: string; width: number; height: number; rgba: ArrayBuffer }>;
+    }
+  >;
 }
 
 interface CachedSpriteFrame {
@@ -260,6 +273,7 @@ interface CachedSpriteFrame {
   anchorY: number;
   width: number;
   height: number;
+  worldScale: number;
 }
 
 interface GpuAnimBundle {
@@ -267,6 +281,7 @@ interface GpuAnimBundle {
   bank: string;
   model: LoadedAnimAsset['model'];
   textures: WebGLTexture[];
+  overrides: Record<string, { model: LoadedAnimAsset['model']; textures: WebGLTexture[] }>;
 }
 
 export const PREFAB_ASSET_DEFAULTS: Record<string, { build: string; bank: string; anim: string }> = {
@@ -275,6 +290,7 @@ export const PREFAB_ASSET_DEFAULTS: Record<string, { build: string; bank: string
   evergreen: { build: 'evergreen_new', bank: 'evergreen_short', anim: 'sway1_loop_normal' },
   evergreen_sparse: { build: 'evergreen_new_2', bank: 'evergreen_short', anim: 'sway1_loop_normal' },
   twiggytree: { build: 'twiggy_build', bank: 'twiggy', anim: 'sway1_loop_tall' },
+  deciduoustree: { build: 'tree_leaf_normal', bank: 'tree_leaf', anim: 'sway1_loop_normal' },
   marsh_tree: { build: 'marsh_tree', bank: 'marsh_tree', anim: 'sway1_loop' },
   rock1: { build: 'rock', bank: 'rock', anim: 'full' },
   rock2: { build: 'rock2', bank: 'rock2', anim: 'full' },
@@ -294,6 +310,7 @@ export const PREFAB_ASSET_DEFAULTS: Record<string, { build: string; bank: string
   grass: { build: 'grass1', bank: 'grass', anim: 'idle' },
   sapling: { build: 'sapling', bank: 'sapling', anim: 'sway' },
   flower: { build: 'flowers', bank: 'flowers', anim: 'f1' },
+  flower_evil: { build: 'flowers_evil', bank: 'flowers_evil', anim: 'f1' },
   carrot_planted: { build: 'carrot', bank: 'carrot', anim: 'planted' },
   carrot: { build: 'carrot', bank: 'carrot', anim: 'idle' },
   red_mushroom: { build: 'mushrooms', bank: 'mushrooms', anim: 'red' },
@@ -309,11 +326,18 @@ export const PREFAB_ASSET_DEFAULTS: Record<string, { build: string; bank: string
   homesign: { build: 'sign_home', bank: 'sign_home', anim: 'idle' },
   rabbit: { build: 'ds_rabbit_basic', bank: 'rabbit', anim: 'idle' },
   rabbithole: { build: 'rabbit_hole', bank: 'rabbithole', anim: 'idle' },
+  perd: { build: 'perd', bank: 'perd', anim: 'idle_loop' },
   pigman: { build: 'pig_build', bank: 'pigman', anim: 'idle_loop' },
   pighouse: { build: 'pig_house', bank: 'pig_house', anim: 'idle' },
   spider: { build: 'spider_build', bank: 'spider', anim: 'idle' },
   spiderden: { build: 'spider_cocoon', bank: 'spider_cocoon', anim: 'cocoon_small' },
   beefalo: { build: 'beefalo_build', bank: 'beefalo', anim: 'idle_loop' },
+  bee: { build: 'bee_build', bank: 'bee', anim: 'idle' },
+  butterfly: { build: 'butterfly_basic', bank: 'butterfly', anim: 'idle' },
+  robin: { build: 'robin_build', bank: 'crow', anim: 'idle' },
+  crow: { build: 'crow_build', bank: 'crow', anim: 'idle' },
+  frog: { build: 'frog', bank: 'frog', anim: 'idle' },
+  skeleton: { build: 'skeletons', bank: 'skeleton', anim: 'idle' },
 };
 
 const HIDDEN_SYMBOLS = new Set([
@@ -342,11 +366,9 @@ class OriginalAnimCompositor {
   public loadedCount = 0;
 
   private static readonly SIZE = 384;
-  private static readonly ANCHOR_X = 192;
-  private static readonly ANCHOR_Y = 308;
   private static readonly BILD_SCALE = 0.5;
 
-  constructor(private onRequestAsset?: (build: string, bank: string) => void) {
+  constructor(private onRequestAsset?: (prefab: string, build: string, bank: string) => void) {
     this.glCanvas = document.createElement('canvas');
     this.glCanvas.width = OriginalAnimCompositor.SIZE;
     this.glCanvas.height = OriginalAnimCompositor.SIZE;
@@ -415,35 +437,16 @@ class OriginalAnimCompositor {
     this.samplerLoc = gl.getUniformLocation(prog, 'u_tex');
   }
 
-  static key(build: string, bank: string): string {
-    return `${build}::${bank}`;
+  static key(prefab: string, build: string, bank: string): string {
+    return `${prefab || build}::${build}::${bank}`;
   }
 
-  ingestAsset(build: string, bank: string, payload: LoadedAnimAsset | null) {
-    const key = OriginalAnimCompositor.key(build, bank);
-    const gl = this.gl;
-    if (
-      !gl ||
-      !this.program ||
-      !payload ||
-      !payload.model ||
-      !Array.isArray(payload.atlases) ||
-      payload.atlases.length === 0 ||
-      !Array.isArray(payload.model.vertices) ||
-      payload.model.vertices.length === 0 ||
-      !Array.isArray(payload.model.animations) ||
-      payload.model.animations.length === 0
-    ) {
-      this.bundles.set(key, 'unavailable');
-      return;
-    }
-
+  private uploadAtlases(
+    gl: WebGL2RenderingContext,
+    atlases: Array<{ name: string; width: number; height: number; rgba: ArrayBuffer }>,
+  ): WebGLTexture[] {
     const textures: WebGLTexture[] = [];
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-
-    for (const atlas of payload.atlases) {
+    for (const atlas of atlases) {
       const tex = gl.createTexture();
       if (!tex) continue;
       gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -464,10 +467,48 @@ class OriginalAnimCompositor {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       textures.push(tex);
     }
+    return textures;
+  }
 
+  ingestAsset(prefab: string, build: string, bank: string, payload: LoadedAnimAsset | null) {
+    const key = OriginalAnimCompositor.key(prefab, build, bank);
+    const gl = this.gl;
+    if (
+      !gl ||
+      !this.program ||
+      !payload ||
+      !payload.model ||
+      !Array.isArray(payload.atlases) ||
+      payload.atlases.length === 0 ||
+      !Array.isArray(payload.model.vertices) ||
+      payload.model.vertices.length === 0 ||
+      !Array.isArray(payload.model.animations) ||
+      payload.model.animations.length === 0
+    ) {
+      this.bundles.set(key, 'unavailable');
+      return;
+    }
+
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+
+    const textures = this.uploadAtlases(gl, payload.atlases);
     if (textures.length === 0) {
       this.bundles.set(key, 'unavailable');
       return;
+    }
+
+    const overrides: Record<string, { model: LoadedAnimAsset['model']; textures: WebGLTexture[] }> = {};
+    if (payload.overrides) {
+      for (const [eqName, eqData] of Object.entries(payload.overrides)) {
+        if (eqData?.model?.vertices?.length && eqData?.atlases?.length) {
+          const eqTex = this.uploadAtlases(gl, eqData.atlases);
+          if (eqTex.length > 0) {
+            overrides[eqName] = { model: eqData.model, textures: eqTex };
+          }
+        }
+      }
     }
 
     this.bundles.set(key, {
@@ -475,6 +516,7 @@ class OriginalAnimCompositor {
       bank,
       model: payload.model,
       textures,
+      overrides,
     });
     this.loadedCount++;
   }
@@ -493,8 +535,12 @@ class OriginalAnimCompositor {
       animName,
       animName.endsWith('_loop') ? animName.slice(0, -5) : `${animName}_loop`,
       `${animName}_normal`,
+      `${animName}_short`,
+      `${animName}_tall`,
       'idle_loop',
       'sway1_loop_normal',
+      'sway1_loop_short',
+      'sway1_loop_tall',
       'sway1_loop',
       'idle',
       'full',
@@ -513,7 +559,18 @@ class OriginalAnimCompositor {
         }
       }
       if (matchedIdx >= 0) break;
-      // Second pass: exact name with any facing
+      // Second pass: exact name with SIDE (1 or 5) when LEFT (2) is requested so we can mirror X
+      if (entityFacing === 2) {
+        for (let i = 0; i < anims.length; ++i) {
+          const a = anims[i];
+          if (a.name === target && a.frames.length > 0 && (a.facing & 5) !== 0) {
+            matchedIdx = i;
+            break;
+          }
+        }
+        if (matchedIdx >= 0) break;
+      }
+      // Third pass: exact name with any facing
       for (let i = 0; i < anims.length; ++i) {
         const a = anims[i];
         if (a.name === target && a.frames.length > 0) {
@@ -543,7 +600,13 @@ class OriginalAnimCompositor {
     return { clipIndex: matchedIdx, flipX };
   }
 
-  private renderFrameToCache(bundle: GpuAnimBundle, clipIndex: number, frameIdx: number): CachedSpriteFrame | null {
+  private renderFrameToCache(
+    bundle: GpuAnimBundle,
+    clipIndex: number,
+    frameIdx: number,
+    equippedHand: string,
+    equippedHead: string,
+  ): CachedSpriteFrame | null {
     const gl = this.gl;
     const prog = this.program;
     if (!gl || !prog || !this.buffer) return null;
@@ -554,12 +617,106 @@ class OriginalAnimCompositor {
 
     const W = OriginalAnimCompositor.SIZE;
     const H = OriginalAnimCompositor.SIZE;
-    const ax = OriginalAnimCompositor.ANCHOR_X;
-    const ay = OriginalAnimCompositor.ANCHOR_Y;
-    const sc = OriginalAnimCompositor.BILD_SCALE;
-
     const elements = [...frame.elements].sort((a, b) => b.depth - a.depth);
-    const batches = new Map<number, number[]>();
+
+    const resolveElementSource = (item: LoadedAnimAsset['model']['animations'][number]['frames'][number]['elements'][number]) => {
+      let model = bundle.model;
+      let textures = bundle.textures;
+      let texNamespace = 0;
+      let symbol = model.symbols[String(item.symbol)];
+      const symName = (symbol?.name || '').toLowerCase();
+      const layerName = (item.layer || '').toLowerCase();
+
+      if (equippedHand) {
+        if (symName === 'arm_normal' || layerName === 'arm_normal') return null;
+        if (symName === 'swap_object' || layerName === 'swap_object') {
+          const eq = bundle.overrides[equippedHand];
+          if (!eq) return null;
+          model = eq.model;
+          textures = eq.textures;
+          texNamespace = 100;
+          const syms = Object.values(model.symbols);
+          symbol = syms.find(s => s.name?.toLowerCase() === equippedHand && s.frames?.length) ?? syms.find(s => s.frames?.length)!;
+        }
+      } else {
+        if (symName === 'arm_carry' || layerName === 'arm_carry' || symName === 'swap_object' || layerName === 'swap_object') {
+          return null;
+        }
+      }
+
+      if (equippedHead) {
+        if (symName === 'hair_nohat' || layerName === 'hair_nohat' || symName === 'headbase' || layerName === 'headbase') {
+          // Keep headbase unless headbase_hat is present
+        }
+        if (symName === 'swap_hat' || layerName === 'swap_hat' || symName === 'hat' || layerName === 'hat') {
+          const eq = bundle.overrides[equippedHead];
+          if (!eq) return null;
+          model = eq.model;
+          textures = eq.textures;
+          texNamespace = 200;
+          const syms = Object.values(model.symbols);
+          symbol = syms.find(s => s.frames?.length)!;
+        }
+      } else {
+        if (symName === 'swap_hat' || layerName === 'swap_hat' || symName === 'hat' || layerName === 'hat' || symName === 'hat_hair' || layerName === 'hat_hair') {
+          return null;
+        }
+      }
+
+      if (texNamespace === 0 && symName && HIDDEN_SYMBOLS.has(symName)) {
+        if (!(equippedHand && symName === 'arm_carry')) return null;
+      }
+
+      if (!symbol || !symbol.frames || symbol.frames.length === 0) return null;
+      const sf =
+        symbol.frames.find(f => item.frame >= f.frame && item.frame < f.frame + f.duration) ??
+        symbol.frames[symbol.frames.length - 1];
+      if (!sf || sf.count <= 0) return null;
+      return { model, textures, texNamespace, sf };
+    };
+
+    // Pass 1: Compute exact BILD-space bounding box so tall trees/portals auto-fit inside 384x384 without clipping
+    let minBx = Infinity;
+    let maxBx = -Infinity;
+    let minBy = Infinity;
+    let maxBy = -Infinity;
+    let validVerts = 0;
+
+    for (const item of elements) {
+      const resolved = resolveElementSource(item);
+      if (!resolved) continue;
+      const { model, sf } = resolved;
+      const [a, b, c, d, tx, ty] = item.matrix;
+      const end = Math.min(model.vertices.length, sf.offset + sf.count);
+      for (let i = sf.offset; i < end; ++i) {
+        const vtx = model.vertices[i];
+        if (!vtx) continue;
+        const [x, y] = vtx;
+        const bx = a * x + b * y + tx;
+        const by = c * x + d * y + ty;
+        if (bx < minBx) minBx = bx;
+        if (bx > maxBx) maxBx = bx;
+        if (by < minBy) minBy = by;
+        if (by > maxBy) maxBy = by;
+        validVerts++;
+      }
+    }
+
+    if (validVerts < 3 || !Number.isFinite(minBx) || !Number.isFinite(minBy)) return null;
+
+    const spanW = Math.max(16, maxBx - minBx);
+    const spanH = Math.max(16, maxBy - minBy);
+    let sc = OriginalAnimCompositor.BILD_SCALE;
+    const maxAllowedW = W - 28;
+    const maxAllowedH = H - 28;
+    if (spanW * sc > maxAllowedW || spanH * sc > maxAllowedH) {
+      sc = Math.min(maxAllowedW / spanW, maxAllowedH / spanH);
+    }
+    const ax = W * 0.5 - ((minBx + maxBx) * 0.5) * sc;
+    const ay = H * 0.5 - ((minBy + maxBy) * 0.5) * sc;
+
+    // Pass 2: Build WebGL vertex batches
+    const batches = new Map<number, { tex: WebGLTexture; geom: number[] }>();
     let minX = W;
     let minY = H;
     let maxX = 0;
@@ -567,21 +724,15 @@ class OriginalAnimCompositor {
     let totalVerts = 0;
 
     for (const item of elements) {
-      const symbol = bundle.model.symbols[String(item.symbol)];
-      if (!symbol || !symbol.frames || symbol.frames.length === 0) continue;
-      if (symbol.name && HIDDEN_SYMBOLS.has(symbol.name.toLowerCase())) continue;
-
-      const sf =
-        symbol.frames.find(f => item.frame >= f.frame && item.frame < f.frame + f.duration) ??
-        symbol.frames[symbol.frames.length - 1];
-      if (!sf || sf.count <= 0) continue;
-
+      const resolved = resolveElementSource(item);
+      if (!resolved) continue;
+      const { model, textures, texNamespace, sf } = resolved;
       const [a, b, c, d, tx, ty] = item.matrix;
       const [mr, mg, mb, ma] = item.mult ?? [1, 1, 1, 1];
-      const end = Math.min(bundle.model.vertices.length, sf.offset + sf.count);
+      const end = Math.min(model.vertices.length, sf.offset + sf.count);
 
       for (let i = sf.offset; i < end; ++i) {
-        const vtx = bundle.model.vertices[i];
+        const vtx = model.vertices[i];
         if (!vtx) continue;
         const [x, y, _z, u, v, atlas] = vtx;
         const px = ax + (a * x + b * y + tx) * sc;
@@ -591,13 +742,14 @@ class OriginalAnimCompositor {
         if (py < minY) minY = py;
         if (py > maxY) maxY = py;
 
-        const texIdx = Math.max(0, Math.min(bundle.textures.length - 1, Math.round(atlas || 0)));
-        let arr = batches.get(texIdx);
-        if (!arr) {
-          arr = [];
-          batches.set(texIdx, arr);
+        const texIdx = Math.max(0, Math.min(textures.length - 1, Math.round(atlas || 0)));
+        const batchKey = texNamespace + texIdx;
+        let batch = batches.get(batchKey);
+        if (!batch) {
+          batch = { tex: textures[texIdx], geom: [] };
+          batches.set(batchKey, batch);
         }
-        arr.push(px, py, u, v, mr, mg, mb, ma);
+        batch.geom.push(px, py, u, v, mr, mg, mb, ma);
         totalVerts++;
       }
     }
@@ -640,12 +792,12 @@ class OriginalAnimCompositor {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 
-    for (const [texIdx, geom] of batches) {
+    for (const batch of batches.values()) {
       gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, bundle.textures[texIdx]);
+      gl.bindTexture(gl.TEXTURE_2D, batch.tex);
       gl.uniform1i(this.samplerLoc, 0);
-      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(geom), gl.DYNAMIC_DRAW);
-      gl.drawArrays(gl.TRIANGLES, 0, geom.length / 8);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(batch.geom), gl.DYNAMIC_DRAW);
+      gl.drawArrays(gl.TRIANGLES, 0, batch.geom.length / 8);
     }
 
     const outCanvas = document.createElement('canvas');
@@ -661,38 +813,63 @@ class OriginalAnimCompositor {
       anchorY: ay - cropY,
       width: cropW,
       height: cropH,
+      worldScale: OriginalAnimCompositor.BILD_SCALE / sc,
     };
   }
 
   getEntitySprite(
     entity: SceneEntity,
     playerHud: PlayerHudSnapshot,
+    cam: CameraSnapshot,
     now: number,
   ): { frame: CachedSpriteFrame; flipX: boolean } | null {
     if (!this.gl || !this.program) return null;
     const def = PREFAB_ASSET_DEFAULTS[entity.prefab];
-    const build = entity.build || def?.build || '';
+    const build = entity.build || def?.build || entity.prefab || '';
     const bank = entity.bank || def?.bank || build;
+    const prefab = entity.prefab || build;
     if (!build) return null;
 
-    const key = OriginalAnimCompositor.key(build, bank);
+    const key = OriginalAnimCompositor.key(prefab, build, bank);
     const state = this.bundles.get(key);
     if (!state) {
       this.bundles.set(key, 'pending');
-      this.onRequestAsset?.(build, bank);
+      this.onRequestAsset?.(prefab, build, bank);
       return null;
     }
     if (state === 'pending' || state === 'unavailable') return null;
 
+    const isPlayer = entity.kind === 'player' || entity.prefab === 'wilson';
     let animName = entity.anim || def?.anim || 'idle';
-    if (entity.kind === 'player' || entity.prefab === 'wilson') {
+    if (isPlayer) {
       if (playerHud.sgState?.includes('run')) animName = 'run_loop';
       else if (playerHud.sgState?.includes('chop')) animName = 'chop_loop';
       else if (playerHud.sgState?.includes('mine')) animName = 'pickaxe_loop';
       else if (!entity.anim || entity.anim === 'idle') animName = 'idle_loop';
     }
 
-    const resolved = this.resolveClip(state.model.animations, animName, entity.facing ?? 3);
+    let facing = entity.facing ?? 3;
+    if (isPlayer || entity.kind === 'creature' || entity.kind === 'monster') {
+      if (entity.rot !== 0 || (isPlayer && playerHud.sgState && playerHud.sgState !== 'idle')) {
+        const heading = cam.heading * DEG2RAD;
+        const rightX = -Math.sin(heading);
+        const rightZ = Math.cos(heading);
+        const fwdX = -Math.cos(heading);
+        const fwdZ = -Math.sin(heading);
+        const rotRad = entity.rot * DEG2RAD;
+        const vx = Math.cos(rotRad);
+        const vz = -Math.sin(rotRad);
+        const screenRight = vx * rightX + vz * rightZ;
+        const screenAway = vx * fwdX + vz * fwdZ;
+        if (Math.abs(screenRight) >= Math.abs(screenAway) * 0.85) {
+          facing = screenRight >= 0 ? 0 : 2;
+        } else {
+          facing = screenAway > 0 ? 1 : 3;
+        }
+      }
+    }
+
+    const resolved = this.resolveClip(state.model.animations, animName, facing);
     if (!resolved) return null;
 
     const clip = state.model.animations[resolved.clipIndex];
@@ -702,14 +879,25 @@ class OriginalAnimCompositor {
         ? 0
         : Math.floor((now * 0.014 + (entity.guid % 19) * 0.65) % numSampled);
 
-    const cacheKey = `${key}#${resolved.clipIndex}#${frameIdx}`;
+    let equippedHand = '';
+    let equippedHead = '';
+    if (isPlayer) {
+      equippedHand =
+        entity.overrides?.swap_object?.build ||
+        (playerHud.equippedHand ? `swap_${playerHud.equippedHand}` : '');
+      equippedHead =
+        entity.overrides?.swap_hat?.build ||
+        (playerHud.equippedHead === 'flowerhat' ? 'hat_flower' : '');
+    }
+
+    const cacheKey = `${key}#${resolved.clipIndex}#${frameIdx}#${equippedHand}#${equippedHead}`;
     let cached = this.frameCache.get(cacheKey);
     if (cached === undefined) {
-      if (this.frameCache.size > 380) {
+      if (this.frameCache.size > 480) {
         const oldest = this.frameCache.keys().next().value;
         if (oldest !== undefined) this.frameCache.delete(oldest);
       }
-      cached = this.renderFrameToCache(state, resolved.clipIndex, frameIdx);
+      cached = this.renderFrameToCache(state, resolved.clipIndex, frameIdx, equippedHand, equippedHead);
       this.frameCache.set(cacheKey, cached);
     }
     if (!cached) return null;
@@ -721,6 +909,9 @@ export class GameRenderer {
   private ctx: CanvasRenderingContext2D;
   private miniCtx: CanvasRenderingContext2D | null;
   private animCompositor: OriginalAnimCompositor;
+  private tilePatterns = new Map<number, CanvasPattern>();
+  private uiIconCanvases = new Map<string, HTMLCanvasElement>();
+  private uiIconDataUrls = new Map<string, string>();
   private prevSnapshot: GameSceneSnapshot | null = null;
   private currSnapshot: GameSceneSnapshot | null = null;
   private lastSnapshotPerf = 0;
@@ -733,7 +924,7 @@ export class GameRenderer {
   constructor(
     private canvas: HTMLCanvasElement,
     minimapCanvas?: HTMLCanvasElement | null,
-    onRequestAsset?: (build: string, bank: string) => void,
+    onRequestAsset?: (prefab: string, build: string, bank: string) => void,
   ) {
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) throw new Error('2D canvas context unavailable');
@@ -742,8 +933,54 @@ export class GameRenderer {
     this.animCompositor = new OriginalAnimCompositor(onRequestAsset);
   }
 
-  ingestAnimAsset(build: string, bank: string, payload: LoadedAnimAsset | null) {
-    this.animCompositor.ingestAsset(build, bank, payload);
+  ingestAnimAsset(prefab: string, build: string, bank: string, payload: LoadedAnimAsset | null) {
+    this.animCompositor.ingestAsset(prefab, build, bank, payload);
+  }
+
+  ingestTileTextures(tiles: Array<{ tileIds: number[]; width: number; height: number; rgba: ArrayBuffer }>) {
+    for (const entry of tiles) {
+      if (!entry.rgba || entry.width < 2 || entry.height < 2) continue;
+      const c = document.createElement('canvas');
+      c.width = entry.width;
+      c.height = entry.height;
+      const cctx = c.getContext('2d');
+      if (!cctx) continue;
+      const img = new ImageData(new Uint8ClampedArray(entry.rgba), entry.width, entry.height);
+      cctx.putImageData(img, 0, 0);
+      for (const tileId of entry.tileIds) {
+        // Tint slightly with biome palette so ocean/grass/forest/marsh/rocky stay visually distinct while showing real Klei grain
+        const tinted = document.createElement('canvas');
+        tinted.width = entry.width;
+        tinted.height = entry.height;
+        const tctx = tinted.getContext('2d')!;
+        tctx.drawImage(c, 0, 0);
+        const style = getTileStyle(tileId);
+        tctx.globalCompositeOperation = 'Soft-Light' as GlobalCompositeOperation;
+        tctx.fillStyle = style.fill;
+        tctx.fillRect(0, 0, entry.width, entry.height);
+        const pat = this.ctx.createPattern(tinted, 'repeat');
+        if (pat) this.tilePatterns.set(tileId, pat);
+      }
+    }
+  }
+
+  ingestUiIcons(icons: Record<string, { width: number; height: number; rgba: ArrayBuffer }>) {
+    for (const [key, icon] of Object.entries(icons)) {
+      if (!icon.rgba || icon.width < 2 || icon.height < 2) continue;
+      const c = document.createElement('canvas');
+      c.width = icon.width;
+      c.height = icon.height;
+      const cctx = c.getContext('2d');
+      if (!cctx) continue;
+      const img = new ImageData(new Uint8ClampedArray(icon.rgba), icon.width, icon.height);
+      cctx.putImageData(img, 0, 0);
+      this.uiIconCanvases.set(key, c);
+      this.uiIconDataUrls.set(key, c.toDataURL());
+    }
+  }
+
+  getIconDataUrl(name: string): string | undefined {
+    return this.uiIconDataUrls.get(name);
   }
 
   get loadedOriginalAssetCount(): number {
@@ -956,7 +1193,7 @@ export class GameRenderer {
         ctx.stroke();
         ctx.restore();
       }
-      this.drawEntity(ctx, item, snap, now);
+      this.drawEntity(ctx, item, snap, cam, now);
     }
 
     // 7. Day / Dusk / Night ambient & point lights overlay
@@ -1001,7 +1238,18 @@ export class GameRenderer {
         if (!p00 || !p10 || !p11 || !p01) continue;
 
         const style = getTileStyle(tileId);
-        ctx.fillStyle = style.fill;
+        const pat = this.tilePatterns.get(tileId) ?? (tileId >= 200 ? this.tilePatterns.get(201) : undefined);
+        if (pat) {
+          try {
+            if (typeof DOMMatrix !== 'undefined' && typeof pat.setTransform === 'function') {
+              const patScale = Math.max(0.3, Math.min(1.5, p00.scale / 42));
+              pat.setTransform(new DOMMatrix().translate(p00.sx, p00.sy).scale(patScale));
+            }
+          } catch {}
+          ctx.fillStyle = pat;
+        } else {
+          ctx.fillStyle = style.fill;
+        }
         ctx.strokeStyle = style.stroke;
 
         ctx.beginPath();
@@ -1026,7 +1274,7 @@ export class GameRenderer {
             ctx.quadraticCurveTo(cx + offset, cy - 3, cx + 8 + offset, cy);
             ctx.stroke();
           }
-        } else if ((hash % 3) === 0 && p00.scale > 10) {
+        } else if (!pat && (hash % 3) === 0 && p00.scale > 10) {
           ctx.strokeStyle = style.accent;
           ctx.beginPath();
           ctx.moveTo(cx - 3, cy + 2);
@@ -1056,16 +1304,23 @@ export class GameRenderer {
     ctx.fill();
   }
 
-  private drawEntity(ctx: CanvasRenderingContext2D, item: ProjectedEntity, snap: GameSceneSnapshot, now: number) {
+  private drawEntity(
+    ctx: CanvasRenderingContext2D,
+    item: ProjectedEntity,
+    snap: GameSceneSnapshot,
+    cam: CameraSnapshot,
+    now: number,
+  ) {
     const { entity, sx, sy, scale } = item;
     const s = Math.max(8, scale);
     ctx.save();
     ctx.translate(sx, sy);
 
-    const originalSprite = this.animCompositor.getEntitySprite(entity, snap.player, now);
+    const originalSprite = this.animCompositor.getEntitySprite(entity, snap.player, cam, now);
     if (originalSprite) {
       const { frame, flipX } = originalSprite;
-      const ratio = (s / 54) * Math.max(0.5, Math.min(2.2, Math.abs(entity.sx || 1)));
+      const ratio =
+        (s / 54) * (frame.worldScale || 1) * Math.max(0.5, Math.min(2.2, Math.abs(entity.sx || 1)));
       const shouldFlip = flipX !== ((entity.sx ?? 1) < 0);
       ctx.save();
       if (shouldFlip) ctx.scale(-1, 1);
@@ -1089,6 +1344,14 @@ export class GameRenderer {
           ctx.fillText('Wilson', 0, topY);
         }
       }
+      ctx.restore();
+      return;
+    }
+
+    const itemIcon = entity.kind === 'item' ? this.uiIconCanvases.get(entity.prefab) : undefined;
+    if (itemIcon) {
+      const sz = Math.max(16, s * 0.85);
+      ctx.drawImage(itemIcon, -sz * 0.5, -sz * 0.85, sz, sz);
       ctx.restore();
       return;
     }
@@ -1635,12 +1898,30 @@ export class GameRenderer {
     // Draw nearby entities on minimap
     const span = (mm?.radius ?? 20) * (mm?.step ?? 3) * TILE_SIZE;
     for (const e of snap.entities) {
+      if (e.kind === 'player' || e.prefab === 'wilson') continue;
       const dx = (e.x - snap.player.x) / span;
       const dz = (e.z - snap.player.z) / span;
       const px = mw * 0.5 + dx * mw * 0.5;
       const py = mh * 0.5 + dz * mh * 0.5;
       if (px < 2 || px > mw - 2 || py < 2 || py > mh - 2) continue;
-      if (e.prefab === 'multiplayer_portal') {
+
+      let mmKey = '';
+      if (e.prefab === 'multiplayer_portal') mmKey = 'portal_dst';
+      else if (e.prefab === 'evergreen_sparse') mmKey = 'evergreen_lumpy';
+      else if (e.prefab === 'evergreen') mmKey = 'evergreen';
+      else if (e.kind === 'tree') mmKey = 'trees';
+      else if (e.prefab === 'rock2') mmKey = 'rock_gold';
+      else if (e.prefab === 'rock_flintless') mmKey = 'rock_flintless';
+      else if (e.kind === 'rock') mmKey = 'rock';
+      else if (e.prefab.startsWith('berrybush')) mmKey = 'berrybush';
+      else if (this.uiIconCanvases.has(e.prefab)) mmKey = e.prefab;
+
+      const mmIcon = mmKey ? this.uiIconCanvases.get(mmKey) : undefined;
+      if (mmIcon) {
+        const isBig = e.prefab === 'multiplayer_portal' || e.kind === 'fire' || e.kind === 'structure';
+        const isz = isBig ? 14 : 9;
+        ctx.drawImage(mmIcon, px - isz * 0.5, py - isz * 0.5, isz, isz);
+      } else if (e.prefab === 'multiplayer_portal') {
         ctx.fillStyle = '#e63946';
         ctx.beginPath();
         ctx.arc(px, py, 4, 0, Math.PI * 2);
@@ -1660,20 +1941,25 @@ export class GameRenderer {
     }
 
     // Player marker at center + camera heading arrow
-    ctx.save();
-    ctx.translate(mw * 0.5, mh * 0.5);
-    ctx.rotate((cam.heading - 90) * DEG2RAD);
-    ctx.fillStyle = '#f2d379';
-    ctx.strokeStyle = '#141610';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(0, -6);
-    ctx.lineTo(4.5, 5);
-    ctx.lineTo(0, 2.5);
-    ctx.lineTo(-4.5, 5);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.restore();
+    const wilsonIcon = this.uiIconCanvases.get('wilson');
+    if (wilsonIcon) {
+      ctx.drawImage(wilsonIcon, mw * 0.5 - 8, mh * 0.5 - 8, 16, 16);
+    } else {
+      ctx.save();
+      ctx.translate(mw * 0.5, mh * 0.5);
+      ctx.rotate((cam.heading - 90) * DEG2RAD);
+      ctx.fillStyle = '#f2d379';
+      ctx.strokeStyle = '#141610';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, -6);
+      ctx.lineTo(4.5, 5);
+      ctx.lineTo(0, 2.5);
+      ctx.lineTo(-4.5, 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 }

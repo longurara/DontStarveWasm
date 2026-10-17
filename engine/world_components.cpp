@@ -1613,6 +1613,9 @@ struct AnimStateData {
     bool loop=false,playing=false,done=true;
     std::vector<std::pair<std::string,bool>> queue;
     std::map<std::string,std::string> symbol_overrides;
+    std::map<std::string,std::string> symbol_source_symbols;
+    std::set<std::string> hidden_layers;
+    std::set<std::string> hidden_symbols;
 };
 std::unordered_map<uint32_t,AnimStateData> anim_states;
 std::unordered_set<uint32_t> active_anim_ids;
@@ -1804,11 +1807,31 @@ int anim_set_saturation(lua_State* L){if(auto* a=get_anim(L))a->saturation=stati
 int anim_get_saturation(lua_State* L){auto* a=get_anim(L);lua_pushnumber(L,a?a->saturation:1.0f);return 1;}
 int anim_set_brightness(lua_State* L){if(auto* a=get_anim(L))a->brightness=static_cast<float>(luaL_optnumber(L,2,1.0));return 0;}
 int anim_get_brightness(lua_State* L){auto* a=get_anim(L);lua_pushnumber(L,a?a->brightness:1.0f);return 1;}
+int anim_hide_layer(lua_State* L){
+    if(auto* a=get_anim(L)){const char* l=luaL_optstring(L,2,"");if(l[0])a->hidden_layers.insert(l);}
+    return 0;
+}
+int anim_show_layer(lua_State* L){
+    if(auto* a=get_anim(L)){const char* l=luaL_optstring(L,2,"");if(l[0])a->hidden_layers.erase(l);}
+    return 0;
+}
+int anim_hide_symbol(lua_State* L){
+    if(auto* a=get_anim(L)){const char* s=luaL_optstring(L,2,"");if(s[0])a->hidden_symbols.insert(s);}
+    return 0;
+}
+int anim_show_symbol(lua_State* L){
+    if(auto* a=get_anim(L)){const char* s=luaL_optstring(L,2,"");if(s[0])a->hidden_symbols.erase(s);}
+    return 0;
+}
 int anim_override_symbol(lua_State* L){
     if(auto* a=get_anim(L)){
         const char* sym=luaL_optstring(L,2,"");
         const char* build=luaL_optstring(L,3,"");
-        if(sym[0])a->symbol_overrides[sym]=build;
+        const char* src_sym=luaL_optstring(L,4,sym);
+        if(sym[0]){
+            a->symbol_overrides[sym]=build;
+            a->symbol_source_symbols[sym]=src_sym[0]?src_sym:sym;
+        }
     }
     return 0;
 }
@@ -1816,10 +1839,17 @@ int anim_clear_override_symbol(lua_State* L){
     if(auto* a=get_anim(L)){
         const char* sym=luaL_optstring(L,2,"");
         a->symbol_overrides.erase(sym);
+        a->symbol_source_symbols.erase(sym);
     }
     return 0;
 }
-int anim_clear_all_override_symbols(lua_State* L){if(auto* a=get_anim(L))a->symbol_overrides.clear();return 0;}
+int anim_clear_all_override_symbols(lua_State* L){
+    if(auto* a=get_anim(L)){
+        a->symbol_overrides.clear();
+        a->symbol_source_symbols.clear();
+    }
+    return 0;
+}
 int anim_get_symbol_override(lua_State* L){
     auto* a=get_anim(L);
     const char* sym=luaL_optstring(L,2,"");
@@ -2228,6 +2258,42 @@ bool get_anim_snapshot(uint32_t id,AnimSnapshot& out){
     return true;
 }
 
+void push_anim_extra(lua_State* L,uint32_t id){
+    auto it=anim_states.find(id);
+    if(it==anim_states.end())return;
+    const auto& a=it->second;
+    if(!a.symbol_overrides.empty()){
+        lua_newtable(L);
+        for(const auto& [sym,build]:a.symbol_overrides){
+            lua_newtable(L);
+            lua_pushlstring(L,build.data(),build.size());lua_setfield(L,-2,"build");
+            auto sit=a.symbol_source_symbols.find(sym);
+            const std::string& src_sym=(sit!=a.symbol_source_symbols.end())?sit->second:sym;
+            lua_pushlstring(L,src_sym.data(),src_sym.size());lua_setfield(L,-2,"symbol");
+            lua_setfield(L,-2,sym.c_str());
+        }
+        lua_setfield(L,-2,"overrides");
+    }
+    if(!a.hidden_layers.empty()){
+        lua_createtable(L,static_cast<int>(a.hidden_layers.size()),0);
+        int i=1;
+        for(const auto& l:a.hidden_layers){
+            lua_pushlstring(L,l.data(),l.size());
+            lua_rawseti(L,-2,i++);
+        }
+        lua_setfield(L,-2,"hiddenLayers");
+    }
+    if(!a.hidden_symbols.empty()){
+        lua_createtable(L,static_cast<int>(a.hidden_symbols.size()),0);
+        int i=1;
+        for(const auto& s:a.hidden_symbols){
+            lua_pushlstring(L,s.data(),s.size());
+            lua_rawseti(L,-2,i++);
+        }
+        lua_setfield(L,-2,"hiddenSymbols");
+    }
+}
+
 bool get_light_snapshot(uint32_t id,LightSnapshot& out){
     auto it=light_states.find(id);
     if(it==light_states.end()||!it->second.enabled)return false;
@@ -2252,6 +2318,12 @@ void push_map_window(lua_State* L,float cx,float cz,int tile_radius,int stride){
     int side=tile_radius*2+1;
     lua_pushinteger(L,m.tiles.width);lua_setfield(L,-2,"mapWidth");
     lua_pushinteger(L,m.tiles.height);lua_setfield(L,-2,"mapHeight");
+    lua_pushinteger(L,m.tiles.width);lua_setfield(L,-2,"width");
+    lua_pushinteger(L,m.tiles.height);lua_setfield(L,-2,"height");
+    lua_pushinteger(L,ctx);lua_setfield(L,-2,"centerTileX");
+    lua_pushinteger(L,cty);lua_setfield(L,-2,"centerTileY");
+    lua_pushinteger(L,tile_radius);lua_setfield(L,-2,"radius");
+    lua_pushinteger(L,st);lua_setfield(L,-2,"step");
     lua_pushinteger(L,x0);lua_setfield(L,-2,"x0");
     lua_pushinteger(L,y0);lua_setfield(L,-2,"y0");
     lua_pushinteger(L,side);lua_setfield(L,-2,"cols");
@@ -2583,8 +2655,8 @@ void install(lua_State* L,web_components::EntityHost callbacks){
         {"BuildHasSymbol",comp_true},{"SetBank",anim_set_bank},{"SetBankAndPlayAnimation",anim_set_bank_and_play},
         {"SetLayer",anim_set_layer},{"GetLayer",anim_get_layer},{"SetScale",comp_noop},
         {"SetDepthTestEnabled",comp_noop},{"SetDepthWriteEnabled",comp_noop},{"SetDepthBias",comp_noop},
-        {"AnimDone",anim_done},{"PushAnimation",anim_push},{"Hide",comp_noop},{"Show",comp_noop},
-        {"HideSymbol",comp_noop},{"ShowSymbol",comp_noop},{"Pause",comp_noop},{"Resume",comp_noop},
+        {"AnimDone",anim_done},{"PushAnimation",anim_push},{"Hide",anim_hide_layer},{"Show",anim_show_layer},
+        {"HideSymbol",anim_hide_symbol},{"ShowSymbol",anim_show_symbol},{"Pause",comp_noop},{"Resume",comp_noop},
         {"SetPercent",comp_noop},{"SetAddColour",anim_set_add_colour},{"SetMultColour",anim_set_mult_colour},
         {"SetHue",anim_set_hue},{"SetSaturation",anim_set_saturation},{"SetBrightness",anim_set_brightness},
         {"SetHighlightColour",comp_noop},{"SetTime",comp_noop},{"SetFrame",comp_noop},
