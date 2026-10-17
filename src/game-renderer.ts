@@ -24,6 +24,8 @@ export interface SceneEntity {
   lightIntensity?: number;
   lightFalloff?: number;
   lightColour?: [number, number, number];
+  health?: number;
+  maxHealth?: number;
 }
 
 export interface TileWindow {
@@ -47,6 +49,33 @@ export interface CameraSnapshot {
   fov: number;
 }
 
+export interface EquippedSlotSnapshot {
+  prefab: string;
+  name: string;
+  percent?: number;
+}
+
+export interface InventoryItemSnapshot {
+  slot: number;
+  prefab: string;
+  name: string;
+  count: number;
+  uses?: number;
+  percent?: number;
+  equipSlot?: string;
+  edible?: boolean;
+  spoiled?: boolean;
+}
+
+export interface OpenContainerSnapshot {
+  guid: number;
+  prefab: string;
+  name: string;
+  numSlots: number;
+  isCooker?: boolean;
+  slots: InventoryItemSnapshot[];
+}
+
 export interface PlayerHudSnapshot {
   guid: number;
   name: string;
@@ -66,7 +95,18 @@ export interface PlayerHudSnapshot {
   equippedHand: string;
   equippedHead: string;
   equippedBody: string;
-  inventory: Array<{ slot: number; prefab: string; name: string; count: number; uses?: number }>;
+  equipped?: {
+    hands?: EquippedSlotSnapshot;
+    head?: EquippedSlotSnapshot;
+    body?: EquippedSlotSnapshot;
+  };
+  inventory: InventoryItemSnapshot[];
+  backpackSlots?: InventoryItemSnapshot[];
+  openContainer?: OpenContainerSnapshot | null;
+  ingredientCounts?: Record<string, number>;
+  scienceTier?: number;
+  creativeMode?: boolean;
+  speech?: string;
 }
 
 export interface WorldClockSnapshot {
@@ -78,6 +118,10 @@ export interface WorldClockSnapshot {
   elapsedDaysInSeason: number;
   remainingDaysInSeason: number;
   isRaining: boolean;
+  daySegs?: number;
+  duskSegs?: number;
+  nightSegs?: number;
+  moonPhase?: string;
 }
 
 export interface GameSceneSnapshot {
@@ -90,8 +134,11 @@ export interface GameSceneSnapshot {
   camera: CameraSnapshot;
   player: PlayerHudSnapshot;
   clock: WorldClockSnapshot;
+  ui?: { rootGuid: number; count: number; nodes: unknown[] };
   announcements?: string[];
+  soundEvents?: Array<{ path: string; name?: string; volume?: number }>;
 }
+
 
 export interface ProjectedEntity {
   entity: SceneEntity;
@@ -140,87 +187,194 @@ function getTileStyle(tileId: number) {
 
 export const PREFAB_LABELS: Record<string, string> = {
   wilson: 'Wilson',
-  multiplayer_portal: 'Cổng Florid Postern',
-  evergreen: 'Cây thông (Evergreen)',
-  evergreen_sparse: 'Cây thông già',
-  twiggytree: 'Cây cành khô',
-  deciduoustree: 'Cây dẻ (Birchnut)',
-  marsh_tree: 'Cây gai đầm lầy',
-  rock1: 'Tảng đá (Boulder)',
-  rock2: 'Tảng đá vàng (Gold Vein)',
-  rock_flintless: 'Tảng đá trơ',
-  flint: 'Đá lửa (Flint)',
-  twigs: 'Cành cây (Twigs)',
-  cutgrass: 'Cỏ cắt (Cut Grass)',
-  berries: 'Quả mọng (Berries)',
-  berries_juicy: 'Quả mọng nước',
-  log: 'Gỗ (Log)',
-  rocks: 'Đá (Rocks)',
-  goldnugget: 'Vàng cục (Gold Nugget)',
-  nitre: 'Diêm tiêu (Nitre)',
-  berrybush: 'Bụi quả mọng (Berry Bush)',
-  berrybush2: 'Bụi quả mọng gai',
-  berrybush_juicy: 'Bụi quả mọng nước',
-  grass: 'Bụi cỏ (Grass)',
-  sapling: 'Cây non (Sapling)',
-  flower: 'Hoa (Flower)',
-  flower_evil: 'Hoa hắc ám',
-  carrot_planted: 'Cà rốt mọc hoang',
-  carrot: 'Cà rốt (Carrot)',
-  red_mushroom: 'Nấm đỏ',
-  green_mushroom: 'Nấm xanh lá',
-  blue_mushroom: 'Nấm xanh lam',
-  axe: 'Rìu (Axe)',
-  pickaxe: 'Cuốc chim (Pickaxe)',
-  torch: 'Đuốc (Torch)',
-  spear: 'Giáo (Spear)',
-  campfire: 'Lửa trại (Campfire)',
-  firepit: 'Bếp lửa đá (Fire Pit)',
-  researchlab: 'Máy Khoa Học (Science Machine)',
-  homesign: 'Biển chỉ đường',
-  rabbit: 'Thỏ (Rabbit)',
-  rabbithole: 'Hang thỏ',
-  perd: 'Gà tây (Gobbler)',
-  pigman: 'Người lợn (Pig Man)',
-  pighouse: 'Nhà lợn',
-  spider: 'Nhện (Spider)',
-  spiderden: 'Tổ nhện',
-  beefalo: 'Bò Beefalo',
-  tallbird: 'Chim chân cao (Tallbird)',
-  bee: 'Ong (Bee)',
-  butterfly: 'Bướm (Butterfly)',
-  robin: 'Chim cổ đỏ',
-  crow: 'Quạ đen',
-  frog: 'Ếch (Frog)',
-  skeleton: 'Bộ xương',
+  willow: 'Willow',
+  wolfgang: 'Wolfgang',
+  wendy: 'Wendy',
+  wx78: 'WX-78',
+  wickerbottom: 'Wickerbottom',
+  woodie: 'Woodie',
+  wes: 'Wes',
+  waxwell: 'Maxwell',
+  wathgrithr: 'Wigfrid',
+  webber: 'Webber',
+  winona: 'Winona',
+  warly: 'Warly',
+  wortox: 'Wortox',
+  wormwood: 'Wormwood',
+  wurt: 'Wurt',
+  walter: 'Walter',
+  wanda: 'Wanda',
+  multiplayer_portal: 'Florid Postern',
+  evergreen: 'Evergreen',
+  evergreen_sparse: 'Lumpy Evergreen',
+  twiggytree: 'Twiggy Tree',
+  deciduoustree: 'Birchnut Tree',
+  marsh_tree: 'Spiky Tree',
+  rock1: 'Boulder',
+  rock2: 'Gold Vein Boulder',
+  rock_flintless: 'Flintless Boulder',
+  flint: 'Flint',
+  twigs: 'Twigs',
+  cutgrass: 'Cut Grass',
+  berries: 'Berries',
+  berries_cooked: 'Roasted Berries',
+  berries_juicy: 'Juicy Berries',
+  berries_juicy_cooked: 'Roasted Juicy Berries',
+  log: 'Log',
+  rocks: 'Rocks',
+  goldnugget: 'Gold Nugget',
+  nitre: 'Nitre',
+  berrybush: 'Berry Bush',
+  berrybush2: 'Berry Bush',
+  berrybush_juicy: 'Juicy Berry Bush',
+  grass: 'Grass',
+  sapling: 'Sapling',
+  flower: 'Flower',
+  flower_evil: 'Evil Flower',
+  petals: 'Petals',
+  carrot_planted: 'Carrot',
+  carrot: 'Carrot',
+  carrot_cooked: 'Roasted Carrot',
+  red_mushroom: 'Red Mushroom',
+  green_mushroom: 'Green Mushroom',
+  blue_mushroom: 'Blue Mushroom',
+  red_cap: 'Red Cap',
+  red_cap_cooked: 'Cooked Red Cap',
+  green_cap: 'Green Cap',
+  green_cap_cooked: 'Cooked Green Cap',
+  blue_cap: 'Blue Cap',
+  blue_cap_cooked: 'Cooked Blue Cap',
+  axe: 'Axe',
+  goldenaxe: 'Luxury Axe',
+  pickaxe: 'Pickaxe',
+  goldenpickaxe: 'Opulent Pickaxe',
+  shovel: 'Shovel',
+  goldenshovel: 'Regal Shovel',
+  hammer: 'Hammer',
+  torch: 'Torch',
+  lantern: 'Lantern',
+  lighter: "Willow's Lighter",
+  lucy: 'Lucy the Axe',
+  spear: 'Spear',
+  spear_wathgrithr: 'Battle Spear',
+  hambat: 'Ham Bat',
+  cane: 'Walking Cane',
+  armorgrass: 'Grass Suit',
+  armorwood: 'Log Suit',
+  armormarble: 'Marble Suit',
+  backpack: 'Backpack',
+  flowerhat: 'Garland',
+  strawhat: 'Straw Hat',
+  footballhat: 'Football Helmet',
+  wathgrithrhat: 'Battle Helm',
+  tophat: 'Top Hat',
+  winterhat: 'Winter Hat',
+  minerhat: 'Miner Hat',
+  rope: 'Rope',
+  boards: 'Boards',
+  cutstone: 'Cut Stone',
+  papyrus: 'Papyrus',
+  charcoal: 'Charcoal',
+  ash: 'Ashes',
+  poop: 'Manure',
+  silk: 'Silk',
+  spidergland: 'Spider Gland',
+  healingsalve: 'Healing Salve',
+  trap: 'Trap',
+  birdtrap: 'Bird Trap',
+  bugnet: 'Bug Net',
+  fishingrod: 'Freshwater Fishing Rod',
+  compass: 'Compass',
+  heatrock: 'Thermal Stone',
+  bedroll_straw: 'Straw Roll',
+  campfire: 'Campfire',
+  firepit: 'Fire Pit',
+  researchlab: 'Science Machine',
+  researchlab2: 'Alchemy Engine',
+  cookpot: 'Crock Pot',
+  icebox: 'Ice Box',
+  meatrack: 'Drying Rack',
+  treasurechest: 'Chest',
+  homesign: 'Sign',
+  pighouse: 'Pig House',
+  meat: 'Meat',
+  cookedmeat: 'Cooked Meat',
+  monstermeat: 'Monster Meat',
+  cookedmonstermeat: 'Cooked Monster Meat',
+  smallmeat: 'Morsel',
+  cookedsmallmeat: 'Cooked Morsel',
+  drumstick: 'Drumstick',
+  drumstick_cooked: 'Fried Drumstick',
+  froglegs: 'Frog Legs',
+  froglegs_cooked: 'Cooked Frog Legs',
+  meatballs: 'Meatballs',
+  kabobs: 'Kabobs',
+  ratatouille: 'Ratatouille',
+  spoiled_food: 'Rot',
+  abigail_flower: "Abigail's Flower",
+  slingshot: 'Trusty Slingshot',
+  pocketwatch_weapon: 'Alarming Clock',
+  rabbit: 'Rabbit',
+  rabbithole: 'Rabbit Hole',
+  perd: 'Gobbler',
+  pigman: 'Pig Man',
+  spider: 'Spider',
+  spiderden: 'Spider Den',
+  beefalo: 'Beefalo',
+  tallbird: 'Tallbird',
+  bee: 'Bee',
+  butterfly: 'Butterfly',
+  robin: 'Redbird',
+  crow: 'Crow',
+  frog: 'Frog',
+  skeleton: 'Skeleton',
+  wormhole: 'Wormhole',
+  pond: 'Pond',
+  cave_entrance: 'Plugged Sinkhole',
+  cave_entrance_open: 'Open Sinkhole',
+  moose_nesting_ground: 'Moose/Goose Nest',
+  carnival_host: 'Corvus Goodfeather',
+  fireflies: 'Fireflies',
 };
 
 export function formatPrefabName(prefab: string): string {
-  if (!prefab) return 'Thực thể';
+  if (!prefab) return 'Entity';
   if (PREFAB_LABELS[prefab]) return PREFAB_LABELS[prefab];
   return prefab.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
 export function defaultActionForEntity(e: SceneEntity, equippedHand: string): { code: string; label: string } {
-  if (e.kind === 'player') return { code: 'INSPECT', label: 'Quan sát bản thân' };
-  if (e.kind === 'item') return { code: 'PICKUP', label: 'Nhặt (Pick Up)' };
+  if (e.kind === 'player') return { code: 'INSPECT', label: 'Examine Self' };
+  if (e.kind === 'item') return { code: 'PICKUP', label: 'Pick Up' };
+  if (e.prefab === 'treasurechest' || e.prefab === 'cookpot' || e.prefab === 'icebox') {
+    return { code: 'INSPECT', label: 'Open' };
+  }
+  if (e.prefab === 'campfire' || e.prefab === 'firepit') {
+    return { code: 'INSPECT', label: 'Cook / Add Fuel' };
+  }
+  if (e.prefab === 'cave_entrance') {
+    return { code: 'MINE', label: 'Mine Sinkhole' };
+  }
+  if (e.prefab === 'cave_entrance_open') {
+    return { code: 'INSPECT', label: 'Enter Caves' };
+  }
   if (e.kind === 'plant') {
     if (e.prefab.startsWith('flower') || e.prefab.includes('mushroom') || e.prefab === 'carrot_planted' || e.prefab === 'sapling' || e.prefab === 'grass' || e.prefab.startsWith('berrybush') || e.prefab === 'reeds') {
-      return { code: 'PICK', label: 'Thu hoạch (Harvest)' };
+      return { code: 'PICK', label: 'Pick' };
     }
   }
   if (e.kind === 'tree') {
-    return equippedHand === 'axe'
-      ? { code: 'CHOP', label: 'Chặt cây (Chop)' }
-      : { code: 'CHOP', label: 'Chặt cây (Tự trang bị Rìu)' };
+    return equippedHand === 'axe' || equippedHand === 'goldenaxe' || equippedHand === 'lucy'
+      ? { code: 'CHOP', label: 'Chop' }
+      : { code: 'CHOP', label: 'Chop' };
   }
   if (e.kind === 'rock') {
-    return equippedHand === 'pickaxe'
-      ? { code: 'MINE', label: 'Đập đá (Mine)' }
-      : { code: 'MINE', label: 'Đập đá (Tự trang bị Cuốc)' };
+    return equippedHand === 'pickaxe' || equippedHand === 'goldenpickaxe'
+      ? { code: 'MINE', label: 'Mine' }
+      : { code: 'MINE', label: 'Mine' };
   }
-  if (e.kind === 'monster') return { code: 'ATTACK', label: 'Tấn công (Attack)' };
-  return { code: 'INSPECT', label: 'Xem xét (Inspect)' };
+  if (e.kind === 'monster') return { code: 'ATTACK', label: 'Attack' };
+  return { code: 'INSPECT', label: 'Examine' };
 }
 
 export interface LoadedAnimAsset {
@@ -286,11 +440,28 @@ interface GpuAnimBundle {
 
 export const PREFAB_ASSET_DEFAULTS: Record<string, { build: string; bank: string; anim: string }> = {
   wilson: { build: 'wilson', bank: 'wilson', anim: 'idle_loop' },
+  willow: { build: 'willow', bank: 'wilson', anim: 'idle_loop' },
+  wolfgang: { build: 'wolfgang', bank: 'wilson', anim: 'idle_loop' },
+  wendy: { build: 'wendy', bank: 'wilson', anim: 'idle_loop' },
+  wx78: { build: 'wx78', bank: 'wilson', anim: 'idle_loop' },
+  wickerbottom: { build: 'wickerbottom', bank: 'wilson', anim: 'idle_loop' },
+  woodie: { build: 'woodie', bank: 'wilson', anim: 'idle_loop' },
+  wes: { build: 'wes', bank: 'wilson', anim: 'idle_loop' },
+  waxwell: { build: 'waxwell', bank: 'wilson', anim: 'idle_loop' },
+  wathgrithr: { build: 'wathgrithr', bank: 'wilson', anim: 'idle_loop' },
+  webber: { build: 'webber', bank: 'wilson', anim: 'idle_loop' },
+  winona: { build: 'winona', bank: 'wilson', anim: 'idle_loop' },
+  warly: { build: 'warly', bank: 'wilson', anim: 'idle_loop' },
+  wortox: { build: 'wortox', bank: 'wilson', anim: 'idle_loop' },
+  wormwood: { build: 'wormwood', bank: 'wilson', anim: 'idle_loop' },
+  wurt: { build: 'wurt', bank: 'wilson', anim: 'idle_loop' },
+  walter: { build: 'walter', bank: 'wilson', anim: 'idle_loop' },
+  wanda: { build: 'wanda', bank: 'wilson', anim: 'idle_loop' },
   multiplayer_portal: { build: 'portal_stone', bank: 'portal_dst', anim: 'idle_loop' },
   evergreen: { build: 'evergreen_new', bank: 'evergreen_short', anim: 'sway1_loop_normal' },
   evergreen_sparse: { build: 'evergreen_new_2', bank: 'evergreen_short', anim: 'sway1_loop_normal' },
   twiggytree: { build: 'twiggy_build', bank: 'twiggy', anim: 'sway1_loop_tall' },
-  deciduoustree: { build: 'tree_leaf_normal', bank: 'tree_leaf', anim: 'sway1_loop_normal' },
+  deciduoustree: { build: 'tree_leaf_trunk_build', bank: 'tree_leaf', anim: 'sway1_loop_normal' },
   marsh_tree: { build: 'marsh_tree', bank: 'marsh_tree', anim: 'sway1_loop' },
   rock1: { build: 'rock', bank: 'rock', anim: 'full' },
   rock2: { build: 'rock2', bank: 'rock2', anim: 'full' },
@@ -323,9 +494,21 @@ export const PREFAB_ASSET_DEFAULTS: Record<string, { build: string; bank: string
   campfire: { build: 'campfire', bank: 'campfire', anim: 'idle' },
   firepit: { build: 'firepit', bank: 'firepit', anim: 'idle' },
   researchlab: { build: 'researchlab', bank: 'researchlab', anim: 'idle' },
+  researchlab2: { build: 'researchlab2', bank: 'researchlab2', anim: 'idle' },
+  cookpot: { build: 'cook_pot', bank: 'cook_pot', anim: 'idle_empty' },
+  icebox: { build: 'ice_box', bank: 'icebox', anim: 'closed' },
+  meatrack: { build: 'meat_rack', bank: 'meat_rack', anim: 'idle_empty' },
+  treasurechest: { build: 'treasure_chest', bank: 'chest', anim: 'closed' },
   homesign: { build: 'sign_home', bank: 'sign_home', anim: 'idle' },
-  rabbit: { build: 'ds_rabbit_basic', bank: 'rabbit', anim: 'idle' },
+  rabbit: { build: 'rabbit_build', bank: 'rabbit', anim: 'idle' },
   rabbithole: { build: 'rabbit_hole', bank: 'rabbithole', anim: 'idle' },
+  wormhole: { build: 'teleporter_worm_build', bank: 'teleporter_worm', anim: 'idle_loop' },
+  pond: { build: 'marsh_tile', bank: 'marsh_tile', anim: 'idle' },
+  cave_entrance: { build: 'cave_entrance', bank: 'cave_entrance', anim: 'idle_closed' },
+  cave_entrance_open: { build: 'cave_entrance', bank: 'cave_entrance', anim: 'open' },
+  moose_nesting_ground: { build: 'nesting_ground', bank: 'nesting_ground', anim: 'idle' },
+  carnival_host: { build: 'carnival_host', bank: 'carnival_host', anim: 'idle' },
+  fireflies: { build: 'fireflies', bank: 'fireflies', anim: 'swarm_loop' },
   perd: { build: 'perd', bank: 'perd', anim: 'idle_loop' },
   pigman: { build: 'pig_build', bank: 'pigman', anim: 'idle_loop' },
   pighouse: { build: 'pig_house', bank: 'pig_house', anim: 'idle' },
@@ -348,6 +531,10 @@ const HIDDEN_SYMBOLS = new Set([
   'hat_hair',
   'swap_body',
   'swap_body_tall',
+  'snow',
+  'snow_bitmap',
+  'mouseover',
+  'legs_mouseover',
 ]);
 
 class OriginalAnimCompositor {
@@ -606,6 +793,9 @@ class OriginalAnimCompositor {
     frameIdx: number,
     equippedHand: string,
     equippedHead: string,
+    equippedBody: string,
+    dynHiddenLayers?: Set<string>,
+    dynHiddenSymbols?: Set<string>,
   ): CachedSpriteFrame | null {
     const gl = this.gl;
     const prog = this.program;
@@ -627,6 +817,9 @@ class OriginalAnimCompositor {
       const symName = (symbol?.name || '').toLowerCase();
       const layerName = (item.layer || '').toLowerCase();
 
+      if (dynHiddenLayers && layerName && dynHiddenLayers.has(layerName)) return null;
+      if (dynHiddenSymbols && symName && dynHiddenSymbols.has(symName)) return null;
+
       if (equippedHand) {
         if (symName === 'arm_normal' || layerName === 'arm_normal') return null;
         if (symName === 'swap_object' || layerName === 'swap_object') {
@@ -636,7 +829,9 @@ class OriginalAnimCompositor {
           textures = eq.textures;
           texNamespace = 100;
           const syms = Object.values(model.symbols);
-          symbol = syms.find(s => s.name?.toLowerCase() === equippedHand && s.frames?.length) ?? syms.find(s => s.frames?.length)!;
+          symbol = syms.find(s => s.name?.toLowerCase() === equippedHand && s.frames?.length)
+            ?? syms.find(s => s.name?.toLowerCase().includes('swap') && s.frames?.length)
+            ?? syms.find(s => s.frames?.length)!;
         }
       } else {
         if (symName === 'arm_carry' || layerName === 'arm_carry' || symName === 'swap_object' || layerName === 'swap_object') {
@@ -644,10 +839,27 @@ class OriginalAnimCompositor {
         }
       }
 
-      if (equippedHead) {
-        if (symName === 'hair_nohat' || layerName === 'hair_nohat' || symName === 'headbase' || layerName === 'headbase') {
-          // Keep headbase unless headbase_hat is present
+      if (equippedBody) {
+        if (symName === 'swap_body' || layerName === 'swap_body' || symName === 'swap_body_tall' || layerName === 'swap_body_tall') {
+          const eq = bundle.overrides[equippedBody];
+          if (eq) {
+            model = eq.model;
+            textures = eq.textures;
+            texNamespace = 300;
+            const syms = Object.values(model.symbols);
+            symbol = syms.find(s => s.name?.toLowerCase() === 'swap_body' && s.frames?.length)
+              ?? syms.find(s => s.frames?.length)!;
+          } else {
+            return null;
+          }
         }
+      } else {
+        if (symName === 'swap_body' || layerName === 'swap_body' || symName === 'swap_body_tall' || layerName === 'swap_body_tall') {
+          return null;
+        }
+      }
+
+      if (equippedHead) {
         if (symName === 'swap_hat' || layerName === 'swap_hat' || symName === 'hat' || layerName === 'hat') {
           const eq = bundle.overrides[equippedHead];
           if (!eq) return null;
@@ -655,7 +867,8 @@ class OriginalAnimCompositor {
           textures = eq.textures;
           texNamespace = 200;
           const syms = Object.values(model.symbols);
-          symbol = syms.find(s => s.frames?.length)!;
+          symbol = syms.find(s => s.name?.toLowerCase() === 'swap_hat' && s.frames?.length)
+            ?? syms.find(s => s.frames?.length)!;
         }
       } else {
         if (symName === 'swap_hat' || layerName === 'swap_hat' || symName === 'hat' || layerName === 'hat' || symName === 'hat_hair' || layerName === 'hat_hair') {
@@ -663,8 +876,8 @@ class OriginalAnimCompositor {
         }
       }
 
-      if (texNamespace === 0 && symName && HIDDEN_SYMBOLS.has(symName)) {
-        if (!(equippedHand && symName === 'arm_carry')) return null;
+      if (texNamespace === 0 && ((symName && HIDDEN_SYMBOLS.has(symName)) || (layerName && HIDDEN_SYMBOLS.has(layerName)))) {
+        if (!(equippedHand && (symName === 'arm_carry' || layerName === 'arm_carry'))) return null;
       }
 
       if (!symbol || !symbol.frames || symbol.frames.length === 0) return null;
@@ -817,6 +1030,38 @@ class OriginalAnimCompositor {
     };
   }
 
+  private static mapHandOverride(prefab: string): string {
+    if (!prefab) return '';
+    if (prefab === 'lucy') return 'swap_lucy_axe';
+    if (prefab === 'hambat') return 'swap_ham_bat';
+    return `swap_${prefab}`;
+  }
+
+  private static mapHeadOverride(prefab: string): string {
+    if (!prefab) return '';
+    const map: Record<string, string> = {
+      flowerhat: 'hat_flower',
+      strawhat: 'hat_straw',
+      footballhat: 'hat_football',
+      wathgrithrhat: 'hat_wathgrithr',
+      tophat: 'hat_top',
+      winterhat: 'hat_winter',
+      minerhat: 'hat_miner',
+    };
+    return map[prefab] || '';
+  }
+
+  private static mapBodyOverride(prefab: string): string {
+    if (!prefab) return '';
+    const map: Record<string, string> = {
+      armorgrass: 'armor_grass',
+      armorwood: 'armor_wood',
+      armormarble: 'armor_marble',
+      backpack: 'swap_backpack',
+    };
+    return map[prefab] || '';
+  }
+
   getEntitySprite(
     entity: SceneEntity,
     playerHud: PlayerHudSnapshot,
@@ -839,12 +1084,13 @@ class OriginalAnimCompositor {
     }
     if (state === 'pending' || state === 'unavailable') return null;
 
-    const isPlayer = entity.kind === 'player' || entity.prefab === 'wilson';
+    const isPlayer = entity.kind === 'player';
     let animName = entity.anim || def?.anim || 'idle';
     if (isPlayer) {
       if (playerHud.sgState?.includes('run')) animName = 'run_loop';
       else if (playerHud.sgState?.includes('chop')) animName = 'chop_loop';
       else if (playerHud.sgState?.includes('mine')) animName = 'pickaxe_loop';
+      else if (playerHud.sgState?.includes('atk') || playerHud.sgState?.includes('attack')) animName = 'atk';
       else if (!entity.anim || entity.anim === 'idle') animName = 'idle_loop';
     }
 
@@ -881,23 +1127,42 @@ class OriginalAnimCompositor {
 
     let equippedHand = '';
     let equippedHead = '';
+    let equippedBody = '';
     if (isPlayer) {
       equippedHand =
         entity.overrides?.swap_object?.build ||
-        (playerHud.equippedHand ? `swap_${playerHud.equippedHand}` : '');
+        OriginalAnimCompositor.mapHandOverride(playerHud.equippedHand);
       equippedHead =
         entity.overrides?.swap_hat?.build ||
-        (playerHud.equippedHead === 'flowerhat' ? 'hat_flower' : '');
+        OriginalAnimCompositor.mapHeadOverride(playerHud.equippedHead);
+      equippedBody =
+        entity.overrides?.swap_body?.build ||
+        OriginalAnimCompositor.mapBodyOverride(playerHud.equippedBody);
     }
 
-    const cacheKey = `${key}#${resolved.clipIndex}#${frameIdx}#${equippedHand}#${equippedHead}`;
+    const dynLayers = entity.hiddenLayers?.length ? new Set(entity.hiddenLayers.map(s => s.toLowerCase())) : undefined;
+    const dynSyms = entity.hiddenSymbols?.length ? new Set(entity.hiddenSymbols.map(s => s.toLowerCase())) : undefined;
+    const hideKey = dynLayers || dynSyms
+      ? `${entity.hiddenLayers?.join(',') || ''}:${entity.hiddenSymbols?.join(',') || ''}`
+      : '';
+
+    const cacheKey = `${key}#${resolved.clipIndex}#${frameIdx}#${equippedHand}#${equippedHead}#${equippedBody}#${hideKey}`;
     let cached = this.frameCache.get(cacheKey);
     if (cached === undefined) {
       if (this.frameCache.size > 480) {
         const oldest = this.frameCache.keys().next().value;
         if (oldest !== undefined) this.frameCache.delete(oldest);
       }
-      cached = this.renderFrameToCache(state, resolved.clipIndex, frameIdx, equippedHand, equippedHead);
+      cached = this.renderFrameToCache(
+        state,
+        resolved.clipIndex,
+        frameIdx,
+        equippedHand,
+        equippedHead,
+        equippedBody,
+        dynLayers,
+        dynSyms,
+      );
       this.frameCache.set(cacheKey, cached);
     }
     if (!cached) return null;
@@ -912,12 +1177,15 @@ export class GameRenderer {
   private tilePatterns = new Map<number, CanvasPattern>();
   private uiIconCanvases = new Map<string, HTMLCanvasElement>();
   private uiIconDataUrls = new Map<string, string>();
+  private clockWedgeTints = new Map<string, HTMLCanvasElement>();
   private prevSnapshot: GameSceneSnapshot | null = null;
   private currSnapshot: GameSceneSnapshot | null = null;
   private lastSnapshotPerf = 0;
   private projectedEntities: ProjectedEntity[] = [];
   public hoveredEntity: ProjectedEntity | null = null;
   public walkTarget: { x: number; z: number; until: number } | null = null;
+  public pendingBuildPrefab: string | null = null;
+  public clockHovered = false;
   private mouseX = -1;
   private mouseY = -1;
 
@@ -948,7 +1216,6 @@ export class GameRenderer {
       const img = new ImageData(new Uint8ClampedArray(entry.rgba), entry.width, entry.height);
       cctx.putImageData(img, 0, 0);
       for (const tileId of entry.tileIds) {
-        // Tint slightly with biome palette so ocean/grass/forest/marsh/rocky stay visually distinct while showing real Klei grain
         const tinted = document.createElement('canvas');
         tinted.width = entry.width;
         tinted.height = entry.height;
@@ -964,6 +1231,23 @@ export class GameRenderer {
     }
   }
 
+  private buildTintedWedge(base: HTMLCanvasElement, rMul: number, gMul: number, bMul: number): HTMLCanvasElement {
+    const c = document.createElement('canvas');
+    c.width = base.width;
+    c.height = base.height;
+    const ctx = c.getContext('2d')!;
+    ctx.drawImage(base, 0, 0);
+    const img = ctx.getImageData(0, 0, c.width, c.height);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      d[i] = Math.round(d[i] * rMul);
+      d[i + 1] = Math.round(d[i + 1] * gMul);
+      d[i + 2] = Math.round(d[i + 2] * bMul);
+    }
+    ctx.putImageData(img, 0, 0);
+    return c;
+  }
+
   ingestUiIcons(icons: Record<string, { width: number; height: number; rgba: ArrayBuffer }>) {
     for (const [key, icon] of Object.entries(icons)) {
       if (!icon.rgba || icon.width < 2 || icon.height < 2) continue;
@@ -976,6 +1260,17 @@ export class GameRenderer {
       cctx.putImageData(img, 0, 0);
       this.uiIconCanvases.set(key, c);
       this.uiIconDataUrls.set(key, c.toDataURL());
+
+      if (key === 'clock_wedge') {
+        // Exact Klei UIClock colors from scripts/widgets/uiclock.lua:
+        // DAY_COLOUR = (254/255, 212/255, 86/255), DUSK_COLOUR = (165/255, 91/255, 82/255), DARKEN_PERCENT = 0.75
+        const dr = 254 / 255, dg = 212 / 255, db = 86 / 255;
+        const kr = 165 / 255, kg = 91 / 255, kb = 82 / 255;
+        this.clockWedgeTints.set('day_light', this.buildTintedWedge(c, dr, dg, db));
+        this.clockWedgeTints.set('day_dark', this.buildTintedWedge(c, dr * 0.75, dg * 0.75, db * 0.75));
+        this.clockWedgeTints.set('dusk_light', this.buildTintedWedge(c, kr, kg, kb));
+        this.clockWedgeTints.set('dusk_dark', this.buildTintedWedge(c, kr * 0.75, kg * 0.75, kb * 0.75));
+      }
     }
   }
 
@@ -1071,8 +1366,6 @@ export class GameRenderer {
     const v = (h * 0.54 - sy) / focal;
     const dy = planeY - cam.y;
 
-    // ry = dy * cosP - hz * sinP = v * (cam.distance + hz * cosP + dy * sinP)
-    // hz * (sinP + v * cosP) = dy * cosP - v * cam.distance - v * dy * sinP
     const denom = sinP + v * cosP;
     if (Math.abs(denom) < 1e-4) return null;
     const hz = (dy * cosP - v * (cam.distance + dy * sinP)) / denom;
@@ -1181,33 +1474,80 @@ export class GameRenderer {
 
     // 6. Draw entities back-to-front
     for (const item of projected) {
-      const isHovered = this.hoveredEntity?.entity.guid === item.entity.guid;
-      if (isHovered) {
-        ctx.save();
-        ctx.strokeStyle = '#f2d379';
-        ctx.fillStyle = 'rgba(242, 211, 121, 0.16)';
-        ctx.lineWidth = 2.2;
-        ctx.beginPath();
-        ctx.ellipse(item.sx, item.sy, item.scale * 0.85, item.scale * 0.46, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-        ctx.restore();
-      }
       this.drawEntity(ctx, item, snap, cam, now);
+    }
+
+    // 6b. Draw Ground Placer Ghost Preview if placing a structure
+    if (this.pendingBuildPrefab && this.mouseX >= 0 && this.mouseY >= 0) {
+      this.drawPlacerPreview(ctx, this.pendingBuildPrefab, snap, cam, now);
     }
 
     // 7. Day / Dusk / Night ambient & point lights overlay
     this.renderLightingOverlay(ctx, snap, projected, cam);
 
-    // 8. Hover nameplate & action prompt
-    if (this.hoveredEntity) {
-      this.drawHoverTooltip(ctx, this.hoveredEntity, snap.player.equippedHand);
-    }
-
-    // 9. Minimap radar
+    // 8. Optional minimap canvas
     if (this.miniCtx) {
       this.renderMinimap(this.miniCtx, snap, cam);
     }
+  }
+
+  private drawPlacerPreview(
+    ctx: CanvasRenderingContext2D,
+    prefab: string,
+    snap: GameSceneSnapshot,
+    cam: CameraSnapshot,
+    now: number,
+  ) {
+    const worldPos = this.screenToWorld(this.mouseX, this.mouseY, 0);
+    if (!worldPos) return;
+    const p = this.projectWorld(worldPos.x, 0, worldPos.z, cam);
+    if (!p) return;
+
+    const fakeEnt: SceneEntity = {
+      guid: 999999,
+      prefab,
+      kind: 'structure',
+      x: worldPos.x,
+      y: 0,
+      z: worldPos.z,
+      rot: 0,
+      sx: 1,
+      sy: 1,
+      sz: 1,
+      clickable: false,
+    };
+
+    const s = Math.max(10, p.scale);
+    ctx.save();
+    ctx.translate(p.sx, p.sy);
+    ctx.strokeStyle = 'rgba(95, 225, 110, 0.85)';
+    ctx.fillStyle = 'rgba(95, 225, 110, 0.22)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, s * 0.9, s * 0.45, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.globalAlpha = 0.68;
+    const sprite = this.animCompositor.getEntitySprite(fakeEnt, snap.player, cam, now);
+    if (sprite) {
+      const { frame } = sprite;
+      const ratio = (s / 54) * (frame.worldScale || 1);
+      ctx.drawImage(
+        frame.canvas,
+        -frame.anchorX * ratio,
+        -frame.anchorY * ratio,
+        frame.width * ratio,
+        frame.height * ratio,
+      );
+    } else {
+      const icon = this.uiIconCanvases.get(prefab);
+      if (icon) {
+        const sz = Math.max(24, s * 1.2);
+        ctx.drawImage(icon, -sz * 0.5, -sz * 0.85, sz, sz);
+      }
+    }
+    ctx.restore();
   }
 
   private renderTerrain(ctx: CanvasRenderingContext2D, tiles: TileWindow, cam: CameraSnapshot, now: number) {
@@ -1313,8 +1653,13 @@ export class GameRenderer {
   ) {
     const { entity, sx, sy, scale } = item;
     const s = Math.max(8, scale);
+    const isHovered = this.hoveredEntity?.entity.guid === entity.guid;
     ctx.save();
     ctx.translate(sx, sy);
+
+    if (isHovered) {
+      ctx.filter = 'brightness(1.22)';
+    }
 
     const originalSprite = this.animCompositor.getEntitySprite(entity, snap.player, cam, now);
     if (originalSprite) {
@@ -1332,17 +1677,11 @@ export class GameRenderer {
         frame.height * ratio,
       );
       ctx.restore();
+      ctx.filter = 'none';
 
-      if (entity.kind === 'player' || entity.prefab === 'wilson') {
-        if (s > 12) {
-          const topY = -Math.max(s * 2.15, frame.anchorY * ratio + 6);
-          ctx.font = '600 11px "Segoe UI", system-ui, sans-serif';
-          ctx.textAlign = 'center';
-          ctx.fillStyle = 'rgba(14, 18, 13, 0.72)';
-          ctx.fillRect(-28, topY - 11, 56, 15);
-          ctx.fillStyle = '#f2d379';
-          ctx.fillText('Wilson', 0, topY);
-        }
+      const topY = -Math.max(s * 2.0, frame.anchorY * ratio + 4);
+      if (entity.kind === 'player' && snap.player.speech && s > 10) {
+        this.drawPlayerSpeechBubble(ctx, topY - 8, snap.player.speech);
       }
       ctx.restore();
       return;
@@ -1356,8 +1695,12 @@ export class GameRenderer {
       return;
     }
 
-    if (entity.kind === 'player' || entity.prefab === 'wilson') {
+    ctx.filter = 'none';
+    if (entity.kind === 'player') {
       this.drawWilson(ctx, s, entity, snap.player, now);
+      if (snap.player.speech && s > 12) {
+        this.drawPlayerSpeechBubble(ctx, -s * 2.1, snap.player.speech);
+      }
     } else if (entity.prefab === 'multiplayer_portal') {
       this.drawPortal(ctx, s, now);
     } else if (entity.kind === 'tree') {
@@ -1851,29 +2194,252 @@ export class GameRenderer {
     void cam;
   }
 
-  private drawHoverTooltip(ctx: CanvasRenderingContext2D, hovered: ProjectedEntity, equippedHand: string) {
-    const title = formatPrefabName(hovered.entity.prefab);
-    const act = defaultActionForEntity(hovered.entity, equippedHand);
-    const text = `${title} · [Click] ${act.label}`;
+  private drawPlayerSpeechBubble(ctx: CanvasRenderingContext2D, topY: number, speech: string) {
+    const clean = speech.trim();
+    if (!clean) return;
     ctx.save();
-    ctx.font = '600 12px "Segoe UI", system-ui, sans-serif';
-    const width = ctx.measureText(text).width + 20;
-    const tx = Math.min(this.canvas.width - width - 10, Math.max(10, hovered.sx - width * 0.5));
-    const ty = Math.max(14, hovered.sy - hovered.hitRadius - 32);
+    ctx.font = '700 15px Georgia, "Times New Roman", serif';
+    const maxW = 280;
+    const words = clean.split(/\s+/);
+    const lines: string[] = [];
+    let currentLine = '';
+    for (const w of words) {
+      const candidate = currentLine ? `${currentLine} ${w}` : w;
+      if (ctx.measureText(candidate).width > maxW && currentLine) {
+        lines.push(currentLine);
+        currentLine = w;
+      } else {
+        currentLine = candidate;
+      }
+    }
+    if (currentLine) lines.push(currentLine);
 
-    ctx.fillStyle = 'rgba(16, 21, 15, 0.9)';
-    ctx.strokeStyle = '#d8b874';
-    ctx.lineWidth = 1.2;
-    ctx.beginPath();
-    ctx.roundRect(tx, ty, width, 26, 6);
-    ctx.fill();
-    ctx.stroke();
+    const lineHeight = 19;
+    const totalH = lines.length * lineHeight;
+    const by = topY - totalH - 6;
 
-    ctx.fillStyle = '#f2e8cf';
-    ctx.textAlign = 'left';
+    ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(text, tx + 10, ty + 13);
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = 'rgba(10, 8, 6, 0.95)';
+    ctx.fillStyle = '#fff5d6';
+    for (let i = 0; i < lines.length; ++i) {
+      const ly = by + i * lineHeight;
+      ctx.strokeText(lines[i], 0, ly);
+      ctx.fillText(lines[i], 0, ly);
+    }
     ctx.restore();
+  }
+
+  renderWorldClock(clockCanvas: HTMLCanvasElement, snap: GameSceneSnapshot) {
+    const cctx = clockCanvas.getContext('2d');
+    if (!cctx) return;
+    const w = clockCanvas.width;
+    const h = clockCanvas.height;
+    const cx = w * 0.5;
+    const cy = h * 0.5;
+    cctx.clearRect(0, 0, w, h);
+
+    // 1. Base face: clock_NIGHT.tex (scripts/widgets/uiclock.lua: self._face:SetScale(0.5))
+    const nightFace = this.uiIconCanvases.get('clock_NIGHT');
+    const rimCanvas = this.uiIconCanvases.get('clock_rim');
+    const refW = rimCanvas?.width || nightFace?.width || 256;
+    const baseScale = w / refW; // Maps Klei 0.5 scale to our canvas size
+    const segScale = baseScale * (0.4 / 0.5); // uiclock.lua: segscale = 0.4 vs face scale = 0.5
+
+    if (nightFace) {
+      const fw = nightFace.width * baseScale;
+      const fh = nightFace.height * baseScale;
+      cctx.drawImage(nightFace, cx - fw * 0.5, cy - fh * 0.5, fw, fh);
+    }
+
+    // 2. 16 rotated clock_wedge.tex segments (uiclock.lua lines 97-105 & 214-239)
+    const daySegs = snap.clock.daySegs ?? 8;
+    const duskSegs = snap.clock.duskSegs ?? 6;
+    const nightSegs = snap.clock.nightSegs ?? 2;
+    const totalSegs = Math.max(1, daySegs + duskSegs + nightSegs);
+    const stepAngle = (Math.PI * 2) / totalSegs;
+
+    let dark = true;
+    for (let i = 0; i < totalSegs; ++i) {
+      if (i >= daySegs + duskSegs) {
+        // Night segments are hidden so clock_NIGHT.tex shows underneath
+        continue;
+      }
+      const isDay = i < daySegs;
+      const tintKey = isDay
+        ? dark
+          ? 'day_dark'
+          : 'day_light'
+        : dark
+          ? 'dusk_dark'
+          : 'dusk_light';
+      dark = !dark;
+
+      const wedge = this.clockWedgeTints.get(tintKey);
+      if (wedge) {
+        const dw = wedge.width * segScale;
+        const dh = wedge.height * segScale;
+        cctx.save();
+        cctx.translate(cx, cy);
+        cctx.rotate(i * stepAngle);
+        // SetHRegPoint(ANCHOR_LEFT), SetVRegPoint(ANCHOR_BOTTOM) -> bottom-left corner at (0, 0)
+        cctx.drawImage(wedge, 0, -dh, dw, dh);
+        cctx.restore();
+      }
+    }
+
+    // 3. Rim: clock_rim.tex (self._rim:SetScale(0.5))
+    if (rimCanvas) {
+      const rw = rimCanvas.width * baseScale;
+      const rh = rimCanvas.height * baseScale;
+      cctx.drawImage(rimCanvas, cx - rw * 0.5, cy - rh * 0.5, rw, rh);
+    }
+
+    // 4. Hand: clock_hand.tex (self._hands:SetScale(0.5), self._hands:SetRotation(self._time * 360))
+    const norm = Math.max(0, Math.min(1, snap.clock.normTime || 0));
+    const handCanvas = this.uiIconCanvases.get('clock_hand');
+    if (handCanvas) {
+      const hw = handCanvas.width * baseScale;
+      const hh = handCanvas.height * baseScale;
+      cctx.save();
+      cctx.translate(cx, cy);
+      cctx.rotate(norm * Math.PI * 2);
+      cctx.drawImage(handCanvas, -hw * 0.5, -hh * 0.5, hw, hh);
+      cctx.restore();
+    }
+
+    // 5. Center text: self._text = self:AddChild(Text(BODYTEXTFONT, 33 / basescale))
+    // No dark circle medallion in original DST! Just crisp outlined text at (5, 0)
+    const dayNum = Math.max(1, snap.clock.cycles || 1);
+    const line1 = this.clockHovered ? 'Survived' : 'World';
+    const line2 = this.clockHovered ? `${dayNum} ${dayNum === 1 ? 'Day' : 'Days'}` : `Day ${dayNum}`;
+    cctx.save();
+    cctx.font = '700 13px Georgia, "Times New Roman", serif';
+    cctx.textAlign = 'center';
+    cctx.textBaseline = 'middle';
+    cctx.lineJoin = 'round';
+    cctx.lineWidth = 3.2;
+    cctx.strokeStyle = 'rgba(12, 9, 6, 0.92)';
+    cctx.fillStyle = '#ffffff';
+    cctx.strokeText(line1, cx + 2, cy - 8);
+    cctx.fillText(line1, cx + 2, cy - 8);
+    cctx.strokeText(line2, cx + 2, cy + 8);
+    cctx.fillText(line2, cx + 2, cy + 8);
+    cctx.restore();
+  }
+
+  private resolveMinimapIconKey(e: SceneEntity): string {
+    if (e.prefab === 'multiplayer_portal') return 'portal_dst';
+    if (e.prefab === 'evergreen_sparse') return 'evergreen_lumpy';
+    if (e.prefab === 'evergreen') return 'evergreen';
+    if (e.prefab === 'deciduoustree') return 'tree_leaf';
+    if (e.kind === 'tree') return 'trees';
+    if (e.prefab === 'rock2') return 'rock_gold';
+    if (e.prefab === 'rock_flintless') return 'rock_flintless';
+    if (e.kind === 'rock') return 'rock';
+    if (e.prefab === 'berrybush2') return 'berrybush2';
+    if (e.prefab === 'berrybush_juicy') return 'berrybush_juicy';
+    if (e.prefab.startsWith('berrybush')) return 'berrybush';
+    if (e.prefab === 'wormhole') return 'wormhole';
+    if (e.prefab === 'pond') return 'pond';
+    if (e.prefab === 'cave_entrance') return 'cave_closed';
+    if (e.prefab === 'cave_entrance_open') return 'cave_open';
+    if (e.prefab === 'red_mushroom') return 'red_cap';
+    if (e.prefab === 'green_mushroom') return 'green_cap';
+    if (e.prefab === 'blue_mushroom') return 'blue_cap';
+    if (e.prefab === 'carrot_planted') return 'carrot';
+    if (e.prefab === 'flower') return 'petals';
+    if (this.uiIconCanvases.has(e.prefab)) return e.prefab;
+    return '';
+  }
+
+  renderFullScreenMap(
+    mapCanvas: HTMLCanvasElement,
+    zoom = 1,
+    panX = 0,
+    panY = 0,
+  ) {
+    const snap = this.currSnapshot;
+    const mctx = mapCanvas.getContext('2d');
+    if (!snap || !mctx) return;
+    const W = mapCanvas.width;
+    const H = mapCanvas.height;
+
+    // 1. Parchment vintage ocean background
+    const bgGrad = mctx.createRadialGradient(W * 0.5, H * 0.5, 40, W * 0.5, H * 0.5, Math.max(W, H) * 0.65);
+    bgGrad.addColorStop(0, '#2b2318');
+    bgGrad.addColorStop(1, '#14100b');
+    mctx.fillStyle = bgGrad;
+    mctx.fillRect(0, 0, W, H);
+
+    const mm = snap.minimap;
+    if (!mm || !mm.cols || !mm.data) return;
+
+    const mapSize = Math.min(W, H) * 0.78 * zoom;
+    const originX = (W - mapSize) * 0.5 + panX;
+    const originY = (H - mapSize) * 0.5 + panY;
+    const cellW = mapSize / mm.cols;
+    const cellH = mapSize / mm.cols;
+
+    mctx.save();
+    // 2. Render terrain tiles
+    for (let r = 0; r < mm.cols; ++r) {
+      for (let c = 0; c < mm.cols; ++c) {
+        const tileId = mm.data[r * mm.cols + c] ?? 1;
+        const pat = this.tilePatterns.get(tileId);
+        mctx.fillStyle = pat || getTileStyle(tileId).fill;
+        mctx.fillRect(originX + c * cellW, originY + r * cellH, Math.ceil(cellW), Math.ceil(cellH));
+      }
+    }
+
+    // Map border frame
+    mctx.strokeStyle = '#b9935a';
+    mctx.lineWidth = 2.5;
+    mctx.strokeRect(originX, originY, mapSize, mapSize);
+
+    // 3. Draw world entities on full-screen map
+    const span = (mm.radius || 20) * (mm.step || 3) * TILE_SIZE;
+    for (const e of snap.entities) {
+      if (e.kind === 'player') continue;
+      const dx = (e.x - snap.player.x) / span;
+      const dz = (e.z - snap.player.z) / span;
+      const px = originX + mapSize * 0.5 + dx * mapSize * 0.5;
+      const py = originY + mapSize * 0.5 + dz * mapSize * 0.5;
+      if (px < originX || px > originX + mapSize || py < originY || py > originY + mapSize) continue;
+
+      const mmKey = this.resolveMinimapIconKey(e);
+      const mmIcon = mmKey ? this.uiIconCanvases.get(mmKey) : undefined;
+      const isLandmark = e.prefab === 'multiplayer_portal' || e.kind === 'fire' || e.kind === 'structure';
+      const isz = Math.max(12, (isLandmark ? 24 : 16) * Math.sqrt(zoom));
+      if (mmIcon) {
+        mctx.drawImage(mmIcon, px - isz * 0.5, py - isz * 0.5, isz, isz);
+      } else {
+        mctx.fillStyle = isLandmark ? '#ffb703' : '#d8b874';
+        mctx.beginPath();
+        mctx.arc(px, py, isz * 0.3, 0, Math.PI * 2);
+        mctx.fill();
+      }
+    }
+
+    // 4. Draw Player at map center
+    const wx = originX + mapSize * 0.5;
+    const wy = originY + mapSize * 0.5;
+    const charPrefab = snap.player.prefab || 'wilson';
+    const playerIcon =
+      this.uiIconCanvases.get(charPrefab) ||
+      this.uiIconCanvases.get(`avatar_${charPrefab}`) ||
+      this.uiIconCanvases.get('wilson');
+    if (playerIcon) {
+      mctx.drawImage(playerIcon, wx - 14, wy - 14, 28, 28);
+    } else {
+      mctx.fillStyle = '#f2d379';
+      mctx.beginPath();
+      mctx.arc(wx, wy, 7, 0, Math.PI * 2);
+      mctx.fill();
+    }
+    mctx.restore();
   }
 
   private renderMinimap(ctx: CanvasRenderingContext2D, snap: GameSceneSnapshot, cam: CameraSnapshot) {
@@ -1905,17 +2471,7 @@ export class GameRenderer {
       const py = mh * 0.5 + dz * mh * 0.5;
       if (px < 2 || px > mw - 2 || py < 2 || py > mh - 2) continue;
 
-      let mmKey = '';
-      if (e.prefab === 'multiplayer_portal') mmKey = 'portal_dst';
-      else if (e.prefab === 'evergreen_sparse') mmKey = 'evergreen_lumpy';
-      else if (e.prefab === 'evergreen') mmKey = 'evergreen';
-      else if (e.kind === 'tree') mmKey = 'trees';
-      else if (e.prefab === 'rock2') mmKey = 'rock_gold';
-      else if (e.prefab === 'rock_flintless') mmKey = 'rock_flintless';
-      else if (e.kind === 'rock') mmKey = 'rock';
-      else if (e.prefab.startsWith('berrybush')) mmKey = 'berrybush';
-      else if (this.uiIconCanvases.has(e.prefab)) mmKey = e.prefab;
-
+      const mmKey = this.resolveMinimapIconKey(e);
       const mmIcon = mmKey ? this.uiIconCanvases.get(mmKey) : undefined;
       if (mmIcon) {
         const isBig = e.prefab === 'multiplayer_portal' || e.kind === 'fire' || e.kind === 'structure';
@@ -1963,3 +2519,4 @@ export class GameRenderer {
     }
   }
 }
+

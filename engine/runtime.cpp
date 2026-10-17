@@ -35,7 +35,10 @@
 #include "physics_waker.hpp"
 #include "sha256.hpp"
 #include "ui_transform.hpp"
+#include "image_widget.hpp"
+#include "text_widget.hpp"
 extern "C" {
+
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
@@ -1089,6 +1092,102 @@ int snapshot_scene(lua_State* L){
     lua_setfield(L,-2,"entities");
     return 1;
 }
+int snapshot_ui(lua_State* L){
+    int max_nodes=static_cast<int>(luaL_optinteger(L,1,512));
+    if(max_nodes<1)max_nodes=1;
+    if(max_nodes>4096)max_nodes=4096;
+    web_ui::refresh();
+    lua_newtable(L);
+    lua_pushinteger(L,static_cast<lua_Integer>(ui_root_guid));lua_setfield(L,-2,"rootGuid");
+    lua_newtable(L);
+    int out_i=1;
+    std::vector<std::pair<uint32_t,int>> stack;
+    if(ui_root_guid!=0&&entities.count(ui_root_guid)){
+        stack.emplace_back(ui_root_guid,0);
+    }else{
+        for(const auto& kv:entities){
+            if(kv.second.valid&&kv.second.parent==0&&web_ui::contains(kv.first)){
+                stack.emplace_back(kv.first,0);
+            }
+        }
+    }
+    std::unordered_set<uint32_t> visited;
+    while(!stack.empty()&&out_i<=max_nodes){
+        auto [id,depth]=stack.back();
+        stack.pop_back();
+        if(!visited.insert(id).second||depth>128)continue;
+        auto it=entities.find(id);
+        if(it==entities.end())continue;
+        const auto& e=it->second;
+        if(!e.valid||!e.visible)continue;
+        web_ui::UISnapshot ui{};
+        bool has_ui=web_ui::get_snapshot(id,ui);
+        web_image_widget::ImageSnapshot img{};
+        bool has_img=web_image_widget::get_snapshot(id,img);
+        web_text_widget::TextSnapshot txt{};
+        bool has_txt=web_text_widget::get_snapshot(id,txt);
+        web_world_components::AnimSnapshot anim{};
+        bool has_anim=web_world_components::get_anim_snapshot(id,anim);
+        if(has_ui||has_img||has_txt||has_anim||id==ui_root_guid){
+            lua_createtable(L,0,16);
+            lua_pushinteger(L,static_cast<lua_Integer>(id));lua_setfield(L,-2,"guid");
+            lua_pushinteger(L,static_cast<lua_Integer>(e.parent));lua_setfield(L,-2,"parent");
+            lua_pushinteger(L,depth);lua_setfield(L,-2,"depth");
+            lua_pushlstring(L,e.name.data(),e.name.size());lua_setfield(L,-2,"name");
+            if(has_ui){
+                lua_pushnumber(L,ui.x);lua_setfield(L,-2,"x");
+                lua_pushnumber(L,ui.y);lua_setfield(L,-2,"y");
+                lua_pushnumber(L,ui.wx);lua_setfield(L,-2,"wx");
+                lua_pushnumber(L,ui.wy);lua_setfield(L,-2,"wy");
+                lua_pushnumber(L,ui.sx);lua_setfield(L,-2,"sx");
+                lua_pushnumber(L,ui.sy);lua_setfield(L,-2,"sy");
+                lua_pushnumber(L,ui.rotation);lua_setfield(L,-2,"rot");
+                lua_pushinteger(L,ui.h_anchor);lua_setfield(L,-2,"hAnchor");
+                lua_pushinteger(L,ui.v_anchor);lua_setfield(L,-2,"vAnchor");
+                lua_pushinteger(L,ui.scale_mode);lua_setfield(L,-2,"scaleMode");
+            }
+            if(has_img){
+                lua_createtable(L,0,8);
+                lua_pushlstring(L,img.atlas.data(),img.atlas.size());lua_setfield(L,-2,"atlas");
+                lua_pushlstring(L,img.region.data(),img.region.size());lua_setfield(L,-2,"region");
+                lua_pushnumber(L,img.w);lua_setfield(L,-2,"w");
+                lua_pushnumber(L,img.h);lua_setfield(L,-2,"h");
+                lua_createtable(L,4,0);
+                for(int i=0;i<4;++i){lua_pushinteger(L,img.tint[i]);lua_rawseti(L,-2,i+1);}
+                lua_setfield(L,-2,"tint");
+                lua_setfield(L,-2,"image");
+            }
+            if(has_txt){
+                lua_createtable(L,0,6);
+                lua_pushlstring(L,txt.text.data(),txt.text.size());lua_setfield(L,-2,"text");
+                lua_pushnumber(L,txt.size);lua_setfield(L,-2,"size");
+                lua_pushnumber(L,txt.region_w);lua_setfield(L,-2,"regionW");
+                lua_pushnumber(L,txt.region_h);lua_setfield(L,-2,"regionH");
+                lua_createtable(L,4,0);
+                for(int i=0;i<4;++i){lua_pushinteger(L,txt.colour[i]);lua_rawseti(L,-2,i+1);}
+                lua_setfield(L,-2,"colour");
+                lua_setfield(L,-2,"text");
+            }
+            if(has_anim){
+                lua_createtable(L,0,5);
+                lua_pushstring(L,anim.bank);lua_setfield(L,-2,"bank");
+                lua_pushstring(L,anim.build);lua_setfield(L,-2,"build");
+                lua_pushstring(L,anim.anim);lua_setfield(L,-2,"anim");
+                lua_pushinteger(L,anim.current_frame);lua_setfield(L,-2,"frame");
+                lua_pushinteger(L,anim.num_frames);lua_setfield(L,-2,"numFrames");
+                lua_setfield(L,-2,"anim");
+            }
+            lua_rawseti(L,-2,out_i++);
+        }
+        for(auto cit=e.children.rbegin();cit!=e.children.rend();++cit){
+            stack.emplace_back(*cit,depth+1);
+        }
+    }
+    lua_setfield(L,-2,"nodes");
+    lua_pushinteger(L,out_i-1);lua_setfield(L,-2,"count");
+    return 1;
+}
+
 void apply_entity_skin(lua_State* L,const char* skin_name,uint32_t id,int skin_id){
     int top=lua_gettop(L);
     lua_getglobal(L,"Prefabs");
@@ -1466,8 +1565,10 @@ EMSCRIPTEN_KEEPALIVE int dst_init(int role) {
             auto found=entities.find(id);return found!=entities.end()&&found->second.valid&&!found->second.sleeping;
         }
     },role==0);
+    lua_getglobal(state,"WebUI");if(lua_istable(state,-1)){lua_pushcfunction(state,snapshot_ui);lua_setfield(state,-2,"Snapshot");}lua_pop(state,1);
     web_game_service::install(state);
     web_physics_waker::install(state);
+
     web_camera::install(state,role==0);
     lua_newtable(state);lua_pushcfunction(state,texture_group_stats);lua_setfield(state,-2,"Inspect");lua_setglobal(state,"WebTextureGroups");
     lua_getglobal(state,"TheSim");lua_pushcfunction(state,validate_line_number);lua_setfield(state,-2,"ValidateLineNumber");lua_pop(state,1);

@@ -155,7 +155,22 @@ int inspect(lua_State* L){
 }
 }
 bool contains(uint32_t id){return nodes.count(id)!=0;}
+bool get_snapshot(uint32_t id,UISnapshot& out){
+    auto it=nodes.find(id);
+    if(it==nodes.end())return false;
+    const auto& v=it->second;
+    out.x=v.position[0];out.y=v.position[1];out.z=v.position[2];
+    out.wx=v.world[0];out.wy=v.world[1];out.wz=v.world[2];
+    out.sx=v.scale[0];out.sy=v.scale[1];out.sz=v.scale[2];
+    out.rotation=v.rotation/degree;
+    out.h_anchor=v.h_anchor;out.v_anchor=v.v_anchor;out.scale_mode=v.scale_mode;
+    std::memcpy(out.matrix,v.matrix.data(),sizeof(out.matrix));
+    out.has_scissor=v.has_scissor&&!v.clear_scissor;
+    std::memcpy(out.scissor,v.transformed_scissor.data(),sizeof(out.scissor));
+    return true;
+}
 bool refresh(){std::map<uint32_t,unsigned char> marks;for(const auto& [id,value]:nodes){(void)value;Matrix matrix;if(!resolve(id,matrix,marks,0))return false;}return true;}
+
 bool set_viewport(int x,int y){
     if(x<0||y<0||x>32768||y>32768)return false;
     // Validate before changing viewport or automatic scale state. Resolving

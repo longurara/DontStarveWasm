@@ -521,7 +521,20 @@ int inspect(lua_State* L){
 }
 
 bool contains(uint32_t id){return nodes.count(id)!=0;}
+bool get_snapshot(uint32_t id,TextSnapshot& out){
+    auto it=nodes.find(id);
+    if(it==nodes.end())return false;
+    const auto& v=it->second;
+    out.text=v.text;
+    out.size=v.size;
+    out.region_w=v.region[0]<1e20f?v.region[0]:0.0f;
+    out.region_h=v.region[1]<1e20f?v.region[1]:0.0f;
+    std::memcpy(out.colour,v.colour.data(),sizeof(out.colour));
+    out.h_anchor=v.h_anchor;out.v_anchor=v.v_anchor;
+    return true;
+}
 void retire(uint32_t id){nodes.erase(id);}
+
 void clear(){nodes.clear();}
 void install(lua_State* L,web_components::EntityHost callbacks){
     clear();host=callbacks;

@@ -19,6 +19,8 @@ struct ImageNode {
     int32_t texture_handle=-1;
     uint32_t atlas_id=0;
     uint32_t region_id=0;
+    std::string atlas_name;
+    std::string region_name;
     bool has_region=false;
     std::array<float,4> uv{0.0f,0.0f,0.0f,0.0f};
     int32_t blend_mode=3;
@@ -109,6 +111,8 @@ bool apply_atlas_region(ImageNode& node,uint32_t atlas_id,uint32_t region_id){
 int set_texture(lua_State* L){
     auto* node=image_node(L);
     if(!node)return 0;
+    if(lua_type(L,2)==LUA_TSTRING)node->atlas_name=lua_tostring(L,2);
+    if(lua_type(L,3)==LUA_TSTRING)node->region_name=lua_tostring(L,3);
     uint32_t atlas_id=string_id(L,2);
     uint32_t tex_id=string_id(L,3);
     uint32_t default_id=0;
@@ -288,7 +292,20 @@ int inspect(lua_State* L){
 }
 
 bool contains(uint32_t id){return nodes.count(id)!=0;}
+bool get_snapshot(uint32_t id,ImageSnapshot& out){
+    auto it=nodes.find(id);
+    if(it==nodes.end())return false;
+    const auto& v=it->second;
+    out.atlas_id=v.atlas_id;out.region_id=v.region_id;
+    out.atlas=v.atlas_name;out.region=v.region_name;
+    std::memcpy(out.uv,v.uv.data(),sizeof(out.uv));
+    out.w=v.size[0];out.h=v.size[1];
+    std::memcpy(out.tint,v.tint.data(),sizeof(out.tint));
+    out.h_anchor=v.h_anchor;out.v_anchor=v.v_anchor;
+    return true;
+}
 void retire(uint32_t id){nodes.erase(id);}
+
 void clear(){nodes.clear();}
 void install(lua_State* L,web_components::EntityHost callbacks){
     clear();host=callbacks;

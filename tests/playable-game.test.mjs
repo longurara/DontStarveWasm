@@ -201,4 +201,60 @@ test('playable game loop spawns Wilson, attaches PlayerHud, steps at <5ms/tick, 
     await evaluateAsync('return require("json").encode_compliant(WebAtlases.Decode("images/inventoryimages1.xml"))', 50000000),
   );
   assert.ok(Array.isArray(invAtlas.elements) && invAtlas.elements.some(e => e.name === 'axe.tex'));
+
+  // Verify HUD & Crafting Menu icon atlases (hud.xml + crafting_menu_icons.xml)
+  const hudAtlas = JSON.parse(
+    await evaluateAsync('return require("json").encode_compliant(WebAtlases.Decode("images/hud.xml"))', 50000000),
+  );
+  assert.ok(Array.isArray(hudAtlas.elements) && hudAtlas.elements.some(e => e.name === 'inv_slot.tex'));
+  assert.ok(hudAtlas.elements.some(e => e.name === 'clock_rim.tex'));
+
+  const craftIconsAtlas = JSON.parse(
+    await evaluateAsync('return require("json").encode_compliant(WebAtlases.Decode("images/crafting_menu_icons.xml"))', 50000000),
+  );
+  assert.ok(Array.isArray(craftIconsAtlas.elements) && craftIconsAtlas.elements.some(e => e.name === 'filter_tool.tex'));
+
+  // Verify full-port Klei UI atlases: crafting_menu.xml, global_redux.xml, crafting_menu_avatars.xml, and ui_chest_3x3.zip
+  const craftMenuAtlas = JSON.parse(
+    await evaluateAsync('return require("json").encode_compliant(WebAtlases.Decode("images/crafting_menu.xml"))', 50000000),
+  );
+  assert.ok(Array.isArray(craftMenuAtlas.elements) && craftMenuAtlas.elements.some(e => e.name === 'backing.tex'));
+  assert.ok(craftMenuAtlas.elements.some(e => e.name === 'slot_bg.tex'));
+  assert.ok(craftMenuAtlas.elements.some(e => e.name === 'filterslot_bg.tex'));
+
+  const reduxAtlas = JSON.parse(
+    await evaluateAsync('return require("json").encode_compliant(WebAtlases.Decode("images/global_redux.xml"))', 50000000),
+  );
+  assert.ok(Array.isArray(reduxAtlas.elements) && reduxAtlas.elements.some(e => e.name === 'button_carny_long_normal.tex'));
+  assert.ok(reduxAtlas.elements.some(e => e.name === 'status_health.tex'));
+
+  const avatarsAtlas = JSON.parse(
+    await evaluateAsync('return require("json").encode_compliant(WebAtlases.Decode("images/crafting_menu_avatars.xml"))', 50000000),
+  );
+  assert.ok(Array.isArray(avatarsAtlas.elements) && avatarsAtlas.elements.some(e => e.name === 'avatar_wilson.tex'));
+  assert.ok(avatarsAtlas.elements.some(e => e.name === 'avatar_wanda.tex'));
+
+  const chestModel = JSON.parse(
+    await evaluateAsync('return WebAssets.DecodeRenderJson("anim/ui_chest_3x3.zip", 16, true)', 50000000),
+  );
+  assert.ok(Array.isArray(chestModel.atlases) && chestModel.atlases.length >= 1);
+
+  // Verify WebUI.Snapshot captures active PlayerHud UI scene graph nodes
+  const uiSnap = JSON.parse(
+    evaluate('return require("json").encode_compliant(WebUI.Snapshot(128))'),
+  );
+  assert.ok(uiSnap.count > 0 && Array.isArray(uiSnap.nodes) && uiSnap.nodes.length > 0, 'Expected WebUI.Snapshot to return active UI widget nodes');
+  assert.ok(uiSnap.nodes.some(n => n.image || n.text || n.sx !== undefined), 'Expected UI nodes to include UITransform/ImageWidget/TextWidget state');
+
+  // Verify character examination quote (inspectable:GetDescription) and item durability
+  const examineCheck = JSON.parse(evaluate(`
+    local axe = ThePlayer.components.inventory:GetEquippedItem(EQUIPSLOTS.HANDS)
+    axe.components.finiteuses:Use(1)
+    local pct = math.floor(axe.components.finiteuses:GetPercent() * 100 + 0.5)
+    local quote = axe.components.inspectable and axe.components.inspectable:GetDescription(ThePlayer) or ""
+    return require("json").encode({ pct = pct, quote = quote })
+  `));
+  assert.ok(examineCheck.pct > 0 && examineCheck.pct < 100, `Expected axe durability percent to decrease after use, got ${examineCheck.pct}`);
+  assert.ok(typeof examineCheck.quote === 'string' && examineCheck.quote.length > 3, `Expected Wilson examine quote for axe, got "${examineCheck.quote}"`);
 });
+
