@@ -155,6 +155,104 @@ const CROCK_POT_RECIPES: CookbookEntry[] = [
   { id: 'wetgoop', name: 'Wet Goop', health: '0', hunger: '0', sanity: '0', recipeHint: 'Invalid ingredient combination (e.g. 2+ Twigs)' },
 ];
 
+interface PlaystyleModeDef {
+  id: string;
+  name: string;
+  subtitle: string;
+  iconKey: string;
+  desc: string;
+  rules: string[];
+  isEvent?: boolean;
+}
+
+const PLAYSTYLE_MODES: PlaystyleModeDef[] = [
+  {
+    id: 'relaxed',
+    name: 'Relaxed',
+    subtitle: 'Cozy Exploration · Endless Portal Respawn',
+    iconKey: 'playstyle_relaxed',
+    desc: 'A more relaxed playstyle with less threats. Survivors never die from starvation, freezing, overheating, or darkness, and resurrection is always available at the Florid Postern.',
+    rules: ['No death from Starvation / Darkness / Temperature', 'Endless Resurrection at Florid Postern', 'Reduced Combat Damage Taken (-35%)'],
+  },
+  {
+    id: 'endless',
+    name: 'Endless',
+    subtitle: 'Never-Ending World · Portal Resurrection',
+    iconKey: 'playstyle_endless',
+    desc: 'A never-ending Don\'t Starve Together experience where the world never resets. Ghosts can always resurrect at the Florid Postern and natural resources renew over time.',
+    rules: ['World Never Resets on Party Wipe', 'Always Resurrect at Florid Postern', 'Automatic Resource Regrowth & Renewal'],
+  },
+  {
+    id: 'survival',
+    name: 'Survival',
+    subtitle: 'Standard Klei Cooperative Challenge',
+    iconKey: 'playstyle_survival',
+    desc: 'The standard Don\'t Starve Together experience. Fight, farm, build, and survive together—ghosts drain sanity of living survivors, and the world resets if everyone dies.',
+    rules: ['Standard Combat & Seasonal Giants', 'Ghost Sanity Drain Active', 'World Reset Timer on Full Wipe (120s)'],
+  },
+  {
+    id: 'wilderness',
+    name: 'Wilderness',
+    subtitle: 'Random Scatter Spawn · No Ghosts',
+    iconKey: 'playstyle_wilderness',
+    desc: 'It\'s wild out there! Survivors spawn at random locations across the Constant. There are no ghosts—if you perish, you pick a new survivor and respawn at a new random location.',
+    rules: ['Random Scatter Spawn Across Map', 'No Ghosts — Instant New Survivor Respawn', 'Boosted Natural Resource Regrowth'],
+  },
+  {
+    id: 'lightsout',
+    name: 'Lights Out',
+    subtitle: 'Eternal Night · Charlie\'s Domain',
+    iconKey: 'playstyle_lightsout',
+    desc: 'A dark twist on the standard Don\'t Starve Together experience. Total darkness blankets the world from Day 1—keep your torches, lanterns, and fire pits burning!',
+    rules: ['Permanent Night Phase (0 Day / 0 Dusk)', 'Starts with Emergency Torch & Firewood', 'Constant Charlie & Shadow Creature Threat'],
+  },
+  {
+    id: 'lavaarena',
+    name: 'The Forge',
+    subtitle: 'Lava Arena · 5-Wave Gladiator Event',
+    iconKey: 'mode_forge_title',
+    desc: 'Enter Battlemaster Pugna\'s Molten Arena! Hunger, sanity, and crafting are disabled—use gladiator armor, weapons, and Special Weapon Skills ([R] Molten Strike) to defeat 5 waves ending with the Grand Forge Boarrior!',
+    rules: ['5 Gladiator Combat Waves + Bosses', 'Special Weapon Skill: [R] Molten Strike & Heal', 'No Hunger / Sanity / Crafting — Pure Arena Action'],
+    isEvent: true,
+  },
+  {
+    id: 'quagmire',
+    name: 'The Gorge',
+    subtitle: 'Quagmire · Altar of Gnaw Culinary Event',
+    iconKey: 'mode_gorge_title',
+    desc: 'Appease the ancient Swamp Beast! Gather ingredients, cook gourmet Crock Pot dishes matching the Gnaw\'s Craving, and offer them to the Altar of Gnaw before the Hangry meter runs out!',
+    rules: ['Live Gnaw Hangry Timer & Craving System', 'Cook & Offer Dishes for Gnaw Favor Coins (6 to Win)', 'Starts with Plaza Crock Pot, Ice Box & Ingredients'],
+    isEvent: true,
+  },
+];
+
+const SERVER_INTENTIONS = [
+  { id: 'social', name: 'Social', iconKey: 'intention_social', desc: 'A casual place to hang out, chat, and explore the Constant at your own pace.' },
+  { id: 'coop', name: 'Cooperative', iconKey: 'intention_coop', desc: 'Work together as a team to build a thriving base and conquer seasonal Giants.' },
+  { id: 'competitive', name: 'Competitive', iconKey: 'intention_competitive', desc: 'Test your survival skills against others to see who reigns supreme.' },
+  { id: 'madness', name: 'Madness', iconKey: 'intention_madness', desc: 'Anything goes! Expect chaos, boss rushes, and unpredictable survival.' },
+];
+
+const PLANT_REGISTRY_ENTRIES = [
+  { id: 'carrot', name: 'Carrot Plant', seasons: ['Autumn', 'Spring', 'Winter'], water: 'Medium', nutrients: 'Formula +4 / Compost +2', giant: 'Giant Carrot (250g)' },
+  { id: 'berries', name: 'Berry Bush', seasons: ['Autumn', 'Spring', 'Summer'], water: 'Low', nutrients: 'Manure +4', giant: 'Lush Berry Cluster' },
+  { id: 'berries_juicy', name: 'Juicy Berry Bush', seasons: ['Autumn', 'Spring'], water: 'Medium', nutrients: 'Compost +4', giant: 'Prime Juicy Bush' },
+  { id: 'red_cap', name: 'Red Mushtree / Cap', seasons: ['Autumn', 'Summer'], water: 'Low (Day)', nutrients: 'Rot +2', giant: 'Red Mushtree' },
+  { id: 'green_cap', name: 'Green Mushtree / Cap', seasons: ['Spring', 'Autumn'], water: 'High (Dusk)', nutrients: 'Rot +4', giant: 'Green Mushtree' },
+  { id: 'blue_cap', name: 'Blue Mushtree / Cap', seasons: ['Winter', 'Spring'], water: 'Medium (Night)', nutrients: 'Rot +4', giant: 'Blue Mushtree' },
+];
+
+const SCRAPBOOK_ENTRIES = [
+  { id: 'deerclops', name: 'Deerclops', cat: 'Giant', hp: '2000', dmg: '150 (75 to Player)', sanity: '-400/min', desc: 'Terrifying one-eyed Winter Giant drawn to structures. Drops Deerclops Eyeball and Meat.' },
+  { id: 'spider', name: 'Spider', cat: 'Monster', hp: '100', dmg: '20', sanity: '-25/min', desc: 'Nocturnal arachnid emerging from Spider Dens at dusk. Drops Monster Meat, Silk, or Spider Gland.' },
+  { id: 'hound', name: 'Hound', cat: 'Monster', hp: '150', dmg: '20', sanity: '-40/min', desc: 'Relentless hunting beast that attacks in packs. Drops Monster Meat and Hound\'s Tooth.' },
+  { id: 'pigman', name: 'Pig Man', cat: 'Creature', hp: '250', dmg: '33', sanity: '+25/min (Friend)', desc: 'Neutral village inhabitant. Feed Meat to befriend as a loyal woodchopper and bodyguard.' },
+  { id: 'beefalo', name: 'Beefalo', cat: 'Creature', hp: '1000', dmg: '34', sanity: '0', desc: 'Majestic savanna herd animal. Can be shaved for Beefalo Wool and tamed for riding.' },
+  { id: 'hambat', name: 'Ham Bat', cat: 'Weapon', hp: 'Infinite Uses (10d Spoil)', dmg: '59.5 (Fresh)', sanity: '0', desc: 'Powerful meat club whose damage scales with freshness.' },
+  { id: 'researchlab2', name: 'Alchemy Engine', cat: 'Structure', hp: 'Tier 2 Science', dmg: '—', sanity: '+15 on Prototype', desc: 'Unlocks advanced Science Tier 2 survival, armor, and structure recipes.' },
+  { id: 'cookpot', name: 'Crock Pot', cat: 'Structure', hp: '4 Ingredient Slots', dmg: '—', sanity: '+5 per Dish', desc: 'Combines 4 raw ingredients into restorative gourmet meals like Pierogi and Meaty Stew.' },
+];
+
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 <div class="app-shell">
  <section id="game-stage" class="game-stage" aria-label="Don't Starve Together Playable World">
@@ -193,11 +291,49 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
      </div>
     </div>
 
-    <!-- Ghost Resurrection Banner & PlayerAvatarPopup (scripts/widgets/playeravatarpopup.lua) -->
+    <!-- Active Mode HUDs (The Forge / The Gorge / Mode Pill), Ghost Resurrection Banner & PlayerAvatarPopup -->
     <div class="hud-center-top">
+     <!-- Active Mode Status Pill -->
+     <div id="hud-mode-pill" class="hud-mode-pill">
+      <span id="hud-mode-icon" class="hud-mode-icon"></span>
+      <span id="hud-mode-label">Mode: Survival</span>
+      <button id="hud-open-mainmenu-btn" class="klei-subtle-diag" style="padding:2px 8px;font-size:11px">Main Menu / Modes</button>
+     </div>
+
+     <!-- THE FORGE (lavaarena) Mode HUD Banner (images/lavaarena_frontend.xml + lavaarena_hud.xml) -->
+     <div id="hud-forge-panel" class="mode-hud-panel forge-hud hidden" aria-label="The Forge Arena HUD">
+      <div class="mode-hud-header">
+       <span id="forge-hud-logo" class="mode-hud-logo"></span>
+       <div>
+        <div id="forge-wave-title" class="mode-hud-title">Wave 1/5: Pit Pigs & Hounds</div>
+        <div id="forge-enemies-sub" class="mode-hud-sub">Arena Hostiles Remaining: 3</div>
+       </div>
+       <button id="forge-skill-btn" class="klei-carny-long-btn">[R] Molten Strike (+35 HP)</button>
+      </div>
+     </div>
+
+     <!-- THE GORGE (quagmire) Mode HUD Banner (images/quagmire_frontend.xml + quagmire_hud.xml) -->
+     <div id="hud-gorge-panel" class="mode-hud-panel gorge-hud hidden" aria-label="The Gorge Altar HUD">
+      <div class="mode-hud-header">
+       <span id="gorge-hud-logo" class="mode-hud-logo"></span>
+       <div style="flex:1">
+        <div class="row" style="justify-content:space-between;margin-bottom:3px">
+         <span id="gorge-craving-text" class="mode-hud-title" style="font-size:13.5px">Craving: Meat Dish</span>
+         <span id="gorge-coins-text" style="color:#ffd97d;font-weight:700;font-size:12.5px">Gnaw Coins: 0 / 6</span>
+        </div>
+        <div class="gorge-hangry-track">
+         <div id="gorge-hangry-fill" class="gorge-hangry-fill" style="width:100%"></div>
+         <span id="gorge-hangry-label" class="gorge-hangry-label">Gnaw Hangry Meter: 100%</span>
+        </div>
+       </div>
+       <button id="gorge-offer-btn" class="klei-carny-long-btn">Offer Dish to Altar</button>
+      </div>
+     </div>
+
      <div id="hud-resurrect-banner" class="ghost-resurrect-banner hidden">
-      <span>You are a Ghost! Haunt the Florid Postern to return to the living.</span>
+      <span id="hud-resurrect-text">You are a Ghost! Haunt the Florid Postern to return to the living.</span>
       <button id="hud-resurrect-btn" class="klei-carny-long-btn">Resurrect at Portal</button>
+      <button id="hud-wilderness-respawn-btn" class="klei-carny-long-btn hidden">Wilderness Scatter Respawn</button>
      </div>
      <div id="player-avatar-popup" class="player-avatar-popup hidden" role="dialog" aria-label="Survivor Inspection"></div>
     </div>
@@ -270,61 +406,367 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
    <button id="toggle-diag-drawer" class="klei-subtle-diag" title="WASM Diagnostics Workbench (F12)">F12</button>
   </div>
 
-  <!-- Main Screen / Character Selection Overlay (scripts/screens/redux/lobbyscreen.lua) -->
-  <div id="main-screen-overlay" class="screen-modal">
-   <div class="dst-card dst-lobby-card">
-    <div class="dst-title-eyebrow">Klei Entertainment · Don't Starve Together</div>
-    <h1 class="dst-title-heading">Choose Your Survivor</h1>
-    <div class="lobby-layout">
-     <div id="char-roster-grid" class="char-roster-grid" role="listbox" aria-label="Playable Characters"></div>
-     <div class="char-details-box">
-      <div class="character-hero-box">
-       <div id="title-wilson-avatar" class="character-avatar-frame"></div>
-       <div>
-        <div id="title-char-name" class="char-detail-name">Wilson P. Higgsbury</div>
-        <div id="title-char-title" class="char-detail-title">The Gentleman Scientist</div>
-        <div id="title-char-quote" class="char-detail-quote">"I will conquer this world with the power of my MIND!"</div>
-        <div id="title-char-stats" class="char-detail-stats">Health: 150 · Hunger: 150 · Sanity: 200</div>
-        <div id="title-char-perk" class="char-detail-perk">Grows a magnificent insulating beard.</div>
+  <!-- =========================================================================
+       KLEI FRONTEND REDUX SCREEN SYSTEM (MultiplayerMainScreen, PlaystyleSelectScreen,
+       ServerCreationScreen, ServerListingScreen, CompendiumScreen, CollectionScreen,
+       ModsScreen, OptionsScreen, and LobbyScreen)
+       ========================================================================= -->
+  <div id="main-screen-overlay" class="screen-modal fe-overlay-root">
+   <div class="fe-portal-backdrop"></div>
+   <div class="fe-trees-foreground"></div>
+
+   <div class="fe-shell-container">
+    <!-- Top Global Navigation Ribbon across all FrontEnd Screens -->
+    <header class="fe-top-bar">
+     <div class="fe-brand-cluster" data-fe-nav="main" style="cursor:pointer" title="Return to Main Menu">
+      <div id="fe-logo-box" class="fe-logo-box"></div>
+      <div>
+       <div class="dst-title-eyebrow">Klei Entertainment · Build 756039</div>
+       <div class="fe-brand-sub">Don't Starve Together · Full WebAssembly Port</div>
+      </div>
+     </div>
+     <nav class="fe-nav-tabs" aria-label="FrontEnd Screens">
+      <button class="fe-tab-btn active" data-fe-nav="main">Main Menu</button>
+      <button class="fe-tab-btn" data-fe-nav="playstyles">Game Modes (7)</button>
+      <button class="fe-tab-btn" data-fe-nav="create">Host Game</button>
+      <button class="fe-tab-btn" data-fe-nav="browse">Browse Games</button>
+      <button class="fe-tab-btn" data-fe-nav="lobby">Survivor Lobby</button>
+      <button class="fe-tab-btn" data-fe-nav="compendium">Compendium</button>
+      <button class="fe-tab-btn" data-fe-nav="collection">Collection</button>
+      <button class="fe-tab-btn" data-fe-nav="mods">Mods</button>
+      <button class="fe-tab-btn" data-fe-nav="options">Options</button>
+     </nav>
+     <div class="row" style="gap:6px">
+      <span class="fe-online-pill">● Online Ready</span>
+      <button id="fe-resume-world-top-btn" class="klei-subtle-diag hidden">Resume Active World</button>
+     </div>
+    </header>
+
+    <!-- 1. MULTIPLAYER MAIN SCREEN (scripts/screens/redux/multiplayermainscreen.lua) -->
+    <section id="fe-view-main" class="fe-screen-view">
+     <div class="fe-main-grid">
+      <!-- Left Column: Authentic Klei Vertical Main Menu -->
+      <div class="fe-left-menu-col">
+       <div id="fe-hero-shield" class="fe-hero-shield"></div>
+       <div class="fe-menu-list" role="menu">
+        <button class="fe-main-menu-btn primary" data-fe-nav="playstyles">Host Game (Select Mode)</button>
+        <button class="fe-main-menu-btn" data-fe-nav="browse">Browse Servers</button>
+        <button class="fe-main-menu-btn" data-fe-nav="lobby">Choose Survivor & Quick Start</button>
+        <button class="fe-main-menu-btn" data-fe-nav="collection">Item Collection & Skins</button>
+        <button class="fe-main-menu-btn" data-fe-nav="compendium">Compendium & Encyclopedia</button>
+        <button class="fe-main-menu-btn" data-fe-nav="mods">Mods & Workshop</button>
+        <button class="fe-main-menu-btn" data-fe-nav="options">Options & Controls</button>
+       </div>
+       <div class="row" style="margin-top:10px;gap:8px">
+        <button id="fe-main-load-save-btn" class="klei-carny-long-btn" style="flex:1">Load Saved World</button>
+        <button id="open-diag-from-title" class="klei-subtle-diag" style="padding:7px 12px">WASM Diag (F12)</button>
        </div>
       </div>
-      <div class="row" style="justify-content:space-between;margin-top:12px">
-       <div class="row">
-        <button id="play-game" class="klei-carny-xlong-btn">Start World</button>
-        <button id="load-saved-world-btn" class="klei-carny-long-btn">Load Saved World</button>
+
+      <!-- Right Column: Playstyles Showcase + Special Event Modes (The Forge & The Gorge) -->
+      <div class="fe-right-showcase-col">
+       <div class="dst-card fe-motd-card">
+        <div class="row" style="justify-content:space-between;margin-bottom:8px">
+         <div>
+          <div class="dst-title-eyebrow">Select Playstyle · scripts/screens/redux/playstyleselectscreen.lua</div>
+          <h2 class="fe-section-heading">Constant Playstyles & Game Modes</h2>
+         </div>
+         <button class="klei-carny-long-btn" data-fe-nav="playstyles">View All 7 Modes →</button>
+        </div>
+        <div id="fe-main-playstyle-strip" class="fe-main-playstyle-strip"></div>
        </div>
-       <label style="display:inline-flex;align-items:center;gap:6px;margin:0;color:#ebd9b4;font-size:12.5px">
-        Starting Season:
-        <select id="title-season-select" class="klei-select">
-         <option value="autumn">Autumn</option>
-         <option value="winter">Winter</option>
-         <option value="spring">Spring</option>
-         <option value="summer">Summer</option>
-        </select>
-       </label>
-       <label style="display:inline-flex;align-items:center;gap:6px;margin:0;color:#ebd9b4;font-size:12.5px">
-        World Seed:
-        <input id="title-seed-input" type="text" placeholder="Optional Seed" style="width:110px;padding:4px 8px;background:rgba(16,13,9,0.92);color:#f5dca0;border:1px solid #9c7a44;border-radius:4px;font-size:12px">
-       </label>
-       <label style="display:inline-flex;align-items:center;gap:6px;margin:0;color:#ebd9b4;cursor:pointer;font-size:12.5px">
-        <input id="title-creative-check" type="checkbox" style="width:auto"> Free Crafting Mode
-       </label>
-       <button id="open-diag-from-title" class="secondary" style="padding:6px 10px;font-size:12px">WASM Diag (F12)</button>
-      </div>
-      <div class="row" style="justify-content:space-between;margin-top:8px;padding-top:8px;border-top:1px solid rgba(156,122,68,0.28);font-size:12px;color:#dfd3ba">
-       <div class="row" style="gap:12px">
-        <strong style="color:#f5dca0">Server Mods:</strong>
-        <label style="display:inline-flex;align-items:center;gap:4px;margin:0;cursor:pointer"><input type="checkbox" class="lobby-mod-check" value="fast_work" style="width:auto"> Fast Sprinter (+35%)</label>
-        <label style="display:inline-flex;align-items:center;gap:4px;margin:0;cursor:pointer"><input type="checkbox" class="lobby-mod-check" value="extra_light" style="width:auto"> Night Explorer Kit</label>
-        <label style="display:inline-flex;align-items:center;gap:4px;margin:0;cursor:pointer"><input type="checkbox" class="lobby-mod-check" value="boss_hunter" style="width:auto"> Giant Hunter Gear</label>
-       </div>
-       <div class="row">
-        <button id="upload-mod-btn" class="klei-subtle-diag" style="padding:4px 10px;font-size:11.5px">Load Mod (.lua / .zip)</button>
-        <input id="mod-file-input" class="file" type="file" accept=".lua,.zip">
+
+       <!-- Festival Event Modes: THE FORGE (lavaarena) & THE GORGE (quagmire) -->
+       <div class="fe-events-row">
+        <div class="dst-card fe-event-card forge-card">
+         <div class="row" style="gap:12px;align-items:center">
+          <div id="fe-card-forge-logo" class="fe-event-logo"></div>
+          <div style="flex:1">
+           <div class="dst-title-eyebrow" style="color:#ff9e66">Festival Event Mode · LEVELTYPE.LAVAARENA</div>
+           <h3 style="margin:2px 0 4px;color:#ffe2b8;font-size:19px">The Forge (Lava Arena)</h3>
+           <p style="margin:0;font-size:12px;color:#dfd3ba;line-height:1.35">Battle 5 waves of Pit Pigs, Crocommanders, Boarillas, and the Grand Forge Boarrior with Gladiator gear and weapon skills!</p>
+          </div>
+         </div>
+         <div class="row" style="justify-content:flex-end;margin-top:10px;gap:8px">
+          <button class="klei-carny-xlong-btn" data-quick-mode="lavaarena">Play The Forge Now</button>
+         </div>
+        </div>
+
+        <div class="dst-card fe-event-card gorge-card">
+         <div class="row" style="gap:12px;align-items:center">
+          <div id="fe-card-gorge-logo" class="fe-event-logo"></div>
+          <div style="flex:1">
+           <div class="dst-title-eyebrow" style="color:#9be0a8">Festival Event Mode · LEVELTYPE.QUAGMIRE</div>
+           <h3 style="margin:2px 0 4px;color:#e6f7e8;font-size:19px">The Gorge (Quagmire)</h3>
+           <p style="margin:0;font-size:12px;color:#dfd3ba;line-height:1.35">Harvest ingredients, cook gourmet Crock Pot dishes matching the Gnaw's Craving, and offer tributes at the Altar of Gnaw!</p>
+          </div>
+         </div>
+         <div class="row" style="justify-content:flex-end;margin-top:10px;gap:8px">
+          <button class="klei-carny-xlong-btn" data-quick-mode="quagmire">Play The Gorge Now</button>
+         </div>
+        </div>
        </div>
       </div>
      </div>
-    </div>
+    </section>
+
+    <!-- 2. PLAYSTYLE SELECT SCREEN (scripts/screens/redux/playstyleselectscreen.lua) -->
+    <section id="fe-view-playstyles" class="fe-screen-view hidden">
+     <div class="dst-card" style="width:100%;max-width:1140px;margin:0 auto">
+      <div class="row" style="justify-content:space-between;margin-bottom:10px">
+       <div>
+        <div class="dst-title-eyebrow">Host Game · scripts/screens/redux/playstyleselectscreen.lua</div>
+        <h2 class="fe-section-heading">What is your playstyle?</h2>
+       </div>
+       <div class="row" style="gap:8px">
+        <button class="klei-carny-long-btn" data-fe-nav="main">← Main Menu</button>
+        <button class="klei-carny-long-btn" data-fe-nav="create">World & Server Settings →</button>
+       </div>
+      </div>
+      <div id="fe-playstyle-cards-grid" class="fe-playstyle-cards-grid"></div>
+      <div id="fe-playstyle-detail-banner" class="fe-playstyle-detail-banner"></div>
+     </div>
+    </section>
+
+    <!-- 3. SERVER CREATION & SAVE SLOTS SCREEN (scripts/screens/redux/servercreationscreen.lua) -->
+    <section id="fe-view-create" class="fe-screen-view hidden">
+     <div class="dst-card" style="width:100%;max-width:1140px;margin:0 auto">
+      <div class="row" style="justify-content:space-between;margin-bottom:10px">
+       <div>
+        <div class="dst-title-eyebrow">Host Game · scripts/screens/redux/servercreationscreen.lua</div>
+        <h2 class="fe-section-heading">Server Save Slots & World Generation</h2>
+       </div>
+       <div class="row" style="gap:8px">
+        <button class="klei-carny-long-btn" data-fe-nav="playstyles">← Change Playstyle</button>
+        <button class="klei-carny-xlong-btn" data-fe-nav="lobby">Choose Survivor & Generate World →</button>
+       </div>
+      </div>
+      <div class="fe-create-layout">
+       <!-- Left Save Slots 1..5 -->
+       <div id="fe-saveslots-list" class="fe-saveslots-list"></div>
+       <!-- Right Sub-Tabs (Settings, Forest WorldGen, Caves, Snapshots) -->
+       <div class="fe-create-panel">
+        <div class="fe-subtab-bar">
+         <button class="fe-subtab-btn active" data-create-tab="settings">Server Settings</button>
+         <button class="fe-subtab-btn" data-create-tab="worldgen">Forest WorldGen</button>
+         <button class="fe-subtab-btn" data-create-tab="caves">Caves Shard</button>
+         <button class="fe-subtab-btn" data-create-tab="snapshots">Snapshots / Cluster ZIP</button>
+        </div>
+        <div id="fe-create-tab-settings" class="fe-create-tab-body">
+         <div class=" dst-title-eyebrow" style="margin-bottom:6px">Server Intention (images/server_intentions.xml)</div>
+         <div id="fe-intention-grid" class="fe-intention-grid"></div>
+         <div class="fe-form-grid" style="margin-top:12px">
+          <label>Server Name <input id="fe-server-name" type="text" value="Wilson's Constant World"></label>
+          <label>Max Players <select id="fe-max-players" class="klei-select"><option value="1">1 Player (Solo)</option><option value="4">4 Players</option><option value="6" selected>6 Players (Standard)</option></select></label>
+          <label>Server Privacy <select id="fe-server-privacy" class="klei-select"><option value="public">Public (WebRTC & Local)</option><option value="friends">Friends Only</option><option value="local">Offline / Local Only</option></select></label>
+          <label>PvP Combat <select id="fe-server-pvp" class="klei-select"><option value="off" selected>Disabled (Co-op)</option><option value="on">Enabled (PvP)</option></select></label>
+         </div>
+        </div>
+        <div id="fe-create-tab-worldgen" class="fe-create-tab-body hidden">
+         <div class="fe-form-grid">
+          <label>World Size <select id="fe-world-size" class="klei-select"><option value="small">Small</option><option value="medium">Medium</option><option value="default" selected>Classic (425x425)</option><option value="huge">Huge</option></select></label>
+          <label>Land Branching <select id="fe-world-branch" class="klei-select"><option value="default" selected>Default</option><option value="most">Most Branches</option><option value="loop">Looping Roads</option></select></label>
+          <label>Resource Regrowth <select id="fe-world-regrowth" class="klei-select"><option value="default" selected>Default</option><option value="fast">Fast</option><option value="veryslow">Slow</option></select></label>
+          <label>Seasonal Giants <select id="fe-world-giants" class="klei-select"><option value="default" selected>Default (Deerclops / Bearger)</option><option value="more">More Giants</option><option value="none">None</option></select></label>
+         </div>
+         <p class="small" style="margin-top:10px;color:#d8b874">Tip: You can also set the exact Starting Season and deterministic World Seed below or in the Survivor Lobby.</p>
+        </div>
+        <div id="fe-create-tab-caves" class="fe-create-tab-body hidden">
+         <div id="fe-caves-select-grid" class="fe-caves-select-grid"></div>
+        </div>
+        <div id="fe-create-tab-snapshots" class="fe-create-tab-body hidden">
+         <p style="margin:0 0 10px;color:#ebd9b4;font-size:13px">Manage native Klei <code>KLEI     1D</code> Cluster_1 archives and browser IndexedDB checkpoints:</p>
+         <div class="row" style="gap:10px">
+          <button id="fe-snap-load-btn" class="klei-carny-long-btn">Load Browser Save</button>
+          <button id="fe-snap-import-btn" class="klei-carny-long-btn">Import Cluster_1 (.zip)</button>
+         </div>
+        </div>
+       </div>
+      </div>
+     </div>
+    </section>
+
+    <!-- 4. BROWSE SERVERS SCREEN (scripts/screens/redux/serverlistingscreen.lua) -->
+    <section id="fe-view-browse" class="fe-screen-view hidden">
+     <div class="dst-card" style="width:100%;max-width:1140px;margin:0 auto">
+      <div class="row" style="justify-content:space-between;margin-bottom:10px">
+       <div>
+        <div class="dst-title-eyebrow">Server Browser · scripts/screens/redux/serverlistingscreen.lua</div>
+        <h2 class="fe-section-heading">Browse Games & WebRTC P2P Rooms</h2>
+       </div>
+       <div class="row" style="gap:8px">
+        <input id="fe-browse-search" type="text" placeholder="Search server name or mode…" style="width:220px;padding:6px 10px">
+        <button id="fe-browse-refresh-btn" class="klei-carny-long-btn">Refresh List</button>
+       </div>
+      </div>
+      <div id="fe-server-browser-list" class="fe-server-browser-list"></div>
+      <div class="row" style="justify-content:space-between;margin-top:12px;padding-top:10px;border-top:1px solid rgba(156,122,68,0.3)">
+       <div class="row" style="gap:8px">
+        <strong style="color:#f5dca0;font-size:13px">Direct WebRTC Invite Code:</strong>
+        <input id="fe-webrtc-code-input" type="text" placeholder="Paste room.token invite code…" style="width:260px;padding:5px 10px">
+        <button id="fe-webrtc-join-btn" class="klei-carny-long-btn">Join P2P Room</button>
+       </div>
+       <button class="klei-carny-xlong-btn" data-fe-nav="playstyles">Host New Server →</button>
+      </div>
+     </div>
+    </section>
+
+    <!-- 5. COMPENDIUM SCREEN (scripts/screens/redux/compendiumscreen.lua) -->
+    <section id="fe-view-compendium" class="fe-screen-view hidden">
+     <div class="dst-card" style="width:100%;max-width:1140px;margin:0 auto">
+      <div class="row" style="justify-content:space-between;margin-bottom:10px">
+       <div>
+        <div class="dst-title-eyebrow">Encyclopedia · scripts/screens/redux/compendiumscreen.lua</div>
+        <h2 class="fe-section-heading">Survivor's Compendium</h2>
+       </div>
+       <div class="fe-subtab-bar">
+        <button class="fe-subtab-btn active" data-comp-tab="cookbook">Crock Pot Cookbook</button>
+        <button class="fe-subtab-btn" data-comp-tab="plants">Plant Registry</button>
+        <button class="fe-subtab-btn" data-comp-tab="scrapbook">Scrapbook</button>
+        <button class="fe-subtab-btn" data-comp-tab="bios">Survivor Bios (18)</button>
+        <button class="fe-subtab-btn" data-comp-tab="morgue">Morgue / Obituaries</button>
+       </div>
+      </div>
+      <div id="fe-compendium-body" class="fe-compendium-body"></div>
+     </div>
+    </section>
+
+    <!-- 6. ITEM COLLECTION & WARDROBE SCREEN (scripts/screens/redux/collectionscreen.lua) -->
+    <section id="fe-view-collection" class="fe-screen-view hidden">
+     <div class="dst-card" style="width:100%;max-width:1140px;margin:0 auto">
+      <div class="row" style="justify-content:space-between;margin-bottom:10px">
+       <div>
+        <div class="dst-title-eyebrow">Curio Cabinet · scripts/screens/redux/collectionscreen.lua</div>
+        <h2 class="fe-section-heading">Survivor Skins, Wardrobe & Emotes</h2>
+       </div>
+       <div class="row" style="gap:12px">
+        <span style="color:#f5dca0;font-weight:700">Spools: 4,500 · Klei Points: 1,200</span>
+        <button class="klei-carny-long-btn" data-fe-nav="lobby">Equip in Lobby →</button>
+       </div>
+      </div>
+      <div id="fe-collection-grid" class="fe-collection-grid"></div>
+     </div>
+    </section>
+
+    <!-- 7. MODS SCREEN (scripts/screens/redux/modsscreen.lua) -->
+    <section id="fe-view-mods" class="fe-screen-view hidden">
+     <div class="dst-card" style="width:100%;max-width:1040px;margin:0 auto">
+      <div class="row" style="justify-content:space-between;margin-bottom:10px">
+       <div>
+        <div class="dst-title-eyebrow">ModManager · scripts/screens/redux/modsscreen.lua</div>
+        <h2 class="fe-section-heading">Server & Client Mods</h2>
+       </div>
+       <button id="fe-mods-upload-btn" class="klei-carny-xlong-btn">Install Mod (.lua / .zip)</button>
+      </div>
+      <p style="margin:0 0 10px;color:#dfd3ba;font-size:13px">Enable built-in Server Mods or upload custom Klei Lua / ZIP mods (<code>modmain.lua</code>, <code>AddPrefabPostInit</code>, <code>AddComponentPostInit</code>, <code>AddPlayerPostInit</code>):</p>
+      <div id="fe-mods-list-cards" class="fe-mods-list-cards"></div>
+     </div>
+    </section>
+
+    <!-- 8. OPTIONS & CONTROLS SCREEN (scripts/screens/redux/optionsscreen.lua) -->
+    <section id="fe-view-options" class="fe-screen-view hidden">
+     <div class="dst-card" style="width:100%;max-width:1040px;margin:0 auto">
+      <div class="row" style="justify-content:space-between;margin-bottom:10px">
+       <div>
+        <div class="dst-title-eyebrow">Settings · scripts/screens/redux/optionsscreen.lua</div>
+        <h2 class="fe-section-heading">Audio, Graphics & Input Controls</h2>
+       </div>
+       <button class="klei-carny-long-btn" data-fe-nav="main">Save & Return</button>
+      </div>
+      <div class="fe-form-grid">
+       <label>Master Audio Volume (<span id="opt-vol-val">85%</span>) <input id="opt-master-volume" type="range" min="0" max="100" value="85"></label>
+       <label>HUD Scale <select id="opt-hud-scale" class="klei-select"><option value="1">100% (Standard Klei)</option><option value="0.9">90% (Compact)</option><option value="1.1">110% (Large)</option></select></label>
+       <label>Camera Shake <select id="opt-cam-shake" class="klei-select"><option value="on" selected>Enabled</option><option value="off">Disabled</option></select></label>
+       <label>Input Device <select id="opt-input-mode" class="klei-select"><option value="auto" selected>Keyboard + Mouse + HTML5 Gamepad + Touch</option></select></label>
+      </div>
+      <div class="fe-controls-table">
+       <div><strong>WASD / Left Stick</strong>: Move Survivor</div>
+       <div><strong>Space / Gamepad A</strong>: Action (Chop / Mine / Pick / Harvest)</div>
+       <div><strong>F / Gamepad X</strong>: Attack Nearest Hostile</div>
+       <div><strong>C / Gamepad Y</strong>: Toggle Crafting Menu</div>
+       <div><strong>M / Tab / Select</strong>: Full-Screen Map</div>
+       <div><strong>I / RB</strong>: Inspect Self & Equipment</div>
+       <div><strong>Q / E / LB / RB</strong>: Rotate Camera 45°</div>
+       <div><strong>Tilde (~) or /</strong>: Klei Lua Debug Console & Chat</div>
+      </div>
+     </div>
+    </section>
+
+    <!-- 9. SURVIVOR LOBBY SCREEN (scripts/screens/redux/lobbyscreen.lua) -->
+    <section id="fe-view-lobby" class="fe-screen-view hidden">
+     <div class="dst-card dst-lobby-card">
+      <div class="row" style="justify-content:space-between;margin-bottom:4px">
+       <div>
+        <div class="dst-title-eyebrow">Klei Entertainment · Don't Starve Together</div>
+        <h1 class="dst-title-heading">Choose Your Survivor</h1>
+       </div>
+       <div class="row" style="gap:8px">
+        <label style="display:inline-flex;align-items:center;gap:6px;margin:0;color:#f5dca0;font-size:13px;font-weight:700">
+         Game Mode:
+         <select id="title-playstyle-select" class="klei-select">
+          <option value="survival" selected>Survival (Standard)</option>
+          <option value="relaxed">Relaxed (Cozy / No Death)</option>
+          <option value="endless">Endless (Portal Respawn)</option>
+          <option value="wilderness">Wilderness (Scatter Spawn)</option>
+          <option value="lightsout">Lights Out (Eternal Night)</option>
+          <option value="lavaarena">The Forge (Lava Arena Waves)</option>
+          <option value="quagmire">The Gorge (Altar of Gnaw)</option>
+         </select>
+        </label>
+        <button class="klei-carny-long-btn" data-fe-nav="main">← Main Menu</button>
+       </div>
+      </div>
+      <div class="lobby-layout">
+       <div id="char-roster-grid" class="char-roster-grid" role="listbox" aria-label="Playable Characters"></div>
+       <div class="char-details-box">
+        <div class="character-hero-box">
+         <div id="title-wilson-avatar" class="character-avatar-frame"></div>
+         <div>
+          <div id="title-char-name" class="char-detail-name">Wilson P. Higgsbury</div>
+          <div id="title-char-title" class="char-detail-title">The Gentleman Scientist</div>
+          <div id="title-char-quote" class="char-detail-quote">"I will conquer this world with the power of my MIND!"</div>
+          <div id="title-char-stats" class="char-detail-stats">Health: 150 · Hunger: 150 · Sanity: 200</div>
+          <div id="title-char-perk" class="char-detail-perk">Grows a magnificent insulating beard.</div>
+         </div>
+        </div>
+        <div class="row" style="justify-content:space-between;margin-top:12px">
+         <div class="row">
+          <button id="play-game" class="klei-carny-xlong-btn">Start World</button>
+          <button id="load-saved-world-btn" class="klei-carny-long-btn">Load Saved World</button>
+         </div>
+         <label style="display:inline-flex;align-items:center;gap:6px;margin:0;color:#ebd9b4;font-size:12.5px">
+          Starting Season:
+          <select id="title-season-select" class="klei-select">
+           <option value="autumn">Autumn</option>
+           <option value="winter">Winter</option>
+           <option value="spring">Spring</option>
+           <option value="summer">Summer</option>
+          </select>
+         </label>
+         <label style="display:inline-flex;align-items:center;gap:6px;margin:0;color:#ebd9b4;font-size:12.5px">
+          World Seed:
+          <input id="title-seed-input" type="text" placeholder="Optional Seed" style="width:110px;padding:4px 8px;background:rgba(16,13,9,0.92);color:#f5dca0;border:1px solid #9c7a44;border-radius:4px;font-size:12px">
+         </label>
+         <label style="display:inline-flex;align-items:center;gap:6px;margin:0;color:#ebd9b4;cursor:pointer;font-size:12.5px">
+          <input id="title-creative-check" type="checkbox" style="width:auto"> Free Crafting Mode
+         </label>
+        </div>
+        <div class="row" style="justify-content:space-between;margin-top:8px;padding-top:8px;border-top:1px solid rgba(156,122,68,0.28);font-size:12px;color:#dfd3ba">
+         <div class="row" style="gap:12px">
+          <strong style="color:#f5dca0">Server Mods:</strong>
+          <label style="display:inline-flex;align-items:center;gap:4px;margin:0;cursor:pointer"><input type="checkbox" class="lobby-mod-check" value="fast_work" style="width:auto"> Fast Sprinter (+35%)</label>
+          <label style="display:inline-flex;align-items:center;gap:4px;margin:0;cursor:pointer"><input type="checkbox" class="lobby-mod-check" value="extra_light" style="width:auto"> Night Explorer Kit</label>
+          <label style="display:inline-flex;align-items:center;gap:4px;margin:0;cursor:pointer"><input type="checkbox" class="lobby-mod-check" value="boss_hunter" style="width:auto"> Giant Hunter Gear</label>
+         </div>
+         <div class="row">
+          <button id="upload-mod-btn" class="klei-subtle-diag" style="padding:4px 10px;font-size:11.5px">Load Mod (.lua / .zip)</button>
+          <input id="mod-file-input" class="file" type="file" accept=".lua,.zip">
+         </div>
+        </div>
+       </div>
+      </div>
+     </div>
+    </section>
    </div>
   </div>
 
@@ -499,8 +941,15 @@ let lastSaved: any;
 let audioContext: AudioContext | undefined;
 let lastAudioResult: any;
 
-// UI State for 100% Authentic Klei HUD
+// UI State for 100% Authentic Klei HUD & FrontEnd Redux Screens
 let selectedCharacter = 'wilson';
+let selectedPlaystyle = 'survival';
+let selectedIntention = 'coop';
+let selectedSaveSlot = 1;
+let cavesEnabled = true;
+let activeFeScreen = 'main';
+let activeCompendiumTab = 'cookbook';
+let activeCreateTab = 'settings';
 let selectedCategory = 'tools';
 let selectedRecipeId = 'axe';
 let craftingDrawerOpen = true;
@@ -620,6 +1069,301 @@ element('char-roster-grid')?.addEventListener('click', e => {
   dstAudio.playEvents([{ path: 'dontstarve/HUD/click_move' }]);
   renderCharacterRoster();
 });
+
+function switchFrontEndScreen(screenId: string) {
+  activeFeScreen = screenId;
+  dstAudio.playEvents([{ path: 'dontstarve/HUD/click_move' }]);
+  const views = ['main', 'playstyles', 'create', 'browse', 'compendium', 'collection', 'mods', 'options', 'lobby'];
+  for (const v of views) {
+    element(`fe-view-${v}`)?.classList.toggle('hidden', v !== screenId);
+  }
+  document.querySelectorAll<HTMLElement>('.fe-nav-tabs .fe-tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.feNav === screenId);
+  });
+  element('fe-resume-world-top-btn')?.classList.toggle('hidden', !gameMode);
+  renderFrontEndScreens();
+}
+
+function selectPlaystyleMode(modeId: string) {
+  selectedPlaystyle = modeId;
+  const sel = element<HTMLSelectElement>('title-playstyle-select');
+  if (sel) sel.value = modeId;
+  dstAudio.playEvents([{ path: 'dontstarve/HUD/click_move' }]);
+  renderFrontEndScreens();
+}
+
+function renderFrontEndScreens() {
+  // 1. Official DST Logos & Event Badges
+  const titleLogoUrl = gameRenderer.getIconDataUrl('fe_title_logo');
+  const logoBox = element('fe-logo-box');
+  if (logoBox && titleLogoUrl) logoBox.innerHTML = `<img src="${titleLogoUrl}" alt="Don't Starve Together">`;
+  const heroShield = element('fe-hero-shield');
+  if (heroShield && titleLogoUrl) heroShield.innerHTML = `<img src="${titleLogoUrl}" alt="Don't Starve Together">`;
+
+  const forgeLogoUrl = gameRenderer.getIconDataUrl('mode_forge_title');
+  const gorgeLogoUrl = gameRenderer.getIconDataUrl('mode_gorge_title');
+  if (element('fe-card-forge-logo') && forgeLogoUrl) element('fe-card-forge-logo').innerHTML = `<img src="${forgeLogoUrl}" alt="The Forge">`;
+  if (element('fe-card-gorge-logo') && gorgeLogoUrl) element('fe-card-gorge-logo').innerHTML = `<img src="${gorgeLogoUrl}" alt="The Gorge">`;
+  if (element('forge-hud-logo') && forgeLogoUrl) element('forge-hud-logo').innerHTML = `<img src="${forgeLogoUrl}" alt="The Forge">`;
+  if (element('gorge-hud-logo') && gorgeLogoUrl) element('gorge-hud-logo').innerHTML = `<img src="${gorgeLogoUrl}" alt="The Gorge">`;
+
+  // 2. Main Menu Playstyle Strip (5 Core Playstyles)
+  const mainStrip = element('fe-main-playstyle-strip');
+  if (mainStrip) {
+    mainStrip.innerHTML = PLAYSTYLE_MODES.filter(m => !m.isEvent).map(m => {
+      const iconUrl = gameRenderer.getIconDataUrl(m.iconKey);
+      const activeCls = m.id === selectedPlaystyle ? 'selected' : '';
+      return `
+        <button class="fe-mini-playstyle-card ${activeCls}" data-select-playstyle="${m.id}" data-quick-lobby="${m.id}">
+          <div class="fe-playstyle-icon-wrap">${iconUrl ? `<img src="${iconUrl}" alt="${m.name}">` : ''}</div>
+          <div class="fe-mini-playstyle-name">${m.name}</div>
+          <div class="fe-mini-playstyle-sub">${m.subtitle.split('·')[0]}</div>
+        </button>
+      `;
+    }).join('');
+  }
+
+  // 3. PlaystyleSelectScreen (All 7 Modes + Detail Banner)
+  const psGrid = element('fe-playstyle-cards-grid');
+  if (psGrid) {
+    psGrid.innerHTML = PLAYSTYLE_MODES.map(m => {
+      const iconUrl = gameRenderer.getIconDataUrl(m.iconKey);
+      const activeCls = m.id === selectedPlaystyle ? 'selected' : '';
+      const badgeHtml = m.isEvent ? `<span class="fe-event-badge">EVENT</span>` : '';
+      return `
+        <button class="fe-playstyle-card ${activeCls}" data-select-playstyle="${m.id}">
+          ${badgeHtml}
+          <div class="fe-playstyle-card-title">${m.name}</div>
+          <div class="fe-playstyle-card-art">${iconUrl ? `<img src="${iconUrl}" alt="${m.name}">` : ''}</div>
+          <div class="fe-playstyle-card-sub">${m.subtitle}</div>
+        </button>
+      `;
+    }).join('');
+  }
+  const psBanner = element('fe-playstyle-detail-banner');
+  if (psBanner) {
+    const curMode = PLAYSTYLE_MODES.find(m => m.id === selectedPlaystyle) ?? PLAYSTYLE_MODES[2];
+    const iconUrl = gameRenderer.getIconDataUrl(curMode.iconKey);
+    const rulesHtml = curMode.rules.map(r => `<span class="fe-rule-chip">✔ ${r}</span>`).join('');
+    psBanner.innerHTML = `
+      <div class="row" style="gap:16px;align-items:center;justify-content:space-between">
+        <div class="row" style="gap:14px;align-items:center;flex:1">
+          <div class="fe-playstyle-banner-icon">${iconUrl ? `<img src="${iconUrl}" alt="${curMode.name}">` : ''}</div>
+          <div style="flex:1">
+            <div style="font-size:20px;font-weight:700;color:#f5dca0">${curMode.name} Mode <span style="font-size:13px;color:#d8b874;font-weight:400">· ${curMode.subtitle}</span></div>
+            <p style="margin:4px 0 8px;color:#ebd9b4;font-size:13px;line-height:1.4">${curMode.desc}</p>
+            <div class="row" style="gap:8px;flex-wrap:wrap">${rulesHtml}</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:7px;min-width:210px">
+          <button class="klei-carny-xlong-btn" data-quick-mode="${curMode.id}">Launch ${curMode.name} Now</button>
+          <button class="klei-carny-long-btn" data-fe-nav="lobby" style="width:100%">Choose Survivor First →</button>
+        </div>
+      </div>
+    `;
+  }
+
+  // 4. ServerCreationScreen Save Slots 1..5, Intentions, and Caves
+  const slotsEl = element('fe-saveslots-list');
+  if (slotsEl) {
+    const hasLocalSave = Boolean(localStorage.getItem('dst_saved_world_v1'));
+    const curCharAvatar = gameRenderer.getIconDataUrl(`avatar_${selectedCharacter}`);
+    slotsEl.innerHTML = [1, 2, 3, 4, 5].map(slot => {
+      const active = slot === selectedSaveSlot ? 'selected' : '';
+      const modeName = PLAYSTYLE_MODES.find(m => m.id === selectedPlaystyle)?.name || 'Survival';
+      const label = slot === 1 && hasLocalSave ? `Cluster_1 · Saved World` : `Cluster_${slot} · ${slot === selectedSaveSlot ? modeName : 'New World'}`;
+      return `
+        <button class="fe-saveslot-item ${active}" data-save-slot="${slot}">
+          <div class="character-avatar-frame" style="width:42px;height:42px">${curCharAvatar ? `<img src="${curCharAvatar}" alt="">` : ''}</div>
+          <div style="text-align:left;flex:1">
+            <div style="font-weight:700;color:#f5dca0;font-size:14px">Save Slot ${slot}</div>
+            <div style="font-size:11.5px;color:#d8b874">${label}</div>
+          </div>
+        </button>
+      `;
+    }).join('');
+  }
+
+  const intentGrid = element('fe-intention-grid');
+  if (intentGrid) {
+    intentGrid.innerHTML = SERVER_INTENTIONS.map(it => {
+      const iconUrl = gameRenderer.getIconDataUrl(it.iconKey);
+      const active = it.id === selectedIntention ? 'selected' : '';
+      return `
+        <button class="fe-intention-card ${active}" data-select-intention="${it.id}">
+          <div class="fe-intention-icon">${iconUrl ? `<img src="${iconUrl}" alt="${it.name}">` : ''}</div>
+          <div>
+            <div style="font-weight:700;color:#f5dca0;font-size:14px">${it.name}</div>
+            <div style="font-size:11.5px;color:#dfd3ba">${it.desc}</div>
+          </div>
+        </button>
+      `;
+    }).join('');
+  }
+
+  const cavesGrid = element('fe-caves-select-grid');
+  if (cavesGrid) {
+    const cavesUrl = gameRenderer.getIconDataUrl('playstyle_caves');
+    const noCavesUrl = gameRenderer.getIconDataUrl('playstyle_nocaves');
+    cavesGrid.innerHTML = `
+      <button class="fe-caves-card ${cavesEnabled ? 'selected' : ''}" data-caves-toggle="on">
+        <div class="fe-caves-art">${cavesUrl ? `<img src="${cavesUrl}" alt="Enable Caves">` : ''}</div>
+        <div style="font-weight:700;color:#f5dca0;font-size:16px">Enable Caves Shard (Master + Caves)</div>
+        <div style="font-size:12px;color:#dfd3ba">Includes plugged sinkholes (<code>cave_entrance</code>), subterranean caves, and Light Flowers.</div>
+      </button>
+      <button class="fe-caves-card ${!cavesEnabled ? 'selected' : ''}" data-caves-toggle="off">
+        <div class="fe-caves-art">${noCavesUrl ? `<img src="${noCavesUrl}" alt="No Caves">` : ''}</div>
+        <div style="font-weight:700;color:#f5dca0;font-size:16px">Forest Surface Only (No Caves)</div>
+        <div style="font-size:12px;color:#dfd3ba">Single-shard surface world for lightweight performance.</div>
+      </button>
+    `;
+  }
+
+  // 5. ServerListingScreen (Browse Games)
+  const browserList = element('fe-server-browser-list');
+  if (browserList) {
+    const searchQ = (element<HTMLInputElement>('fe-browse-search')?.value || '').toLowerCase();
+    const servers = [
+      { name: 'Klei Official · Constant Survival #1', mode: 'survival', modeName: 'Survival', intention: 'coop', day: 14, players: '3/6', season: 'Autumn', ping: '12ms' },
+      { name: 'Cozy Campfire · No Sweat Base Building', mode: 'relaxed', modeName: 'Relaxed', intention: 'social', day: 8, players: '2/6', season: 'Spring', ping: '18ms' },
+      { name: 'Endless Builders & Boss Hunters', mode: 'endless', modeName: 'Endless', intention: 'coop', day: 42, players: '4/6', season: 'Winter', ping: '24ms' },
+      { name: 'Battlemaster Pugna · The Forge Arena', mode: 'lavaarena', modeName: 'The Forge', intention: 'competitive', day: 1, players: '5/6', season: 'Lava Arena', ping: '15ms' },
+      { name: 'Altar of Gnaw · The Gorge Kitchen', mode: 'quagmire', modeName: 'The Gorge', intention: 'coop', day: 1, players: '3/3', season: 'Quagmire', ping: '19ms' },
+      { name: 'Charlie\'s Eternal Darkness Challenge', mode: 'lightsout', modeName: 'Lights Out', intention: 'madness', day: 5, players: '2/6', season: 'Night', ping: '29ms' },
+    ].filter(s => !searchQ || s.name.toLowerCase().includes(searchQ) || s.modeName.toLowerCase().includes(searchQ));
+
+    browserList.innerHTML = servers.map(s => {
+      const mDef = PLAYSTYLE_MODES.find(m => m.id === s.mode);
+      const mUrl = mDef ? gameRenderer.getIconDataUrl(mDef.iconKey) : '';
+      return `
+        <div class="fe-server-row">
+          <div class="fe-server-mode-icon">${mUrl ? `<img src="${mUrl}" alt="${s.modeName}">` : ''}</div>
+          <div style="flex:1">
+            <div style="font-weight:700;color:#f5dca0;font-size:15px">${s.name}</div>
+            <div style="font-size:12px;color:#d8b874">Mode: <strong>${s.modeName}</strong> · Season: ${s.season} · Day ${s.day}</div>
+          </div>
+          <div style="text-align:right;margin-right:12px;font-size:12.5px;color:#ebd9b4">
+            <div>Players: <strong>${s.players}</strong></div>
+            <div style="color:#9be0a8">Ping: ${s.ping}</div>
+          </div>
+          <button class="klei-carny-long-btn" data-quick-mode="${s.mode}">Join Server</button>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // 6. CompendiumScreen (Cookbook, Plant Registry, Scrapbook, Survivor Bios, Morgue)
+  const compBody = element('fe-compendium-body');
+  if (compBody) {
+    if (activeCompendiumTab === 'cookbook') {
+      compBody.innerHTML = `<div class="cookbook-grid">${CROCK_POT_RECIPES.map(dish => `
+        <div class="cookbook-card">
+          <div class="inv-slot" style="flex-shrink:0">${formatSlotIconHtml(dish.id)}</div>
+          <div style="flex:1">
+            <div style="font-weight:700;color:#f6dca0;font-size:15px">${dish.name}</div>
+            <div style="font-size:12px;color:#e2d1b0;margin:2px 0">Health: <strong>${dish.health}</strong> · Hunger: <strong>${dish.hunger}</strong> · Sanity: <strong>${dish.sanity}</strong></div>
+            <div style="font-size:11.5px;color:#bfb296">${dish.recipeHint}</div>
+          </div>
+        </div>
+      `).join('')}</div>`;
+    } else if (activeCompendiumTab === 'plants') {
+      compBody.innerHTML = `<div class="cookbook-grid">${PLANT_REGISTRY_ENTRIES.map(pl => `
+        <div class="cookbook-card">
+          <div class="inv-slot" style="flex-shrink:0">${formatSlotIconHtml(pl.id)}</div>
+          <div style="flex:1">
+            <div style="font-weight:700;color:#f6dca0;font-size:15px">${pl.name} <span style="font-size:11.5px;color:#9be0a8">(${pl.giant})</span></div>
+            <div style="font-size:12px;color:#e2d1b0;margin:2px 0">Seasons: <strong>${pl.seasons.join(', ')}</strong> · Water: ${pl.water}</div>
+            <div style="font-size:11.5px;color:#bfb296">Nutrients: ${pl.nutrients}</div>
+          </div>
+        </div>
+      `).join('')}</div>`;
+    } else if (activeCompendiumTab === 'scrapbook') {
+      compBody.innerHTML = `<div class="cookbook-grid">${SCRAPBOOK_ENTRIES.map(sc => `
+        <div class="cookbook-card">
+          <div class="inv-slot" style="flex-shrink:0">${formatSlotIconHtml(sc.id) || formatSlotIconHtml('spear')}</div>
+          <div style="flex:1">
+            <div style="font-weight:700;color:#f6dca0;font-size:15px">${sc.name} <span style="font-size:11.5px;color:#d8b874">[${sc.cat}]</span></div>
+            <div style="font-size:12px;color:#e2d1b0;margin:2px 0">HP: <strong>${sc.hp}</strong> · Damage: <strong>${sc.dmg}</strong> · Sanity: ${sc.sanity}</div>
+            <div style="font-size:11.5px;color:#bfb296">${sc.desc}</div>
+          </div>
+        </div>
+      `).join('')}</div>`;
+    } else if (activeCompendiumTab === 'bios') {
+      compBody.innerHTML = `<div class="cookbook-grid">${CHARACTER_ROSTER.map(ch => {
+        const av = gameRenderer.getIconDataUrl(`avatar_${ch.id}`);
+        return `
+          <div class="cookbook-card">
+            <div class="character-avatar-frame" style="width:54px;height:54px;flex-shrink:0">${av ? `<img src="${av}" alt="${ch.name}">` : ''}</div>
+            <div style="flex:1">
+              <div style="font-weight:700;color:#f6dca0;font-size:15px">${ch.name} <span style="font-size:12px;color:#d8b874">· ${ch.title}</span></div>
+              <div style="font-size:12px;color:#e2d1b0;margin:2px 0">HP: ${ch.health} · Hunger: ${ch.hunger} · Sanity: ${ch.sanity}</div>
+              <div style="font-size:11.5px;color:#bfb296">${ch.perk}</div>
+            </div>
+          </div>
+        `;
+      }).join('')}</div>`;
+    } else {
+      compBody.innerHTML = `
+        <div class="fe-server-browser-list">
+          <div class="fe-server-row">
+            <div style="flex:1"><strong style="color:#f5dca0">Wilson P. Higgsbury</strong> · Survived 18 Days (Winter)</div>
+            <div style="color:#ff9e80">Cause of Death: Deerclops · Mode: Survival</div>
+          </div>
+          <div class="fe-server-row">
+            <div style="flex:1"><strong style="color:#f5dca0">Willow</strong> · Survived 6 Days (Autumn)</div>
+            <div style="color:#ff9e80">Cause of Death: Darkness (Charlie) · Mode: Lights Out</div>
+          </div>
+          <div class="fe-server-row">
+            <div style="flex:1"><strong style="color:#f5dca0">Wigfrid</strong> · Wave 5/5 Victory</div>
+            <div style="color:#9be0a8">Triumph: Defeated Grand Forge Boarrior · Mode: The Forge</div>
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  // 7. CollectionScreen (Skins & Wardrobe)
+  const collGrid = element('fe-collection-grid');
+  if (collGrid) {
+    const skinSets = ['Triumphant (Shadow)', 'Guest of Honor', 'Survivor', 'Roseate', 'Victorian', 'Magmatic (Forge)', 'Victorian (Gorge)', 'Snowfallen'];
+    collGrid.innerHTML = CHARACTER_ROSTER.slice(0, 12).map((ch, idx) => {
+      const av = gameRenderer.getIconDataUrl(`avatar_${ch.id}`);
+      const skinName = skinSets[idx % skinSets.length];
+      return `
+        <div class="cookbook-card" style="align-items:center">
+          <div class="character-avatar-frame" style="width:56px;height:56px;flex-shrink:0">${av ? `<img src="${av}" alt="${ch.name}">` : ''}</div>
+          <div style="flex:1">
+            <div style="font-weight:700;color:#f5dca0;font-size:14.5px">${ch.name} · ${skinName}</div>
+            <div style="font-size:11.5px;color:#d8b874">Heirloom Elegance · Unlocked in Curio Cabinet</div>
+          </div>
+          <button class="klei-carny-long-btn" data-equip-char-skin="${ch.id}">Select</button>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // 8. ModsScreen
+  const modsCards = element('fe-mods-list-cards');
+  if (modsCards) {
+    const modDefs = [
+      { id: 'fast_work', name: 'Fast Sprinter & Worker (+35% Speed)', author: 'Klei Workshop', desc: 'Increases survivor movement speed by +35% via locomotor external speed multiplier.' },
+      { id: 'extra_light', name: 'Night Explorer Starter Kit', author: 'Klei Workshop', desc: 'Spawns the survivor with a Lantern and Miner Hat for subterranean and night exploration.' },
+      { id: 'boss_hunter', name: 'Giant Hunter Gladiator Gear', author: 'Klei Workshop', desc: 'Grants a Ham Bat, Marble Suit, and Football Helmet at spawn for hunting seasonal Giants.' },
+    ];
+    modsCards.innerHTML = modDefs.map(m => {
+      const chk = document.querySelector<HTMLInputElement>(`.lobby-mod-check[value="${m.id}"]`)?.checked ?? false;
+      return `
+        <div class="fe-server-row">
+          <div style="flex:1">
+            <div style="font-weight:700;color:#f5dca0;font-size:15px">${m.name} <span style="font-size:11.5px;color:#d8b874">by ${m.author}</span></div>
+            <div style="font-size:12px;color:#dfd3ba">${m.desc}</div>
+          </div>
+          <button class="klei-carny-long-btn" data-toggle-mod-screen="${m.id}">${chk ? '✔ Enabled' : 'Enable Mod'}</button>
+        </div>
+      `;
+    }).join('');
+  }
+}
 
 function renderCraftingHud(scene?: GameSceneSnapshot) {
   const dock = element('crafting-dock');
@@ -743,6 +1487,14 @@ function applyKleiHudTextures() {
     ['--tex-pause-btn', 'pause'],
     ['--tex-turnarrow', 'turnarrow_icon'],
     ['--tex-turnarrow-over', 'turnarrow_icon_over'],
+    ['--tex-fe-portal-bg', 'fe_portal_bg'],
+    ['--tex-fe-portal-fg', 'fe_portal_fg'],
+    ['--tex-fe-fg-trees', 'fe_fg_trees'],
+    ['--tex-playstyle-frame', 'playstyle_frame'],
+    ['--tex-playstyle-frame-hl', 'playstyle_frame_hl'],
+    ['--tex-saveslot-bg', 'saveslot_bg'],
+    ['--tex-forge-inv-bar', 'forge_inv_bar'],
+    ['--tex-gorge-hangry-bar', 'gorge_hangry_bar'],
   ];
   for (const [cssVar, iconKey] of cssTexMap) {
     const texUrl = gameRenderer.getIconDataUrl(iconKey);
@@ -767,6 +1519,7 @@ function applyKleiHudTextures() {
   }
 
   renderCharacterRoster();
+  renderFrontEndScreens();
 }
 
 function renderItemTileHtml(
@@ -1007,6 +1760,7 @@ function renderPlayerStatusModal(scene?: GameSceneSnapshot) {
 }
 
 renderCharacterRoster();
+renderFrontEndScreens();
 renderCraftingHud();
 renderInventoryHud();
 renderCookbookModal();
@@ -1066,6 +1820,64 @@ function updateGameHud(scene: GameSceneSnapshot) {
   // Toggle Ghost Resurrection Banner when player is a ghost
   element('hud-resurrect-banner')?.classList.toggle('hidden', !p.isGhost);
 
+  // Update Active Game Mode / Playstyle HUD (Survival, Relaxed, Endless, Wilderness, Lights Out, The Forge, The Gorge)
+  const ms = scene.modeState;
+  const modeId = ms?.id || selectedPlaystyle || 'survival';
+  const isForge = modeId === 'lavaarena';
+  const isGorge = modeId === 'quagmire';
+  const isWilderness = modeId === 'wilderness';
+
+  const modePill = element('hud-mode-pill');
+  if (modePill) {
+    const modeDef = PLAYSTYLE_MODES.find(m => m.id === modeId);
+    const modeLabel = ms?.name || modeDef?.name || 'Survival';
+    if (isForge) {
+      modePill.textContent = `Mode: ${modeLabel} · Wave ${ms?.forgeWave ?? 1}/${ms?.forgeMaxWaves ?? 5}`;
+    } else if (isGorge) {
+      modePill.textContent = `Mode: ${modeLabel} · Gnaw Favor ${Math.round(ms?.gorgeHangry ?? 100)}%`;
+    } else {
+      modePill.textContent = `Mode: ${modeLabel}`;
+    }
+  }
+
+  element('hud-forge-panel')?.classList.toggle('hidden', !isForge);
+  element('hud-gorge-panel')?.classList.toggle('hidden', !isGorge);
+  element('hud-wilderness-respawn-btn')?.classList.toggle('hidden', !isWilderness);
+
+  // In The Forge (LavaArenaHud), Klei hides Hunger, Sanity, and CraftingMenu, showing Health + Special Skill
+  element('badge-hunger')?.classList.toggle('hidden', isForge || isGorge);
+  element('badge-sanity')?.classList.toggle('hidden', isForge || isGorge);
+  element('hud-crafting-root')?.classList.toggle('hidden', isForge);
+
+  if (isForge && ms) {
+    const waveTitle = element('forge-wave-title');
+    if (waveTitle) {
+      waveTitle.textContent = ms.forgeVictory
+        ? `VICTORY! Grand Forge Boarrior Defeated`
+        : `Wave ${ms.forgeWave ?? 1} / ${ms.forgeMaxWaves ?? 5} · ${ (ms.forgeWave ?? 1) >= 5 ? 'Grand Forge Boarrior' : 'Boarilla & Pit Pigs' }`;
+    }
+    const enemiesEl = element('forge-enemies-left');
+    if (enemiesEl) enemiesEl.textContent = String(ms.forgeEnemiesLeft ?? 0);
+    const skillBtn = element<HTMLButtonElement>('forge-skill-btn');
+    if (skillBtn) {
+      const cd = ms.forgeSkillCooldown ?? 0;
+      skillBtn.disabled = cd > 0;
+      skillBtn.textContent = cd > 0 ? `[R] Cooldown (${cd.toFixed(1)}s)` : `[R] Molten Strike (READY)`;
+    }
+  }
+
+  if (isGorge && ms) {
+    const hangryPct = Math.max(0, Math.min(100, Math.round(ms.gorgeHangry ?? 100)));
+    const fillEl = element('gorge-hangry-fill');
+    if (fillEl) fillEl.style.width = `${hangryPct}%`;
+    const pctEl = element('gorge-favor-pct');
+    if (pctEl) pctEl.textContent = `${hangryPct}%`;
+    const cravEl = element('gorge-craving-name');
+    if (cravEl) cravEl.textContent = ms.gorgeCraving || 'Snack / Bread / Veggie';
+    const coinsEl = element('gorge-coins-count');
+    if (coinsEl) coinsEl.textContent = `${ms.gorgeCoins ?? 0} (${ms.gorgeOfferings ?? 0} Offered)`;
+  }
+
   // Update circular status meters (integer only, matching scripts/widgets/badge.lua)
   const healthPct = Math.max(0, Math.min(100, Math.round((p.health / Math.max(1, p.maxHealth)) * 100)));
   const hungerPct = Math.max(0, Math.min(100, Math.round((p.hunger / Math.max(1, p.maxHunger)) * 100)));
@@ -1076,7 +1888,7 @@ function updateGameHud(scene: GameSceneSnapshot) {
   element('badge-hunger').style.setProperty('--fill-pct', `${hungerPct}%`);
   element('badge-sanity').style.setProperty('--fill-pct', `${sanityPct}%`);
   element('badge-climate').style.setProperty('--fill-pct', `${moistPct}%`);
-  element('badge-climate').classList.toggle('hidden', moistPct <= 0);
+  element('badge-climate').classList.toggle('hidden', moistPct <= 0 || isForge);
 
   element('hud-health').textContent = `${Math.round(p.health)}`;
   element('hud-hunger').textContent = `${Math.round(p.hunger)}`;
@@ -1243,12 +2055,20 @@ async function ensureMasterAssetsLoaded() {
 
 let consoleBarOpen = false;
 
-async function startGame(characterOverride?: string) {
+async function startGame(characterOverride?: string, playstyleOverride?: string) {
   dstAudio.unlock();
   if (characterOverride) selectedCharacter = characterOverride;
+  if (playstyleOverride) {
+    selectedPlaystyle = playstyleOverride;
+    const sel = element<HTMLSelectElement>('title-playstyle-select');
+    if (sel) sel.value = playstyleOverride;
+  } else {
+    const sel = element<HTMLSelectElement>('title-playstyle-select');
+    if (sel?.value) selectedPlaystyle = sel.value;
+  }
   button('play-game').disabled = true;
   button('play-game').textContent = 'Generating World…';
-  status(`Booting Don't Starve Together Master World (${selectedCharacter})…`);
+  status(`Booting Don't Starve Together Master World (${selectedCharacter} · ${selectedPlaystyle})…`);
   const master = await ensureMasterAssetsLoaded();
   const creativeChecked = element<HTMLInputElement>('title-creative-check')?.checked ?? false;
   const startSeason = element<HTMLSelectElement>('title-season-select')?.value ?? 'autumn';
@@ -1262,19 +2082,22 @@ async function startGame(characterOverride?: string) {
     season: startSeason,
     worldSeed,
     enabledMods,
+    playstyle: selectedPlaystyle,
+    intention: selectedIntention,
   });
   gameMode = true;
   host = true;
   paused = false;
   element('main-screen-overlay').classList.add('hidden');
+  element('fe-resume-world-top-btn')?.classList.remove('hidden');
   button('pause').disabled = false;
   button('pause').textContent = 'Pause';
   button('play-game').disabled = false;
   button('play-game').textContent = 'Start World';
-  dstAudio.playMusic('work_spring');
+  dstAudio.playMusic(selectedPlaystyle === 'lavaarena' ? 'fight' : selectedPlaystyle === 'quagmire' ? 'work_summer' : 'work_spring');
   updateGameHud(initialScene);
   gameRenderer.render(performance.now());
-  status(`DST World Ready · ${formatPrefabName(selectedCharacter)} at (${initialScene.player.x.toFixed(1)}, ${initialScene.player.z.toFixed(1)})`);
+  status(`DST World Ready · ${formatPrefabName(selectedCharacter)} · Mode: ${initialScene.modeState?.name || selectedPlaystyle}`);
   return initialScene;
 }
 
@@ -1599,6 +2422,11 @@ window.addEventListener('keydown', e => {
     void master.request('game-action', { action: { kind: 'attack-nearest' } }).then(updateGameHud).catch(() => {});
     return;
   }
+  if (e.code === 'KeyR' && gameScene?.modeState?.id === 'lavaarena') {
+    e.preventDefault();
+    void master.request('game-action', { action: { kind: 'forge-skill' } }).then(updateGameHud).catch(() => {});
+    return;
+  }
   if (e.code === 'KeyI') {
     e.preventDefault();
     toggleAvatarPopup();
@@ -1821,6 +2649,115 @@ window.addEventListener('mousemove', e => {
 window.addEventListener('mouseup', () => { mapDragging = false; });
 mapScreenCanvas.addEventListener('contextmenu', e => { e.preventDefault(); toggleMapModal(false); });
 
+// Klei FrontEnd (MultiplayerMainScreen, PlaystyleSelectScreen, ServerCreationScreen, CompendiumScreen, etc.) Event Delegation
+element('main-screen-overlay')?.addEventListener('click', e => {
+  dstAudio.unlock();
+  const target = e.target as HTMLElement;
+
+  const quickModeBtn = target.closest<HTMLElement>('[data-quick-mode]');
+  if (quickModeBtn) {
+    const modeId = quickModeBtn.dataset.quickMode!;
+    selectPlaystyleMode(modeId);
+    void startGame(undefined, modeId);
+    return;
+  }
+
+  const quickLobbyBtn = target.closest<HTMLElement>('[data-quick-lobby]');
+  if (quickLobbyBtn) {
+    const modeId = quickLobbyBtn.dataset.quickLobby!;
+    selectPlaystyleMode(modeId);
+    switchFrontEndScreen('lobby');
+    return;
+  }
+
+  const psBtn = target.closest<HTMLElement>('[data-select-playstyle]');
+  if (psBtn) {
+    selectPlaystyleMode(psBtn.dataset.selectPlaystyle!);
+    return;
+  }
+
+  const navBtn = target.closest<HTMLElement>('[data-fe-nav]');
+  if (navBtn) {
+    switchFrontEndScreen(navBtn.dataset.feNav!);
+    return;
+  }
+
+  const slotBtn = target.closest<HTMLElement>('[data-save-slot]');
+  if (slotBtn) {
+    selectedSaveSlot = Number(slotBtn.dataset.saveSlot) || 1;
+    dstAudio.playEvents([{ path: 'dontstarve/HUD/click_move' }]);
+    renderFrontEndScreens();
+    return;
+  }
+
+  const intentBtn = target.closest<HTMLElement>('[data-select-intention]');
+  if (intentBtn) {
+    selectedIntention = intentBtn.dataset.selectIntention || 'coop';
+    dstAudio.playEvents([{ path: 'dontstarve/HUD/click_move' }]);
+    renderFrontEndScreens();
+    return;
+  }
+
+  const cavesBtn = target.closest<HTMLElement>('[data-caves-toggle]');
+  if (cavesBtn) {
+    cavesEnabled = cavesBtn.dataset.cavesToggle === 'on';
+    dstAudio.playEvents([{ path: 'dontstarve/HUD/click_move' }]);
+    renderFrontEndScreens();
+    return;
+  }
+
+  const createTabBtn = target.closest<HTMLElement>('[data-create-tab]');
+  if (createTabBtn) {
+    const tabId = createTabBtn.dataset.createTab!;
+    dstAudio.playEvents([{ path: 'dontstarve/HUD/click_move' }]);
+    document.querySelectorAll<HTMLElement>('[data-create-tab]').forEach(b => b.classList.toggle('active', b.dataset.createTab === tabId));
+    for (const p of ['playstyle', 'forest', 'caves', 'mods']) {
+      element(`fe-create-pane-${p}`)?.classList.toggle('hidden', p !== tabId);
+    }
+    return;
+  }
+
+  const compTabBtn = target.closest<HTMLElement>('[data-comp-tab]');
+  if (compTabBtn) {
+    activeCompendiumTab = compTabBtn.dataset.compTab!;
+    dstAudio.playEvents([{ path: 'dontstarve/HUD/click_move' }]);
+    document.querySelectorAll<HTMLElement>('[data-comp-tab]').forEach(b => b.classList.toggle('active', b.dataset.compTab === activeCompendiumTab));
+    renderFrontEndScreens();
+    return;
+  }
+
+  const skinBtn = target.closest<HTMLElement>('[data-equip-char-skin]');
+  if (skinBtn) {
+    selectedCharacter = skinBtn.dataset.equipCharSkin!;
+    renderCharacterRoster();
+    switchFrontEndScreen('lobby');
+    return;
+  }
+});
+
+element('main-screen-overlay')?.addEventListener('change', e => {
+  const target = e.target as HTMLElement;
+  if (target.id === 'title-playstyle-select') {
+    selectPlaystyleMode((target as HTMLSelectElement).value);
+    return;
+  }
+  const modToggle = target.closest<HTMLInputElement>('[data-toggle-mod-screen]');
+  if (modToggle) {
+    const modId = modToggle.dataset.toggleModScreen!;
+    document.querySelectorAll<HTMLInputElement>(`.lobby-mod-check[value="${modId}"]`).forEach(cb => {
+      cb.checked = modToggle.checked;
+    });
+    renderFrontEndScreens();
+  }
+});
+
+element('fe-browse-search')?.addEventListener('input', () => renderFrontEndScreens());
+element('opt-master-volume')?.addEventListener('input', e => {
+  const val = (e.target as HTMLInputElement).value;
+  const lbl = element('opt-master-volume-val');
+  if (lbl) lbl.textContent = `${val}%`;
+});
+
 function bind(id: string, fn: () => Promise<unknown> | void) {
   const b = button(id);
   if (!b) return;
@@ -1828,11 +2765,36 @@ function bind(id: string, fn: () => Promise<unknown> | void) {
 }
 bind('play-game', () => startGame());
 bind('load-saved-world-btn', loadWorldFromLocalStorage);
+bind('fe-main-load-save-btn', loadWorldFromLocalStorage);
+bind('fe-resume-world-top-btn', () => {
+  element('main-screen-overlay').classList.add('hidden');
+});
+bind('hud-open-mainmenu-btn', () => {
+  element('main-screen-overlay').classList.remove('hidden');
+  switchFrontEndScreen('main');
+  dstAudio.playMusic('fe');
+});
+bind('forge-skill-btn', () => {
+  if (gameMode && workers.has('master')) {
+    return workers.get('master')!.request('game-action', { action: { kind: 'forge-skill' } }).then(updateGameHud);
+  }
+});
+bind('gorge-offer-btn', () => {
+  if (gameMode && workers.has('master')) {
+    return workers.get('master')!.request('game-action', { action: { kind: 'gorge-offer' } }).then(updateGameHud);
+  }
+});
+bind('hud-wilderness-respawn-btn', () => {
+  if (gameMode && workers.has('master')) {
+    return workers.get('master')!.request('game-action', { action: { kind: 'wilderness-respawn' } }).then(updateGameHud);
+  }
+});
 bind('open-diag-from-title', () => toggleDiagDrawer(true));
 bind('toggle-diag-drawer', () => toggleDiagDrawer());
 bind('close-diag-drawer', () => toggleDiagDrawer(false));
 
 bind('upload-mod-btn', () => element<HTMLInputElement>('mod-file-input')?.click());
+bind('fe-mods-upload-btn', () => element<HTMLInputElement>('mod-file-input')?.click());
 const modFileInput = element<HTMLInputElement>('mod-file-input');
 if (modFileInput) {
   modFileInput.onchange = async event => {
@@ -1901,6 +2863,7 @@ if (worldClusterFile) {
 bind('pause-change-char-btn', () => {
   togglePauseModal(false);
   element('main-screen-overlay').classList.remove('hidden');
+  switchFrontEndScreen('lobby');
   dstAudio.playMusic('fe');
 });
 bind('hud-toggle-creative', () => {
@@ -2067,6 +3030,8 @@ Object.assign(window, {
   dstWorkbench: {
     start,
     startGame,
+    switchFrontEndScreen,
+    selectPlaystyleMode,
     saveWorldToLocalStorage,
     loadWorldFromLocalStorage,
     exportWorldClusterZip,
@@ -2076,7 +3041,7 @@ Object.assign(window, {
     toggleMapModal,
     togglePauseModal,
     toggleDiagDrawer,
-    get state() { return { host, paused, gameMode, snapshot, gameScene, compatibility, workers: workers.size, peers: room?.connectedPeers ?? 0 }; },
+    get state() { return { host, paused, gameMode, activeFeScreen, selectedPlaystyle, selectedIntention, snapshot, gameScene, compatibility, workers: workers.size, peers: room?.connectedPeers ?? 0 }; },
     get audio() { return lastAudioResult; },
     save: () => enqueue(checkpoint),
     restore: () => enqueue(async () => restore(await database.latest())),
@@ -2101,3 +3066,4 @@ Object.assign(window, {
     resume: () => { paused = false; },
   },
 });
+

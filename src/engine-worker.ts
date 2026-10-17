@@ -628,6 +628,67 @@ async function handle(data: any) {
             'avatar_warly.tex', 'avatar_wortox.tex', 'avatar_wormwood.tex', 'avatar_wurt.tex',
             'avatar_walter.tex', 'avatar_wanda.tex',
           ],
+          'images/frontscreen.xml': [
+            'title.tex as fe_title_logo',
+            'kleipresents.tex as fe_kleipresents',
+            'play_highlight.tex as fe_play_highlight',
+          ],
+          'images/bg_animated_portal.xml': [
+            'bg_plate.tex as fe_portal_bg',
+          ],
+          'images/fg_animated_portal.xml': [
+            'fg_plate.tex as fe_portal_fg',
+          ],
+          'images/fg_trees.xml': [
+            'trees.tex as fe_fg_trees',
+          ],
+          'images/serverplaystyles.xml': [
+            'relaxed.tex as playstyle_relaxed',
+            'endless.tex as playstyle_endless',
+            'survival.tex as playstyle_survival',
+            'wilderness.tex as playstyle_wilderness',
+            'lightsout.tex as playstyle_lightsout',
+            'caves.tex as playstyle_caves',
+            'nocaves.tex as playstyle_nocaves',
+            'frame.tex as playstyle_frame',
+            'frame_hl.tex as playstyle_frame_hl',
+          ],
+          'images/server_intentions.xml': [
+            'social.tex as intention_social',
+            'coop.tex as intention_coop',
+            'competitive.tex as intention_competitive',
+            'madness.tex as intention_madness',
+          ],
+          'images/saveslot_portraits.xml': [
+            'background.tex as saveslot_bg',
+            'random.tex as saveslot_random',
+          ],
+          'images/lavaarena_frontend.xml': [
+            'title.tex as mode_forge_title',
+          ],
+          'images/lavaarena_hud.xml': [
+            'lavaarena_inventorybar.tex as forge_inv_bar',
+            'victory_dialog.tex as forge_victory_dialog',
+          ],
+          'images/quagmire_frontend.xml': [
+            'gorge_tournament_info.tex as mode_gorge_title',
+          ],
+          'images/quagmire_hud.xml': [
+            'quagmire_hangry_bar.tex as gorge_hangry_bar',
+            'quagmire_announcement_bg_centered.tex as gorge_announce_bg',
+          ],
+          'images/plantregistry.xml': [
+            'season_autumn.tex as season_icon_autumn',
+            'season_spring.tex as season_icon_spring',
+            'season_summer.tex as season_icon_summer',
+            'oversizedpictureframe.tex as plant_frame',
+          ],
+          'images/scrapbook.xml': [
+            'scrap_square.tex as scrap_square',
+            'icon_health.tex as scrap_health',
+            'icon_hunger.tex as scrap_hunger',
+            'icon_sanity.tex as scrap_sanity',
+          ],
           'images/inventoryimages1.xml': wantedInventoryItems,
           'images/inventoryimages2.xml': wantedInventoryItems,
           'images/inventoryimages3.xml': wantedInventoryItems,
@@ -676,7 +737,9 @@ async function handle(data: any) {
             const src = mip.rgba;
 
             for (const rawName of names) {
-              const name = rawName.trim();
+              const parts = rawName.trim().split(/\s+as\s+/i);
+              const name = parts[0].trim();
+              const customKey = parts[1]?.trim();
               const el = elemMap.get(name);
               if (!el) continue;
               const x0 = Math.max(0, Math.min(W - 1, Math.floor(el.u1 * W)));
@@ -708,7 +771,7 @@ async function handle(data: any) {
                   }
                 }
               }
-              const key = name.replace(/\.(tex|png)$/, '');
+              const key = customKey || name.replace(/\.(tex|png)$/, '');
               icons[key] = { width: cw, height: ch, rgba: out.buffer };
               transfers.push(out.buffer);
             }
@@ -877,6 +940,8 @@ async function handle(data: any) {
         const initialCreative = Boolean(data.creativeMode);
         const chosenCharacter = String(data.character || 'wilson').replace(/[^a-z0-9_]/g, '') || 'wilson';
         const chosenSeason = String(data.season || 'autumn').replace(/[^a-z]/g, '') || 'autumn';
+        const chosenPlaystyle = String(data.playstyle || 'survival').replace(/[^a-z]/g, '') || 'survival';
+        const chosenIntention = String(data.intention || 'coop').replace(/[^a-z]/g, '') || 'coop';
         const worldSeedStr = String(data.worldSeed || '').replace(/[^a-zA-Z0-9_-]/g, '');
         const enabledModsList: string[] = Array.isArray(data.enabledMods) ? data.enabledMods.map((m: any) => String(m).replace(/[^a-zA-Z0-9_-]/g, '')) : [];
         evaluate(`
@@ -1779,6 +1844,82 @@ async function handle(data: any) {
             end
           end
 
+          -- Configure Game Mode / Playstyle (survival, relaxed, endless, wilderness, lightsout, lavaarena, quagmire)
+          _G._WEB_Playstyle = "${chosenPlaystyle}"
+          _G._WEB_Intention = "${chosenIntention}"
+          _G._WEB_ModeState = {
+            playstyle = "${chosenPlaystyle}",
+            intention = "${chosenIntention}",
+            wave = 1,
+            maxWaves = 5,
+            waveName = "Wave 1/5: Pit Pigs & Hounds",
+            enemiesLeft = 0,
+            skillCooldown = 0,
+            hangry = 100,
+            craving = "Meat Dish (Meatballs / Meaty Stew)",
+            gnawCoins = 0,
+            targetCoins = 6,
+            resetTimer = 120,
+          }
+
+          if _G._WEB_Playstyle == "lightsout" then
+            if TheWorld and TheWorld.state then
+              TheWorld.state.phase = "night"
+              TheWorld:PushEvent("ms_setphase", "night")
+            end
+            c_give("torch", 1)
+            c_give("log", 4)
+            c_give("cutgrass", 6)
+            _G._WEB_PushNotice("Chế độ Lights Out: Bóng đêm vĩnh cửu bao trùm Constant!")
+          elseif _G._WEB_Playstyle == "relaxed" then
+            c_give("flowerhat", 1)
+            _G._WEB_PushNotice("Chế độ Relaxed: Khám phá thư giãn, hồi sinh tự do tại Cổng!")
+          elseif _G._WEB_Playstyle == "endless" then
+            _G._WEB_PushNotice("Chế độ Endless: Thế giới bất tận, tài nguyên tự tái sinh, hồi sinh tại Cổng!")
+          elseif _G._WEB_Playstyle == "wilderness" then
+            local rx = sx + (math.random() - 0.5) * 32
+            local rz = sz + (math.random() - 0.5) * 32
+            player.Transform:SetPosition(rx, 0, rz)
+            c_give("compass", 1)
+            c_give("berries", 3)
+            _G._WEB_PushNotice("Chế độ Wilderness: Xuất hiện ngẫu nhiên trên bản đồ!")
+          elseif _G._WEB_Playstyle == "lavaarena" then
+            if player.components.inventory then
+              for _, eq_pf in ipairs({ "spear_wathgrithr", "footballhat", "armorwood" }) do
+                local ok_eq, eq = pcall(function() return SpawnPrefab(eq_pf) end)
+                if ok_eq and eq then player.components.inventory:Equip(eq) end
+              end
+              c_give("healingsalve", 3)
+            end
+            for i, foe_pf in ipairs({ "spider", "spider", "hound" }) do
+              TheSim:LoadPrefabs({ foe_pf })
+              local ok_f, foe = pcall(function() return SpawnPrefab(foe_pf) end)
+              if ok_f and foe and foe.Transform then
+                local ang = (i / 3) * 6.2831853
+                foe.Transform:SetPosition(sx + math.cos(ang) * 7.5, 0, sz + math.sin(ang) * 7.5)
+                foe:AddTag("forge_arena_foe")
+              end
+            end
+            _G._WEB_ModeState.enemiesLeft = 3
+            _G._WEB_PushNotice("Chế độ THE FORGE (Lava Arena): Tiêu diệt từng đợt quái vật đấu trường!")
+          elseif _G._WEB_Playstyle == "quagmire" then
+            for i, st_def in ipairs({
+              { pf = "cookpot", dx = 3.2, dz = 0 },
+              { pf = "icebox", dx = 4.8, dz = 0 },
+              { pf = "firepit", dx = 0, dz = 3.2 },
+            }) do
+              local st_ent = SpawnPrefab(st_def.pf)
+              if st_ent and st_ent.Transform then
+                st_ent.Transform:SetPosition(sx + st_def.dx, 0, sz + st_def.dz)
+              end
+            end
+            c_give("meat", 2)
+            c_give("carrot", 2)
+            c_give("berries", 3)
+            c_give("twigs", 2)
+            _G._WEB_PushNotice("Chế độ THE GORGE (Quagmire): Nấu món ăn trong Nồi Hầm và dâng lên Altar of Gnaw!")
+          end
+
           if player.components.talker ~= nil then
             local orig_say = player.components.talker.Say
             player.components.talker.Say = function(self, script, time, noanim, force, nobroadcast, colour, ...)
@@ -2100,6 +2241,7 @@ async function handle(data: any) {
             end
             scene.mods = ModManager and ModManager:GetEnabledServerModNames() or {}
             scene.peers = TheNet and TheNet:GetClientTable() or {}
+            scene.modeState = _G._WEB_ModeState or { playstyle = _G._WEB_Playstyle or "survival" }
             scene.announcements = _G._WEB_Announcements
             scene.soundEvents = _G._WEB_SoundEvents
             _G._WEB_SoundEvents = {}
@@ -2123,6 +2265,63 @@ async function handle(data: any) {
           if GetTick() % 15 == 0 and ThePlayer ~= nil then
             local x, y, z = ThePlayer.Transform:GetWorldPosition()
             WebEntity.UpdateSpatialSleep(x, z, 56, 68)
+            local ms = _G._WEB_ModeState
+            if ms ~= nil then
+              if ms.playstyle == "lightsout" and TheWorld and TheWorld.state then
+                TheWorld.state.phase = "night"
+              elseif ms.playstyle == "relaxed" and ThePlayer.components.health then
+                if ThePlayer.components.health.currenthealth > 0 and ThePlayer.components.health.currenthealth < 15 then
+                  ThePlayer.components.health.currenthealth = 15
+                end
+              elseif ms.playstyle == "lavaarena" then
+                ms.skillCooldown = math.max(0, (ms.skillCooldown or 0) - 0.5)
+                if ThePlayer.components.hunger then ThePlayer.components.hunger.current = ThePlayer.components.hunger.max end
+                if ThePlayer.components.sanity then ThePlayer.components.sanity.current = ThePlayer.components.sanity.max end
+                local alive_foes = 0
+                for _, ent in pairs(Ents) do
+                  if ent:IsValid() and ent:HasTag("forge_arena_foe") and ent.components and ent.components.health and not ent.components.health:IsDead() then
+                    alive_foes = alive_foes + 1
+                  end
+                end
+                ms.enemiesLeft = alive_foes
+                if alive_foes == 0 and (ms.wave or 1) < (ms.maxWaves or 5) then
+                  ms.wave = (ms.wave or 1) + 1
+                  local wave_defs = {
+                    [2] = { name = "Wave 2/5: Crocommanders & Hounds", foes = { "hound", "hound", "spider" } },
+                    [3] = { name = "Wave 3/5: Armored Snortoises", foes = { "spider", "spider", "hound", "hound" } },
+                    [4] = { name = "Wave 4/5: Boarilla Champion", foes = { "pigman", "hound", "hound" } },
+                    [5] = { name = "Wave 5/5: Grand Forge Boarrior", foes = { "deerclops", "hound" } },
+                  }
+                  local wdef = wave_defs[ms.wave] or wave_defs[2]
+                  ms.waveName = wdef.name
+                  for idx, fpf in ipairs(wdef.foes) do
+                    TheSim:LoadPrefabs({ fpf })
+                    local ok_f, foe = pcall(function() return SpawnPrefab(fpf) end)
+                    if ok_f and foe and foe.Transform then
+                      local ang = (idx / #wdef.foes) * 6.2831853
+                      foe.Transform:SetPosition(x + math.cos(ang) * 8.0, 0, z + math.sin(ang) * 8.0)
+                      foe:AddTag("forge_arena_foe")
+                    end
+                  end
+                  ms.enemiesLeft = #wdef.foes
+                  _G._WEB_PushNotice("THE FORGE · " .. ms.waveName .. " đã xuất hiện!")
+                  _G._WEB_PushSound("dontstarve/wilson/attack_weapon", 1.0)
+                elseif alive_foes == 0 and (ms.wave or 1) >= (ms.maxWaves or 5) and not ms.victory then
+                  ms.victory = true
+                  ms.waveName = "VICTORY! Grand Forge Boarrior Defeated!"
+                  _G._WEB_PushNotice("CHIẾN THẮNG ĐẤU TRƯỜNG THE FORGE!")
+                end
+              elseif ms.playstyle == "quagmire" and not ms.victory then
+                ms.hangry = math.max(0, (ms.hangry or 100) - 0.35)
+                if ms.hangry <= 0 then
+                  ms.hangry = 35
+                  _G._WEB_PushNotice("The Gnaw nổi giận! Hãy mau dâng món ăn lên Altar!")
+                  if ThePlayer.components.health then
+                    ThePlayer.components.health:DoDelta(-10)
+                  end
+                end
+              end
+            end
           end
           return _WEB_GameSceneSnapshot()
         `));
@@ -2756,6 +2955,113 @@ async function handle(data: any) {
           evaluate(`
             if TheWorld ~= nil then
               TheWorld:PushEvent("ms_nextphase")
+            end
+          `);
+        } else if (act?.kind === 'forge-skill') {
+          evaluate(`
+            local p = ThePlayer
+            local ms = _G._WEB_ModeState
+            if p ~= nil and p.Transform ~= nil and ms ~= nil then
+              if (ms.skillCooldown or 0) <= 0 then
+                ms.skillCooldown = 6
+                local px, py, pz = p.Transform:GetWorldPosition()
+                local hit_count = 0
+                for _, ent in pairs(Ents) do
+                  if ent ~= p and ent:IsValid() and ent.Transform and ent.components and ent.components.health and not ent.components.health:IsDead() then
+                    if ent:HasTag("forge_arena_foe") or ent:HasTag("monster") or ent:HasTag("hostile") then
+                      local ex, ey, ez = ent.Transform:GetWorldPosition()
+                      local d2 = (ex - px)*(ex - px) + (ez - pz)*(ez - pz)
+                      if d2 <= 100 then
+                        ent.components.health:DoDelta(-65)
+                        hit_count = hit_count + 1
+                      end
+                    end
+                  end
+                end
+                if p.components.health then
+                  p.components.health:DoDelta(35)
+                end
+                if p.AnimState then
+                  p.AnimState:PlayAnimation("atk")
+                  p.AnimState:PushAnimation("idle_loop", true)
+                end
+                _G._WEB_PushSound("dontstarve/wilson/attack_firestaff", 1.0)
+                _G._WEB_Say("Tuyệt kỹ Molten Strike! Đã giáng đòn lên " .. tostring(hit_count) .. " mục tiêu & hồi +35 HP!", 130)
+              else
+                _G._WEB_Say("Kỹ năng đang hồi chiêu (" .. tostring(math.ceil(ms.skillCooldown or 0)) .. "s)!", 90)
+              end
+            end
+          `);
+        } else if (act?.kind === 'gorge-offer') {
+          evaluate(`
+            local p = ThePlayer
+            local inv = p and p.components.inventory
+            local ms = _G._WEB_ModeState
+            if p ~= nil and inv ~= nil and ms ~= nil then
+              local dishes = {
+                { pf = "bonestew", coins = 2, hangry = 55 },
+                { pf = "perogies", coins = 2, hangry = 50 },
+                { pf = "meatballs", coins = 1, hangry = 40 },
+                { pf = "kabobs", coins = 1, hangry = 35 },
+                { pf = "ratatouille", coins = 1, hangry = 35 },
+                { pf = "trailmix", coins = 1, hangry = 35 },
+                { pf = "honeyham", coins = 2, hangry = 55 },
+                { pf = "baconeggs", coins = 2, hangry = 50 },
+                { pf = "cookedmeat", coins = 1, hangry = 25 },
+                { pf = "berries_cooked", coins = 1, hangry = 20 },
+                { pf = "carrot_cooked", coins = 1, hangry = 20 },
+              }
+              local offered = nil
+              for _, d in ipairs(dishes) do
+                if inv:Has(d.pf, 1) then
+                  inv:ConsumeByName(d.pf, 1)
+                  offered = d
+                  break
+                end
+              end
+              if offered ~= nil then
+                ms.hangry = math.min(100, (ms.hangry or 50) + offered.hangry)
+                ms.gnawCoins = (ms.gnawCoins or 0) + offered.coins
+                local cravings = {
+                  "Meat Dish (Meatballs / Meaty Stew)",
+                  "Pierogi or Vegetable Medley",
+                  "Roasted Skewers / Kabobs",
+                  "Sweet Berry Trail Mix",
+                }
+                ms.craving = cravings[((ms.gnawCoins or 0) % #cravings) + 1]
+                _G._WEB_PushSound("dontstarve/HUD/collect_resource", 1.0)
+                if ms.gnawCoins >= (ms.targetCoins or 6) then
+                  ms.victory = true
+                  _G._WEB_PushNotice("CHIẾN THẮNG THE GORGE! The Gnaw đã hài lòng và mở cổng dịch chuyển!")
+                  _G._WEB_Say("The Gnaw đã được xoa dịu hoàn toàn! Chúng ta thắng rồi!", 160)
+                else
+                  _G._WEB_Say("Đã dâng " .. offered.pf .. " lên Altar of Gnaw! (+" .. tostring(offered.coins) .. " Gnaw Coin)", 140)
+                end
+                -- Restock raw ingredients near the player so they can keep cooking
+                c_give("meat", 1)
+                c_give("berries", 2)
+              else
+                _G._WEB_Say("Hãy nấu một món ăn trong Nồi Hầm (Crock Pot) hoặc trên Lửa Trại trước khi dâng lên Altar of Gnaw!", 140)
+              end
+            end
+          `);
+        } else if (act?.kind === 'wilderness-respawn') {
+          const newChar = String(act.character || 'wilson').replace(/[^a-z0-9_]/g, '') || 'wilson';
+          evaluate(`
+            local p = ThePlayer
+            if p ~= nil and p.Transform ~= nil then
+              local portal = TheSim:FindFirstEntityWithTag("multiplayer_portal")
+              local bx, by, bz = 0, 0, 0
+              if portal and portal.Transform then bx, by, bz = portal.Transform:GetWorldPosition() end
+              local rx = bx + (math.random() - 0.5) * 32
+              local rz = bz + (math.random() - 0.5) * 32
+              p.Transform:SetPosition(rx, 0, rz)
+              p.prefab = "${newChar}"
+              if p.AnimState then p.AnimState:SetBuild("${newChar}") end
+              if p.components.health then p.components.health:SetPercent(1) end
+              if p.components.hunger then p.components.hunger:SetPercent(1) end
+              if p.components.sanity then p.components.sanity:SetPercent(1) end
+              _G._WEB_Say("Đã tái sinh tại vị trí ngẫu nhiên mới trong chế độ Wilderness!", 140)
             end
           `);
         }

@@ -127,6 +127,22 @@ export interface WorldClockSnapshot {
   inCaves?: boolean;
 }
 
+export interface ModeStateSnapshot {
+  id: string;
+  name: string;
+  intention?: string;
+  forgeWave?: number;
+  forgeMaxWaves?: number;
+  forgeEnemiesLeft?: number;
+  forgeSkillCooldown?: number;
+  forgeVictory?: boolean;
+  gorgeHangry?: number;
+  gorgeCraving?: string;
+  gorgeCoins?: number;
+  gorgeOfferings?: number;
+  wildernessRespawns?: number;
+}
+
 export interface GameSceneSnapshot {
   tick: number;
   time: number;
@@ -137,6 +153,7 @@ export interface GameSceneSnapshot {
   camera: CameraSnapshot;
   player: PlayerHudSnapshot;
   clock: WorldClockSnapshot;
+  modeState?: ModeStateSnapshot;
   ui?: { rootGuid: number; count: number; nodes: unknown[] };
   announcements?: string[];
   soundEvents?: Array<{ path: string; name?: string; volume?: number; action?: string }>;
