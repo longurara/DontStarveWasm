@@ -618,6 +618,7 @@ async function handle(data: any) {
           'images/global_redux.xml': [
             'button_carny_long_normal.tex', 'button_carny_long_hover.tex', 'button_carny_long_down.tex', 'button_carny_long_disabled.tex',
             'button_carny_xlong_normal.tex', 'button_carny_xlong_hover.tex', 'button_carny_xlong_down.tex',
+            'button_carny_square_normal.tex', 'button_carny_square_hover.tex', 'button_carny_square_down.tex', 'button_carny_square_disabled.tex',
             'char_selection.tex', 'char_selection_hover.tex', 'textbox3_gold_normal.tex', 'close.tex',
             'status_health.tex', 'status_hunger.tex', 'status_sanity.tex',
             'menu_focus.tex as fe_menu_focus', 'menu_selected.tex as fe_menu_selected',
@@ -639,11 +640,36 @@ async function handle(data: any) {
           'images/bg_redux_black_sidebar.xml': [
             'black_sidebar.tex as fe_black_sidebar',
           ],
+          'images/bg_redux_dark_right.xml': [
+            'dark_right.tex as fe_bg_dark_right',
+          ],
+          'images/bg_redux_dark_sidebar.xml': [
+            'dark_sidebar.tex as fe_bg_dark_sidebar',
+          ],
+          'images/bg_redux_dark_bottom_vignette1.xml': [
+            'dark_bottom_vignette1.tex as fe_motd_vignette',
+          ],
           'images/bg_redux_motd_frame_large_gold.xml': [
             'motd_frame_large_gold.tex as fe_motd_frame_large',
           ],
           'images/bg_redux_motd_frame_small_gold.xml': [
             'motd_frame_small_gold.tex as fe_motd_frame_small',
+          ],
+          'images/bg_redux_motd_frame_small_gold2.xml': [
+            'motd_frame_small_gold2.tex as fe_motd_frame_small2',
+          ],
+          'images/motd_fallbacks_box1.xml': [
+            'box1.tex as fe_motd_box1',
+          ],
+          'images/motd_fallbacks_box2.xml': [
+            'box2.tex as fe_motd_box2',
+          ],
+          'images/motd_fallbacks_box3.xml': [
+            'box3.tex as fe_motd_box3',
+          ],
+          'images/options_bg.xml': [
+            'options_panel_bg.tex as fe_options_bg',
+            'options_panel_bg_frame.tex as fe_options_frame',
           ],
           'images/bg_redux_wardrobe_bg.xml': [
             'wardrobe_bg.tex as fe_wardrobe_bg',
@@ -2027,7 +2053,7 @@ async function handle(data: any) {
           end
 
           -- Activate any enabled built-in mods selected in Lobby
-          local enabled_mods = ${JSON.stringify(enabledModsList)}
+          local enabled_mods = { ${enabledModsList.map(m => JSON.stringify(m)).join(', ')} }
           for _, mname in ipairs(enabled_mods) do
             if mname == "fast_work" then
               ModManager:InitializeModMain("fast_work", [[
