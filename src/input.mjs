@@ -46,3 +46,99 @@ export function attachCanvasInput(canvas,send,onError){
   canvas.addEventListener('pointercancel',()=>emit({kind:'reset'}));
   window.addEventListener('blur',()=>emit({kind:'reset'}));
 }
+
+/**
+ * Polls connected HTML5 Gamepad controllers (Xbox / PlayStation / Standard mapping)
+ * and translates left thumbstick / D-Pad to WASD movement and face/shoulder buttons
+ * to Don't Starve Together gameplay actions.
+ */
+export function attachGamepadPoller(onKey, onAction) {
+  if (typeof navigator === 'undefined' || typeof navigator.getGamepads !== 'function') return () => {};
+  const heldKeys = new Set();
+  const prevButtons = new Map();
+  let rafId = 0;
+
+  const setHeldKey = (code, down) => {
+    if (down && !heldKeys.has(code)) {
+      heldKeys.add(code);
+      onKey?.(code, true);
+    } else if (!down && heldKeys.has(code)) {
+      heldKeys.delete(code);
+      onKey?.(code, false);
+    }
+  };
+
+  const poll = () => {
+    const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    const pad = Array.from(pads || []).find(p => p && p.connected);
+    if (pad) {
+      const axX = pad.axes?.[0] ?? 0;
+      const axY = pad.axes?.[1] ?? 0;
+      const dUp = Boolean(pad.buttons?.[12]?.pressed) || axY < -0.28;
+      const dDown = Boolean(pad.buttons?.[13]?.pressed) || axY > 0.28;
+      const dLeft = Boolean(pad.buttons?.[14]?.pressed) || axX < -0.28;
+      const dRight = Boolean(pad.buttons?.[15]?.pressed) || axX > 0.28;
+
+      setHeldKey(119, dUp);    // KEY_W
+      setHeldKey(115, dDown);  // KEY_S
+      setHeldKey(97, dLeft);   // KEY_A
+      setHeldKey(100, dRight); // KEY_D
+
+      const buttonActions = [
+        [0, 'spacebar-action'], // A / Cross: Action / Harvest / Chop / PickUp
+        [2, 'attack-nearest'],  // X / Square: Attack
+        [3, 'inspect-self'],    // Y / Triangle: Inspect Survivor
+        [1, 'escape'],          // B / Circle: Cancel / Pause
+        [4, 'rot-left'],        // LB / L1: Rotate Camera Left
+        [5, 'rot-right'],       // RB / R1: Rotate Camera Right
+        [8, 'toggle-map'],      // Back / Select: MapScreen
+        [9, 'toggle-pause'],    // Start / Options: PauseScreen
+      ];
+      for (const [btnIdx, actName] of buttonActions) {
+        const pressed = Boolean(pad.buttons?.[btnIdx]?.pressed);
+        const wasPressed = Boolean(prevButtons.get(btnIdx));
+        if (pressed && !wasPressed) {
+          onAction?.(actName);
+        }
+        prevButtons.set(btnIdx, pressed);
+      }
+    } else if (heldKeys.size > 0) {
+      for (const code of [...heldKeys]) {
+        heldKeys.delete(code);
+        onKey?.(code, false);
+      }
+    }
+    rafId = requestAnimationFrame(poll);
+  };
+
+  rafId = requestAnimationFrame(poll);
+  return () => cancelAnimationFrame(rafId);
+}
+
+/**
+ * Wires virtual touch D-pad & action buttons for touchscreens / mobile browsers.
+ */
+export function attachTouchControls(rootEl, onKey, onAction) {
+  if (!rootEl) return;
+  const bindTouchKey = (selector, keyCode) => {
+    const el = rootEl.querySelector(selector);
+    if (!el) return;
+    el.addEventListener('pointerdown', e => { e.preventDefault(); onKey?.(keyCode, true); });
+    el.addEventListener('pointerup', e => { e.preventDefault(); onKey?.(keyCode, false); });
+    el.addEventListener('pointercancel', () => onKey?.(keyCode, false));
+    el.addEventListener('pointerleave', () => onKey?.(keyCode, false));
+  };
+  bindTouchKey('[data-touch-key="W"]', 119);
+  bindTouchKey('[data-touch-key="S"]', 115);
+  bindTouchKey('[data-touch-key="A"]', 97);
+  bindTouchKey('[data-touch-key="D"]', 100);
+
+  rootEl.querySelectorAll('[data-touch-action]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault();
+      const act = btn.getAttribute('data-touch-action');
+      if (act) onAction?.(act);
+    });
+  });
+}
+

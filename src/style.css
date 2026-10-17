@@ -1308,3 +1308,55 @@ input, textarea {
   cursor: pointer;
 }
 
+.console-screen-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 92px;
+  transform: translateX(-50%);
+  width: min(740px, 92vw);
+  z-index: 35;
+  background: rgba(16, 12, 9, 0.94);
+  border: 2px solid #9c7a44;
+  border-radius: 8px;
+  padding: 10px 14px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.85);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.console-screen-bar.hidden {
+  display: none !important;
+}
+
+.console-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.console-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.console-input-row input {
+  flex: 1;
+  background: #0d0a07;
+  color: #f6dca0;
+  border: 1px solid #755835;
+  border-radius: 5px;
+  padding: 7px 10px;
+  font-family: Consolas, monospace;
+  font-size: 13px;
+}
+
+.console-output {
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  color: #c7e2b2;
+  min-height: 18px;
+  white-space: pre-wrap;
+}

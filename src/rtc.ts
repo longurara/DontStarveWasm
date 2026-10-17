@@ -12,6 +12,7 @@ export class Room {
   onStatus?: (text: string) => void;
   onInvite?: (invite: string) => void;
   onHostLeft?: () => void;
+  onPeerJoined?: (peer: string) => void;
   onPeerLeft?: (peer: string) => void;
 
   async connect(url: string, iceServers: RTCIceServer[], compatibility: any, invitation?: string) {
@@ -33,17 +34,30 @@ export class Room {
   private sendSignal(message: any) { this.socket.send(JSON.stringify(message)); }
   private attach(peerId: string, channel: RTCDataChannel) {
     const peer = this.peers.get(peerId)!;
+    channel.binaryType = 'arraybuffer';
     if (channel.label === 'reliable') peer.reliable = channel;
     else if (channel.label === 'motion') peer.motion = channel;
     else { channel.close(); return; }
     channel.onopen = () => {
       this.onStatus?.(`WebRTC connected: ${peerId}`);
-      if(channel.label==='reliable')channel.send(JSON.stringify({type:'hello',compatibility:this.compatibility}));
+      if(channel.label==='reliable'){
+        channel.send(JSON.stringify({type:'hello',compatibility:this.compatibility}));
+        this.onPeerJoined?.(peerId);
+      }
     };
     channel.onmessage = event => {
       try {
-        if (typeof event.data !== 'string' || event.data.length > 65536) throw new Error('Invalid peer message size');
-        const data=JSON.parse(event.data);
+        let rawText: string;
+        if (event.data instanceof ArrayBuffer) {
+          if (event.data.byteLength > 262144) throw new Error('Invalid binary peer message size');
+          rawText = new TextDecoder().decode(new Uint8Array(event.data));
+        } else if (typeof event.data === 'string') {
+          if (event.data.length > 262144) throw new Error('Invalid peer message size');
+          rawText = event.data;
+        } else {
+          throw new Error('Unsupported peer message payload');
+        }
+        const data=JSON.parse(rawText);
         if(data.type==='hello') {assertCompatibility(data.compatibility,this.compatibility);this.onMessage?.(peerId,data);return;}
         this.onMessage?.(peerId,data);
       } catch (error) { this.onStatus?.(`Peer rejected: ${String(error)}`); }
@@ -97,8 +111,18 @@ export class Room {
     if(channel.bufferedAmount>256*1024)return false;
     channel.send(JSON.stringify(message));return true;
   }
+  sendMotion(peerId:string,message:any) {
+    const peer=this.peers.get(peerId);
+    const channel=peer?.motion?.readyState==='open'?peer.motion:peer?.reliable;
+    if(channel?.readyState!=='open'||channel.bufferedAmount>256*1024)return false;
+    const bytes=new TextEncoder().encode(JSON.stringify(message));
+    channel.send(bytes.buffer);
+    return true;
+  }
   sendHost(message:any){return this.send(this.hostId,message);}
   broadcast(message:any){for(const id of this.peers.keys())this.send(id,message);}
+  broadcastMotion(message:any){for(const id of this.peers.keys())this.sendMotion(id,message);}
+  getPeerIds():string[]{return [...this.peers.entries()].filter(([,p])=>p.reliable?.readyState==='open').map(([id])=>id);}
   get connectedPeers(){return [...this.peers.values()].filter(p=>p.reliable?.readyState==='open').length;}
   close(){this.closed=true;for(const p of this.peers.values())p.pc.close();this.peers.clear();this.socket?.close();}
 }

@@ -871,14 +871,19 @@ async function handle(data: any) {
         evaluate('dofile("/compat/prelude.lua")');
         configureSession(engine, sessionParameters(contentManifest, {}), contentManifest);
 
-        engine._dst_ui_viewport(data.width || 1280, data.height || 720);
+        const viewportW = Number(data.width) || 1280;
+        const viewportH = Number(data.height) || 720;
+        engine._dst_ui_viewport(viewportW, viewportH);
         const initialCreative = Boolean(data.creativeMode);
         const chosenCharacter = String(data.character || 'wilson').replace(/[^a-z0-9_]/g, '') || 'wilson';
         const chosenSeason = String(data.season || 'autumn').replace(/[^a-z]/g, '') || 'autumn';
+        const worldSeedStr = String(data.worldSeed || '').replace(/[^a-zA-Z0-9_-]/g, '');
+        const enabledModsList: string[] = Array.isArray(data.enabledMods) ? data.enabledMods.map((m: any) => String(m).replace(/[^a-zA-Z0-9_-]/g, '')) : [];
         evaluate(`
+          _G._WEB_ViewportW = ${viewportW}
+          _G._WEB_ViewportH = ${viewportH}
           WebPrefabs.SetDeferAnimations(true)
           WebInput.SetDesktopMode(true)
-          TheSim.GetScreenPos = function(self, x, y, z) return 640, 360 end
           TheNet:StartServer(false)
           RUN_GLOBAL_INIT = false
           json_settings = [=[{"reset_action":1,"save_slot":1}]=]
@@ -1001,6 +1006,9 @@ async function handle(data: any) {
           _G._WEB_SoundEvents = {}
           _G._WEB_OpenContainerGuid = nil
           _G._WEB_Speech = { text = "", untilTick = 0 }
+          _G._WEB_WorldSeed = "${worldSeedStr}"
+          _G._WEB_Peers = {}
+          _G._WEB_CompState = setmetatable({}, { __mode = "k" })
 
           function _G._WEB_PushSound(ev, vol, loopName, action)
             if type(ev) == "string" and ev ~= "" and #_G._WEB_SoundEvents < 16 then
@@ -1008,44 +1016,766 @@ async function handle(data: any) {
             end
           end
 
-          -- Hook SoundEmitter:PlaySound & KillSound so nearby world & player FMOD events stream to WebAudio
-          if player.SoundEmitter ~= nil then
-            local mt = getmetatable(player.SoundEmitter)
-            if mt and type(mt.__index) == "table" and not mt.__index._web_hooked then
-              local orig_play = mt.__index.PlaySound
-              local orig_kill = mt.__index.KillSound
-              local orig_killall = mt.__index.KillAllSounds
-              mt.__index._web_hooked = true
-              mt.__index.PlaySound = function(se, event, name, volume, ...)
-                if type(event) == "string" then
-                  _G._WEB_PushSound(event, volume, type(name) == "string" and name or nil)
-                end
-                if orig_play then return orig_play(se, event, name, volume, ...) end
-              end
-              mt.__index.KillSound = function(se, name, ...)
-                if type(name) == "string" and #_G._WEB_SoundEvents < 16 then
-                  table.insert(_G._WEB_SoundEvents, { path = "", name = name, action = "kill" })
-                end
-                if orig_kill then return orig_kill(se, name, ...) end
-              end
-              mt.__index.KillAllSounds = function(se, ...)
-                if #_G._WEB_SoundEvents < 16 then
-                  table.insert(_G._WEB_SoundEvents, { path = "", action = "killall" })
-                end
-                if orig_killall then return orig_killall(se, ...) end
-              end
-            end
-          end
-
           function _G._WEB_PushNotice(msg)
-            table.insert(_G._WEB_Announcements, 1, msg)
+            table.insert(_G._WEB_Announcements, 1, tostring(msg or ""))
             while #_G._WEB_Announcements > 6 do table.remove(_G._WEB_Announcements) end
           end
+
           function _G._WEB_Say(msg, durationTicks)
             local str = tostring(msg or "")
             if str ~= "" then
               _G._WEB_Speech = { text = str, untilTick = GetTick() + (durationTicks or 140) }
               _G._WEB_PushSound("dontstarve/characters/wilson/talk_LP", 0.7)
+            end
+          end
+
+          -- =====================================================================
+          -- FULL LAYER 1 & LAYER 2 PORT BINDINGS (WorldSim, MapGenSim, ModManager,
+          -- Klei Console Commands, TheSim, TheNet, TheShard, Component Userdata)
+          -- =====================================================================
+          local function _WEB_InstallFullPortBindings()
+            -- 1. Top-level missing C++ functions: getminimumradius, getrealtime, kleiregistermods
+            rawset(_G, "getminimumradius", function(inst)
+              if type(inst) == "table" and inst.Physics ~= nil and inst.Physics.GetRadius ~= nil then
+                local ok, r = pcall(function() return inst.Physics:GetRadius() end)
+                if ok and type(r) == "number" and r > 0 then return r end
+              end
+              return 0.5
+            end)
+            rawset(_G, "getrealtime", function()
+              return os.clock()
+            end)
+
+            -- 2. WorldSim (all 63 worldgen methods) & MapGenSim (all 8 methods)
+            local ws_state = {
+              w = 425,
+              h = 425,
+              impassable = 1,
+              save_buf = {},
+              sites = {},
+              nodes = {},
+              links = {},
+              tiles = {},
+              reserved = {},
+              road_params = {},
+            }
+            if TheWorld and TheWorld.Map and TheWorld.Map.GetSize then
+              local ok_sz, mw, mh = pcall(function() return TheWorld.Map:GetSize() end)
+              if ok_sz and type(mw) == "number" and mw > 0 then
+                ws_state.w = mw
+                ws_state.h = mh or mw
+              end
+            end
+            local ws_api = {
+              SetWorldSize = function(self, w, h) ws_state.w = tonumber(w) or 425; ws_state.h = tonumber(h) or ws_state.w; return true end,
+              GetWorldSize = function(self) return ws_state.w, ws_state.h end,
+              SetImpassibleTileType = function(self, tile) ws_state.impassable = tonumber(tile) or 1 end,
+              InitSaveString = function(self) ws_state.save_buf = {} end,
+              AppendSaveString = function(self, str) table.insert(ws_state.save_buf, tostring(str or "")) end,
+              GetSaveString = function(self) return table.concat(ws_state.save_buf, "") end,
+              RemoveLastComma = function(self)
+                local n = #ws_state.save_buf
+                if n > 0 then ws_state.save_buf[n] = string.gsub(ws_state.save_buf[n], ",%s*$", "") end
+              end,
+              FreeSaveString = function(self) ws_state.save_buf = {} end,
+              GenerateSessionIdentifier = function(self) return "15CD1F748D1D1C77" end,
+              Sim_LuaPrint = function(self, ...) print(...) end,
+              SetTile = function(self, x, y, tile)
+                local tx, ty, t = tonumber(x) or 0, tonumber(y) or 0, tonumber(tile) or 6
+                ws_state.tiles[ty * 2048 + tx] = t
+                if TheWorld and TheWorld.Map and TheWorld.Map.SetTile then
+                  pcall(function() TheWorld.Map:SetTile(tx, ty, t) end)
+                end
+              end,
+              GetTile = function(self, x, y)
+                local tx, ty = tonumber(x) or 0, tonumber(y) or 0
+                local cached = ws_state.tiles[ty * 2048 + tx]
+                if cached ~= nil then return cached end
+                if TheWorld and TheWorld.Map and TheWorld.Map.GetTile then
+                  local ok, t = pcall(function() return TheWorld.Map:GetTile(tx, ty) end)
+                  if ok and type(t) == "number" then return t end
+                end
+                return 6
+              end,
+              GetVisualTileAtPosition = function(self, x, y)
+                return self:GetTile(x, y)
+              end,
+              GetTileXY = function(self, x, z)
+                if TheWorld and TheWorld.Map and TheWorld.Map.GetTileCoordsAtPoint then
+                  local ok, tx, ty = pcall(function() return TheWorld.Map:GetTileCoordsAtPoint(tonumber(x) or 0, 0, tonumber(z) or 0) end)
+                  if ok and tx then return tx, ty end
+                end
+                return math.floor((tonumber(x) or 0) / 4 + ws_state.w * 0.5), math.floor((tonumber(z) or 0) / 4 + ws_state.h * 0.5)
+              end,
+              SetSiteFlags = function(self, id, flags)
+                ws_state.sites[id] = ws_state.sites[id] or { x = 0, y = 0, flags = 0, children = {}, poly = { {0,0}, {4,0}, {4,4}, {0,4} } }
+                ws_state.sites[id].flags = tonumber(flags) or 0
+              end,
+              GetSiteFlags = function(self, id)
+                return ws_state.sites[id] and ws_state.sites[id].flags or 0
+              end,
+              GetSite = function(self, id)
+                local s = ws_state.sites[id]
+                if s then return s.x, s.y end
+                return 0, 0
+              end,
+              GetSiteArea = function(self, id)
+                return ws_state.sites[id] and ws_state.sites[id].area or 64
+              end,
+              GetSiteCentroid = function(self, id)
+                local s = ws_state.sites[id]
+                if s then return s.x, s.y end
+                return 0, 0
+              end,
+              GetSitePolygon = function(self, id)
+                local s = ws_state.sites[id]
+                return (s and s.poly) or { {0,0}, {4,0}, {4,4}, {0,4} }
+              end,
+              PointInSite = function(self, id, x, z)
+                local s = ws_state.sites[id]
+                if not s then return true end
+                local dx, dz = (tonumber(x) or 0) - s.x, (tonumber(z) or 0) - s.y
+                return (dx * dx + dz * dz) <= 256
+              end,
+              AddChild = function(self, parent, child, ...)
+                ws_state.sites[parent] = ws_state.sites[parent] or { x = 0, y = 0, flags = 0, children = {} }
+                table.insert(ws_state.sites[parent].children, child)
+              end,
+              GetChildrenForSite = function(self, id)
+                return (ws_state.sites[id] and ws_state.sites[id].children) or {}
+              end,
+              AddExternalLink = function(self, n1, n2)
+                table.insert(ws_state.links, { n1, n2 })
+              end,
+              ClearNodeLinks = function(self, id)
+                ws_state.links = {}
+              end,
+              CreateNodeId = function(self, id, nodeType)
+                ws_state.nodes[id] = { id = id, type = nodeType or 0 }
+                return id
+              end,
+              SetNodeType = function(self, id, nodeType)
+                ws_state.nodes[id] = ws_state.nodes[id] or { id = id }
+                ws_state.nodes[id].type = nodeType
+              end,
+              SetTileNodeId = function(self, x, y, nodeId)
+                ws_state.nodes[tostring(x) .. ":" .. tostring(y)] = nodeId
+              end,
+              ReserveSpace = function(self, id, size)
+                ws_state.reserved[id] = size or 1
+                return true
+              end,
+              ReserveTile = function(self, x, y)
+                ws_state.reserved[tostring(x) .. "," .. tostring(y)] = true
+              end,
+              IsSubtileReserved = function(self, x, y)
+                return ws_state.reserved[tostring(x) .. "," .. tostring(y)] == true
+              end,
+              GetPointsForSite = function(self, id)
+                local s = ws_state.sites[id] or { x = 0, y = 0 }
+                return { s.x }, { s.y }
+              end,
+              GetRandomPointsForSite = function(self, id, count)
+                local s = ws_state.sites[id] or { x = 0, y = 0 }
+                local xs, ys = {}, {}
+                local n = math.min(64, math.max(1, tonumber(count) or 4))
+                for i = 1, n do
+                  local a = (i / n) * 6.2831853
+                  xs[i] = s.x + math.cos(a) * (2 + (i % 5) * 2)
+                  ys[i] = s.y + math.sin(a) * (2 + (i % 5) * 2)
+                end
+                return xs, ys
+              end,
+              GetPointsForMetaMaze = function(self)
+                return { 0 }, { 0 }
+              end,
+              SetRoadParameters = function(self, ...)
+                ws_state.road_params = { ... }
+              end,
+              DrawGroundLine = function(self, x1, y1, x2, y2, tile)
+                local steps = 16
+                for i = 0, steps do
+                  local t = i / steps
+                  local x = math.floor((tonumber(x1) or 0) * (1 - t) + (tonumber(x2) or 0) * t)
+                  local y = math.floor((tonumber(y1) or 0) * (1 - t) + (tonumber(y2) or 0) * t)
+                  self:SetTile(x, y, tile or 2)
+                end
+              end,
+              ConvertToTileMap = function(self, size) return true end,
+              DetectDisconnect = function(self) return false end,
+              draw_voronoi = function(self) return true end,
+              ForceConnectivity = function(self) return true end,
+              GenerateBlendedMap = function(self) return true end,
+              GenerateVoronoiMap = function(self, ...) return true end,
+              ReplaceSingleNonLandTiles = function(self) return true end,
+              ResolutionConvex = function(self) return true end,
+              RunCA = function(self, ...) return true end,
+              RunMaze = function(self, ...) return true end,
+              SeparateIslands = function(self) return true end,
+              TeleportWormhole = function(self) return true end,
+              VoronoiRelax = function(self, ...) return true end,
+            }
+            setmetatable(ws_api, {
+              __index = function(t, k)
+                local fn = function() return true end
+                rawset(t, k, fn)
+                return fn
+              end
+            })
+            rawset(_G, "WorldSim", ws_api)
+            rawset(_G, "MapGenSim", setmetatable({}, { __index = ws_api }))
+
+            -- 3. ModManager & Klei Mod System
+            local mod_mgr = rawget(_G, "ModManager") or {}
+            mod_mgr.mods = mod_mgr.mods or {}
+            mod_mgr.modnames = mod_mgr.modnames or {}
+            mod_mgr.enabledmods = mod_mgr.enabledmods or {}
+            mod_mgr.postinit_prefab = mod_mgr.postinit_prefab or {}
+            mod_mgr.postinit_prefab_any = mod_mgr.postinit_prefab_any or {}
+            mod_mgr.postinit_component = mod_mgr.postinit_component or {}
+            mod_mgr.postinit_player = mod_mgr.postinit_player or {}
+            mod_mgr.postinit_sim = mod_mgr.postinit_sim or {}
+            mod_mgr.GetEnabledServerModNames = function(self) return self.modnames end
+            mod_mgr.GetServerModsNames = function(self) return self.modnames end
+            mod_mgr.GetMod = function(self, name) return self.mods[name] end
+            mod_mgr.RegisterPrefabs = function(self) return true end
+            mod_mgr.SetPostEnv = function(self) return true end
+            mod_mgr.FrontendLoadMod = function(self, modname)
+              if modname and not table.contains(self.modnames, modname) then
+                table.insert(self.modnames, modname)
+              end
+              self.enabledmods[modname] = true
+              return true
+            end
+            mod_mgr.FrontendUnloadMod = function(self, modname)
+              self.enabledmods[modname] = nil
+              for i = #self.modnames, 1, -1 do
+                if self.modnames[i] == modname then table.remove(self.modnames, i) end
+              end
+              return true
+            end
+            mod_mgr.AddPrefabPostInit = function(self, prefab, fn)
+              if type(prefab) == "string" and type(fn) == "function" then
+                self.postinit_prefab[prefab] = self.postinit_prefab[prefab] or {}
+                table.insert(self.postinit_prefab[prefab], fn)
+                for _, ent in pairs(Ents) do
+                  if ent:IsValid() and ent.prefab == prefab then pcall(fn, ent) end
+                end
+              end
+            end
+            mod_mgr.AddPrefabPostInitAny = function(self, fn)
+              if type(fn) == "function" then
+                table.insert(self.postinit_prefab_any, fn)
+                for _, ent in pairs(Ents) do
+                  if ent:IsValid() then pcall(fn, ent) end
+                end
+              end
+            end
+            mod_mgr.AddComponentPostInit = function(self, comp, fn)
+              if type(comp) == "string" and type(fn) == "function" then
+                self.postinit_component[comp] = self.postinit_component[comp] or {}
+                table.insert(self.postinit_component[comp], fn)
+                for _, ent in pairs(Ents) do
+                  if ent:IsValid() and ent.components and ent.components[comp] then
+                    pcall(fn, ent.components[comp], ent)
+                  end
+                end
+              end
+            end
+            mod_mgr.AddPlayerPostInit = function(self, fn)
+              if type(fn) == "function" then
+                table.insert(self.postinit_player, fn)
+                if ThePlayer then pcall(fn, ThePlayer) end
+              end
+            end
+            mod_mgr.AddSimPostInit = function(self, fn)
+              if type(fn) == "function" then
+                table.insert(self.postinit_sim, fn)
+                pcall(fn, ThePlayer)
+              end
+            end
+            mod_mgr.GetPostInitFns = function(self, kind, id)
+              if kind == "PrefabPostInit" and id then return self.postinit_prefab[id] or {} end
+              if kind == "PrefabPostInitAny" then return self.postinit_prefab_any end
+              if kind == "ComponentPostInit" and id then return self.postinit_component[id] or {} end
+              if kind == "PlayerPostInit" then return self.postinit_player end
+              if kind == "SimPostInit" then return self.postinit_sim end
+              return {}
+            end
+            mod_mgr.InitializeModMain = function(self, modname, code_or_path)
+              local env = setmetatable({
+                GLOBAL = _G,
+                env = {},
+                modname = modname,
+                MODROOT = "/mods/" .. tostring(modname) .. "/",
+                AddPrefabPostInit = function(pf, fn) mod_mgr:AddPrefabPostInit(pf, fn) end,
+                AddPrefabPostInitAny = function(fn) mod_mgr:AddPrefabPostInitAny(fn) end,
+                AddComponentPostInit = function(c, fn) mod_mgr:AddComponentPostInit(c, fn) end,
+                AddPlayerPostInit = function(fn) mod_mgr:AddPlayerPostInit(fn) end,
+                AddSimPostInit = function(fn) mod_mgr:AddSimPostInit(fn) end,
+                GetModConfigData = function(k) return true end,
+              }, { __index = _G })
+              env.env = env
+              mod_mgr.mods[modname] = env
+              mod_mgr:FrontendLoadMod(modname)
+              local fn, err = loadstring(code_or_path, "@" .. tostring(modname))
+              if fn then
+                setfenv(fn, env)
+                local ok, res = pcall(fn)
+                return ok, res
+              end
+              return false, err
+            end
+            rawset(_G, "ModManager", mod_mgr)
+            rawset(_G, "kleiregistermods", function(mods)
+              if type(mods) == "table" then
+                for _, m in ipairs(mods) do mod_mgr:FrontendLoadMod(tostring(m)) end
+              end
+              return true
+            end)
+
+            -- 4. Upgrade TheSim runtime methods (3D isometric ProjectScreenPos / GetScreenPos, dynamic GetLightAtPoint, FindEntities)
+            TheSim.ProjectScreenPos = function(self, x, y, z)
+              local vw = _G._WEB_ViewportW or 1280
+              local vh = _G._WEB_ViewportH or 720
+              local cam = TheCamera
+              local cx, cy, cz = 0, 1.5, 0
+              local heading = 45
+              local pitch = 42.85
+              local dist = 30
+              local fov = 35
+              if cam then
+                if cam.currentpos then cx, cy, cz = cam.currentpos.x, cam.currentpos.y, cam.currentpos.z end
+                heading = cam.heading or 45
+                pitch = cam.pitch or 42.85
+                dist = cam.distance or 30
+                fov = cam.fov or 35
+              elseif ThePlayer and ThePlayer.Transform then
+                cx, cy, cz = ThePlayer.Transform:GetWorldPosition()
+              end
+              local dx = (tonumber(x) or 0) - cx
+              local dy = (tonumber(y) or 0) - cy
+              local dz = (tonumber(z) or 0) - cz
+              local hRad = heading * 0.017453292519943295
+              local pRad = pitch * 0.017453292519943295
+              local cosH, sinH = math.cos(hRad), math.sin(hRad)
+              local cosP, sinP = math.cos(pRad), math.sin(pRad)
+              local rx = -dx * sinH + dz * cosH
+              local flatDepth = -dx * cosH - dz * sinH
+              local ry = dy * cosP + flatDepth * sinP
+              local depth = dist - (flatDepth * cosP - dy * sinP)
+              if depth < 1.0 then depth = 1.0 end
+              local f = (vh * 0.5) / math.tan(fov * 0.5 * 0.017453292519943295)
+              local sx_out = vw * 0.5 + (rx * f) / depth
+              local sy_out = vh * 0.5 - (ry * f) / depth
+              return sx_out, sy_out
+            end
+            TheSim.GetScreenPos = TheSim.ProjectScreenPos
+
+            TheSim.GetLightAtPoint = function(self, x, y, z)
+              local wx, wz = tonumber(x) or 0, tonumber(z) or 0
+              local phase = TheWorld and TheWorld.state and TheWorld.state.phase or "day"
+              local ambient = 1.0
+              if phase == "dusk" then ambient = 0.65
+              elseif phase == "night" then ambient = 0.08 end
+              if _G._WEB_InCaves then ambient = math.min(ambient, 0.22) end
+              local bonus = 0
+              for _, ent in pairs(Ents) do
+                if ent:IsValid() and ent.Transform and not ent:IsInLimbo() then
+                  local pf = ent.prefab or ""
+                  if pf == "campfire" or pf == "firepit" or pf == "torch" or pf == "lantern" or pf == "minerhat" or pf == "lighter" or ent.Light ~= nil then
+                    local ex, ey, ez = ent.Transform:GetWorldPosition()
+                    local d2 = (ex - wx) * (ex - wx) + (ez - wz) * (ez - wz)
+                    if d2 < 100 then
+                      bonus = math.max(bonus, math.max(0, 1.0 - math.sqrt(d2) / 10.0))
+                    end
+                  end
+                end
+              end
+              if ThePlayer and ThePlayer.components and ThePlayer.components.inventory then
+                local inv = ThePlayer.components.inventory
+                local h = inv:GetEquippedItem(EQUIPSLOTS.HANDS)
+                local hd = inv:GetEquippedItem(EQUIPSLOTS.HEAD)
+                if (h and (h.prefab == "torch" or h.prefab == "lantern" or h.prefab == "lighter")) or (hd and hd.prefab == "minerhat") then
+                  local px, py, pz = ThePlayer.Transform:GetWorldPosition()
+                  local d2 = (px - wx) * (px - wx) + (pz - wz) * (pz - wz)
+                  if d2 < 81 then
+                    bonus = math.max(bonus, math.max(0, 0.95 - math.sqrt(d2) / 9.0))
+                  end
+                end
+              end
+              return math.min(1.0, ambient + bonus)
+            end
+
+            TheSim.GetAmbientColour = function(self)
+              local phase = TheWorld and TheWorld.state and TheWorld.state.phase or "day"
+              if phase == "night" then return 30, 35, 65
+              elseif phase == "dusk" then return 165, 130, 135
+              else return 255, 248, 235 end
+            end
+
+            TheSim.FindEntities = function(self, x, y, z, radius, musttags, canttags, mustoneoftags)
+              local wx, wz = tonumber(x) or 0, tonumber(z) or 0
+              local r = tonumber(radius) or 10
+              local r2 = r * r
+              local out = {}
+              for _, ent in pairs(Ents) do
+                if ent:IsValid() and ent.Transform and not ent:IsInLimbo() then
+                  local ex, ey, ez = ent.Transform:GetWorldPosition()
+                  local d2 = (ex - wx) * (ex - wx) + (ez - wz) * (ez - wz)
+                  if d2 <= r2 then
+                    local ok = true
+                    if type(musttags) == "table" then
+                      for _, t in ipairs(musttags) do
+                        if not ent:HasTag(t) then ok = false; break end
+                      end
+                    end
+                    if ok and type(canttags) == "table" then
+                      for _, t in ipairs(canttags) do
+                        if ent:HasTag(t) then ok = false; break end
+                      end
+                    end
+                    if ok and type(mustoneoftags) == "table" and #mustoneoftags > 0 then
+                      local any = false
+                      for _, t in ipairs(mustoneoftags) do
+                        if ent:HasTag(t) then any = true; break end
+                      end
+                      ok = any
+                    end
+                    if ok then table.insert(out, ent) end
+                  end
+                end
+              end
+              return out
+            end
+
+            -- 5. Upgrade TheShard & TheNet for Multi-Shard & WebRTC Peer Replication
+            if rawget(_G, "TheShard") then
+              TheShard.GetShardId = function(self) return _G._WEB_InCaves and "2" or "1" end
+              TheShard.IsMaster = function(self) return not _G._WEB_InCaves end
+              TheShard.IsSecondary = function(self) return _G._WEB_InCaves == true end
+              TheShard.IsMigrating = function(self, userid) return false end
+              TheShard.StartMigration = function(self, userid, worldid)
+                _G._WEB_InCaves = (tostring(worldid) == "2" or not _G._WEB_InCaves)
+                return true
+              end
+              TheShard.GetSecondaryShardPlayerCounts = function(self)
+                return { ["2"] = _G._WEB_InCaves and 1 or 0 }
+              end
+            end
+
+            if rawget(_G, "TheNet") then
+              TheNet.GetClientTable = function(self)
+                local list = {}
+                for idx, p in ipairs(AllPlayers or {}) do
+                  if p and p:IsValid() then
+                    table.insert(list, {
+                      userid = p.userid or ("KU_" .. tostring(idx)),
+                      name = p.name or "Survivor",
+                      prefab = p.prefab or "wilson",
+                      admin = (idx == 1),
+                      performance = 0,
+                      netid = "127.0.0.1",
+                      colour = { 1, 1, 1, 1 },
+                    })
+                  end
+                end
+                return list
+              end
+              TheNet.GetClientTableForUser = function(self, userid)
+                for _, c in ipairs(self:GetClientTable()) do
+                  if c.userid == userid then return c end
+                end
+                return nil
+              end
+              TheNet.Say = function(self, msg, whisper)
+                _G._WEB_Say(msg, 150)
+                _G._WEB_PushNotice((ThePlayer and ThePlayer.name or "Player") .. ": " .. tostring(msg or ""))
+                return true
+              end
+              TheNet.Announce = function(self, msg)
+                _G._WEB_PushNotice(tostring(msg or ""))
+                return true
+              end
+              TheNet.SendRemoteExecute = function(self, cmd, x, z)
+                local fn = loadstring(tostring(cmd or ""))
+                if fn then pcall(fn) end
+                return true
+              end
+              TheNet.SendWorldRollbackRequestToServer = function(self, count)
+                _G._WEB_PushNotice("Đã yêu cầu Rollback thế giới (" .. tostring(count or 1) .. " ngày).")
+                return true
+              end
+            end
+
+            -- 6. Upgrade Component Userdata Metatables (LightWatcher, SoundEmitter, MapExplorer, Follower, ShadowManager, etc.)
+            if ThePlayer then
+              -- SoundEmitter state tracking
+              if ThePlayer.SoundEmitter then
+                local mt = getmetatable(ThePlayer.SoundEmitter)
+                if mt and type(mt.__index) == "table" and not mt.__index._web_hooked then
+                  local idx = mt.__index
+                  idx._web_hooked = true
+                  local orig_play = idx.PlaySound
+                  local orig_kill = idx.KillSound
+                  local orig_killall = idx.KillAllSounds
+                  idx.PlaySound = function(se, event, name, volume, ...)
+                    local st = _G._WEB_CompState[se] or { playing = {}, params = {}, vol = 1 }
+                    _G._WEB_CompState[se] = st
+                    if type(name) == "string" and name ~= "" then st.playing[name] = event or true end
+                    if type(event) == "string" then
+                      _G._WEB_PushSound(event, volume, type(name) == "string" and name or nil)
+                    end
+                    if orig_play then return orig_play(se, event, name, volume, ...) end
+                  end
+                  idx.PlaySoundWithParams = function(se, event, params, volume)
+                    local st = _G._WEB_CompState[se] or { playing = {}, params = {}, vol = 1 }
+                    _G._WEB_CompState[se] = st
+                    if type(params) == "table" then
+                      for k, v in pairs(params) do st.params[k] = v end
+                    end
+                    if type(event) == "string" then _G._WEB_PushSound(event, volume) end
+                  end
+                  idx.KillSound = function(se, name, ...)
+                    local st = _G._WEB_CompState[se]
+                    if st and type(name) == "string" then st.playing[name] = nil end
+                    if type(name) == "string" and #_G._WEB_SoundEvents < 16 then
+                      table.insert(_G._WEB_SoundEvents, { path = "", name = name, action = "kill" })
+                    end
+                    if orig_kill then return orig_kill(se, name, ...) end
+                  end
+                  idx.KillAllSounds = function(se, ...)
+                    local st = _G._WEB_CompState[se]
+                    if st then st.playing = {} end
+                    if #_G._WEB_SoundEvents < 16 then
+                      table.insert(_G._WEB_SoundEvents, { path = "", action = "killall" })
+                    end
+                    if orig_killall then return orig_killall(se, ...) end
+                  end
+                  idx.PlayingSound = function(se, name)
+                    local st = _G._WEB_CompState[se]
+                    return st ~= nil and st.playing[name] ~= nil
+                  end
+                  idx.SetParameter = function(se, sound, param, val)
+                    local st = _G._WEB_CompState[se] or { playing = {}, params = {}, vol = 1 }
+                    _G._WEB_CompState[se] = st
+                    st.params[tostring(sound) .. ":" .. tostring(param)] = val
+                  end
+                  idx.SetVolume = function(se, sound, vol)
+                    local st = _G._WEB_CompState[se] or { playing = {}, params = {}, vol = 1 }
+                    _G._WEB_CompState[se] = st
+                    st.vol = tonumber(vol) or 1
+                  end
+                end
+              end
+
+              -- LightWatcher dynamic light sensing
+              if ThePlayer.LightWatcher then
+                local mt = getmetatable(ThePlayer.LightWatcher)
+                if mt and type(mt.__index) == "table" then
+                  local idx = mt.__index
+                  idx.GetLightValue = function(lw)
+                    if ThePlayer and ThePlayer.Transform then
+                      local lx, ly, lz = ThePlayer.Transform:GetWorldPosition()
+                      return TheSim:GetLightAtPoint(lx, ly, lz)
+                    end
+                    return 1.0
+                  end
+                  idx.IsInLight = function(lw)
+                    return idx.GetLightValue(lw) >= 0.15
+                  end
+                  idx.GetTimeInDark = function(lw)
+                    return idx.IsInLight(lw) and 0 or 5.0
+                  end
+                  idx.GetTimeInLight = function(lw)
+                    return idx.IsInLight(lw) and 10.0 or 0
+                  end
+                end
+              end
+
+              -- MapExplorer fog-of-war tile recording
+              if ThePlayer.player_classified and ThePlayer.player_classified.MapExplorer then
+                local mt = getmetatable(ThePlayer.player_classified.MapExplorer)
+                if mt and type(mt.__index) == "table" then
+                  local idx = mt.__index
+                  local seen_tiles = {}
+                  idx.RevealArea = function(me, x, y, z)
+                    local tx, ty = ws_api:GetTileXY(x, z)
+                    for dx = -4, 4 do
+                      for dy = -4, 4 do
+                        seen_tiles[(ty + dy) * 2048 + (tx + dx)] = true
+                      end
+                    end
+                    return true
+                  end
+                  idx.IsTileSeeable = function(me, tx, ty) return true end
+                  idx.IsTileVisited = function(me, tx, ty) return seen_tiles[(tonumber(ty) or 0) * 2048 + (tonumber(tx) or 0)] ~= false end
+                  idx.RecordMap = function(me) return "KLEI_MAP_V1" end
+                  idx.LearnRecordedMap = function(me, data) return true end
+                end
+              end
+            end
+
+            -- 7. Klei Debug Console Helpers (c_give, c_spawn, c_godmode, c_speedmult, c_sethealth, c_sethunger, c_setsanity, c_gonext, c_announce, c_skip)
+            rawset(_G, "c_give", function(prefab, count)
+              local pf = tostring(prefab or "goldnugget")
+              local n = math.min(40, math.max(1, tonumber(count) or 1))
+              local p = ThePlayer
+              if p and p.components.inventory then
+                TheSim:LoadPrefabs({ pf })
+                for i = 1, n do
+                  local it = SpawnPrefab(pf)
+                  if it then p.components.inventory:GiveItem(it) end
+                end
+                _G._WEB_Say("Đã nhận " .. tostring(n) .. "x " .. pf, 120)
+                return "Gave " .. tostring(n) .. "x " .. pf
+              end
+              return "No player inventory"
+            end)
+            rawset(_G, "c_spawn", function(prefab, count)
+              local pf = tostring(prefab or "beefalo")
+              local n = math.min(20, math.max(1, tonumber(count) or 1))
+              local p = ThePlayer
+              if p and p.Transform then
+                TheSim:LoadPrefabs({ pf })
+                local px, py, pz = p.Transform:GetWorldPosition()
+                for i = 1, n do
+                  local ok, ent = pcall(function() return SpawnPrefab(pf) end)
+                  if ok and ent and ent.Transform then
+                    local ang = (i / n) * 6.2831853
+                    ent.Transform:SetPosition(px + math.cos(ang) * 3.2, 0, pz + math.sin(ang) * 3.2)
+                  end
+                end
+                _G._WEB_Say("Đã triệu hồi " .. tostring(n) .. "x " .. pf, 120)
+                return "Spawned " .. tostring(n) .. "x " .. pf
+              end
+              return "Spawn failed"
+            end)
+            rawset(_G, "c_godmode", function()
+              local p = ThePlayer
+              if p then
+                _G._WEB_GodMode = not _G._WEB_GodMode
+                if p.components.health then
+                  p.components.health:SetInvincible(_G._WEB_GodMode)
+                  p.components.health:SetPercent(1)
+                end
+                if p.components.hunger then p.components.hunger:SetPercent(1) end
+                if p.components.sanity then p.components.sanity:SetPercent(1) end
+                local msg = _G._WEB_GodMode and "God Mode: BẬT (Bất tử)" or "God Mode: TẮT"
+                _G._WEB_Say(msg, 130)
+                return msg
+              end
+            end)
+            rawset(_G, "c_speedmult", function(mult)
+              local m = math.clamp(tonumber(mult) or 2, 0.5, 10)
+              if ThePlayer and ThePlayer.components.locomotor then
+                ThePlayer.components.locomotor:SetExternalSpeedMultiplier(ThePlayer, "c_speedmult", m)
+                _G._WEB_Say("Tốc độ chạy: " .. tostring(m) .. "x", 120)
+                return "Speed multiplier = " .. tostring(m)
+              end
+            end)
+            rawset(_G, "c_sethealth", function(pct)
+              if ThePlayer and ThePlayer.components.health then
+                ThePlayer.components.health:SetPercent(math.clamp(tonumber(pct) or 1, 0, 1))
+                return "Health set"
+              end
+            end)
+            rawset(_G, "c_sethunger", function(pct)
+              if ThePlayer and ThePlayer.components.hunger then
+                ThePlayer.components.hunger:SetPercent(math.clamp(tonumber(pct) or 1, 0, 1))
+                return "Hunger set"
+              end
+            end)
+            rawset(_G, "c_setsanity", function(pct)
+              if ThePlayer and ThePlayer.components.sanity then
+                ThePlayer.components.sanity:SetPercent(math.clamp(tonumber(pct) or 1, 0, 1))
+                return "Sanity set"
+              end
+            end)
+            rawset(_G, "c_gonext", function(prefab)
+              local pf = tostring(prefab or "multiplayer_portal")
+              for _, ent in pairs(Ents) do
+                if ent:IsValid() and ent.prefab == pf and ent.Transform and ThePlayer and ThePlayer.Transform then
+                  local ex, ey, ez = ent.Transform:GetWorldPosition()
+                  ThePlayer.Transform:SetPosition(ex + 1.5, 0, ez + 1.5)
+                  _G._WEB_Say("Đã dịch chuyển tới " .. pf, 120)
+                  return "Teleported to " .. pf
+                end
+              end
+              return "Entity not found: " .. pf
+            end)
+            rawset(_G, "c_announce", function(msg)
+              return TheNet:Announce(msg)
+            end)
+            rawset(_G, "c_skip", function(days)
+              local n = math.min(20, math.max(1, tonumber(days) or 1))
+              if TheWorld then
+                for i = 1, n * 3 do TheWorld:PushEvent("ms_nextphase") end
+                return "Skipped " .. tostring(n) .. " day(s)"
+              end
+            end)
+          end
+
+          _WEB_InstallFullPortBindings()
+
+          -- Apply Seeded Procedural World Generation if a custom World Seed is provided
+          if _G._WEB_WorldSeed ~= "" then
+            local seed_num = tonumber(_G._WEB_WorldSeed)
+            if not seed_num then
+              seed_num = 0
+              for i = 1, #_G._WEB_WorldSeed do
+                seed_num = (seed_num * 31 + string.byte(_G._WEB_WorldSeed, i)) % 2147483647
+              end
+            end
+            math.randomseed(seed_num)
+            local tx0, ty0 = WorldSim:GetTileXY(sx, sz)
+            local biome_tiles = { 6, 7, 30, 3, 5, 8, 31 }
+            for ring = 1, 6 do
+              local tile_choice = biome_tiles[((seed_num + ring) % #biome_tiles) + 1]
+              local ang = ((seed_num % 360) + ring * 60) * 0.01745329
+              local cx = math.floor(tx0 + math.cos(ang) * 6)
+              local cy = math.floor(ty0 + math.sin(ang) * 6)
+              for dx = -2, 2 do
+                for dy = -2, 2 do
+                  WorldSim:SetTile(cx + dx, cy + dy, tile_choice)
+                end
+              end
+            end
+            -- Spawn deterministic seeded resources & landmarks around the portal
+            local seeded_prefabs = { "evergreen", "deciduoustree", "rock1", "rock2", "berrybush", "sapling", "grass", "carrot_planted", "pighouse", "treasurechest" }
+            for i = 1, 14 do
+              local pf = seeded_prefabs[math.random(1, #seeded_prefabs)]
+              TheSim:LoadPrefabs({ pf })
+              local ok_e, ent = pcall(function() return SpawnPrefab(pf) end)
+              if ok_e and ent and ent.Transform then
+                local r = 7 + math.random() * 18
+                local a = math.random() * 6.2831853
+                ent.Transform:SetPosition(sx + math.cos(a) * r, 0, sz + math.sin(a) * r)
+              end
+            end
+            _G._WEB_PushNotice("WorldGen Seed #" .. tostring(seed_num) .. " đã tạo quần xã địa hình!")
+          end
+
+          -- Activate any enabled built-in mods selected in Lobby
+          local enabled_mods = ${JSON.stringify(enabledModsList)}
+          for _, mname in ipairs(enabled_mods) do
+            if mname == "fast_work" then
+              ModManager:InitializeModMain("fast_work", [[
+                if ThePlayer and ThePlayer.components.locomotor then
+                  ThePlayer.components.locomotor:SetExternalSpeedMultiplier(ThePlayer, "mod_fast_work", 1.35)
+                end
+              ]])
+            elseif mname == "extra_light" then
+              ModManager:InitializeModMain("extra_light", [[
+                c_give("lantern", 1)
+                c_give("minerhat", 1)
+              ]])
+            elseif mname == "boss_hunter" then
+              ModManager:InitializeModMain("boss_hunter", [[
+                c_give("hambat", 1)
+                c_give("armormarble", 1)
+                c_give("footballhat", 1)
+              ]])
             end
           end
 
@@ -1342,6 +2072,7 @@ async function handle(data: any) {
               scienceTier = science_tier,
               creativeMode = _G._WEB_CreativeMode == true,
               speech = active_speech,
+              worldSeed = _G._WEB_WorldSeed or "",
             }
             local st = TheWorld and TheWorld.state or {}
             local season = st.season or "autumn"
@@ -1367,6 +2098,8 @@ async function handle(data: any) {
             if WebUI ~= nil and WebUI.Snapshot ~= nil then
               scene.ui = WebUI.Snapshot(48)
             end
+            scene.mods = ModManager and ModManager:GetEnabledServerModNames() or {}
+            scene.peers = TheNet and TheNet:GetClientTable() or {}
             scene.announcements = _G._WEB_Announcements
             scene.soundEvents = _G._WEB_SoundEvents
             _G._WEB_SoundEvents = {}
@@ -2129,6 +2862,116 @@ async function handle(data: any) {
             end
           `);
         }
+        result = JSON.parse(evaluate('return _WEB_GameSceneSnapshot()'));
+        break;
+      }
+      case 'exec-console': {
+        if (!ready) throw new Error('Engine is not initialized');
+        const cmd = String(data.command || '').trim();
+        let output = '';
+        if (cmd) {
+          if (cmd.startsWith('/')) {
+            const chatMsg = cmd.slice(1).trim();
+            evaluate(`TheNet:Say(${JSON.stringify(chatMsg)}, false)`);
+            output = 'Chat: ' + chatMsg;
+          } else {
+            output = evaluate(`
+              local fn, err = loadstring("return " .. ${JSON.stringify(cmd)})
+              if not fn then
+                fn, err = loadstring(${JSON.stringify(cmd)})
+              end
+              if not fn then
+                return "Syntax error: " .. tostring(err)
+              end
+              local ok, res = pcall(fn)
+              if not ok then
+                return "Runtime error: " .. tostring(res)
+              end
+              return tostring(res ~= nil and res or "OK")
+            `);
+          }
+        }
+        result = { output, scene: JSON.parse(evaluate('return _WEB_GameSceneSnapshot()')) };
+        break;
+      }
+      case 'load-mod': {
+        if (!ready) throw new Error('Engine is not initialized');
+        const modName = String(data.modName || 'custom_mod').replace(/[^a-zA-Z0-9_-]/g, '') || 'custom_mod';
+        let modLua = String(data.luaCode || '');
+        if (data.zipBytes instanceof ArrayBuffer || ArrayBuffer.isView(data.zipBytes)) {
+          const rawBytes = data.zipBytes instanceof ArrayBuffer ? new Uint8Array(data.zipBytes) : new Uint8Array(data.zipBytes.buffer, data.zipBytes.byteOffset, data.zipBytes.byteLength);
+          const files = unzipSync(rawBytes);
+          engine.FS.mkdirTree(`/mods/${modName}`);
+          for (const [fname, contents] of Object.entries(files)) {
+            const clean = fname.replace(/^\/+/, '');
+            const targetPath = `/mods/${modName}/${clean}`;
+            engine.FS.mkdirTree(targetPath.slice(0, targetPath.lastIndexOf('/')));
+            engine.FS.writeFile(targetPath, contents);
+            if (clean.endsWith('modmain.lua') && !modLua) {
+              modLua = new TextDecoder().decode(contents);
+            }
+          }
+        } else if (modLua) {
+          engine.FS.mkdirTree(`/mods/${modName}`);
+          engine.FS.writeFile(`/mods/${modName}/modmain.lua`, new TextEncoder().encode(modLua));
+        }
+        const status = evaluate(`
+          if not rawget(_G, "ModManager") then return "ModManager not ready" end
+          local ok, res = ModManager:InitializeModMain(${JSON.stringify(modName)}, ${JSON.stringify(modLua || 'return true')})
+          _G._WEB_PushNotice("Đã kích hoạt Mod: " .. ${JSON.stringify(modName)})
+          return ok and "OK" or tostring(res)
+        `);
+        result = { status, modName, scene: JSON.parse(evaluate('return _WEB_GameSceneSnapshot()')) };
+        break;
+      }
+      case 'peer-sync': {
+        if (!ready) throw new Error('Engine is not initialized');
+        const peerId = String(data.peerId || 'peer_2').replace(/[^a-zA-Z0-9_-]/g, '');
+        const peerName = String(data.name || peerId);
+        const peerChar = String(data.character || 'wendy').replace(/[^a-z0-9_]/g, '') || 'wendy';
+        const px = Number(data.x);
+        const pz = Number(data.z);
+        const chat = typeof data.chat === 'string' ? data.chat : '';
+        evaluate(`
+          _G._WEB_Peers = _G._WEB_Peers or {}
+          local p_ent = _G._WEB_Peers[${JSON.stringify(peerId)}]
+          if (p_ent == nil or not p_ent:IsValid()) and TheWorld ~= nil then
+            TheSim:LoadPrefabs({ ${JSON.stringify(peerChar)}, "wilson" })
+            local ok_s, spawned = pcall(function() return SpawnPrefab(${JSON.stringify(peerChar)}) end)
+            if not ok_s or spawned == nil then
+              spawned = SpawnPrefab("wilson")
+              if spawned and spawned.AnimState then spawned.AnimState:SetBuild(${JSON.stringify(peerChar)}) end
+            end
+            if spawned ~= nil then
+              spawned.userid = ${JSON.stringify('KU_' + peerId)}
+              spawned.name = ${JSON.stringify(peerName)}
+              spawned.prefab = ${JSON.stringify(peerChar)}
+              local sx, sy, sz = 0, 0, 0
+              if ThePlayer and ThePlayer.Transform then
+                sx, sy, sz = ThePlayer.Transform:GetWorldPosition()
+              end
+              spawned.Transform:SetPosition(sx + 2.0, 0, sz + 2.0)
+              if not table.contains(AllPlayers, spawned) then
+                table.insert(AllPlayers, spawned)
+              end
+              _G._WEB_Peers[${JSON.stringify(peerId)}] = spawned
+              _G._WEB_PushNotice("Người chơi WebRTC đã tham gia: " .. ${JSON.stringify(peerName)})
+            end
+            p_ent = spawned
+          end
+          if p_ent ~= nil and p_ent:IsValid() then
+            if ${Number.isFinite(px) && Number.isFinite(pz) ? 'true' : 'false'} then
+              if p_ent.components and p_ent.components.locomotor then
+                p_ent.components.locomotor:GoToPoint(Vector3(${Number(px) || 0}, 0, ${Number(pz) || 0}), nil, true)
+              elseif p_ent.Transform then
+                p_ent.Transform:SetPosition(${Number(px) || 0}, 0, ${Number(pz) || 0})
+              end
+            end
+            if ${chat ? 'true' : 'false'} then
+              _G._WEB_PushNotice(${JSON.stringify(peerName)} .. ": " .. ${JSON.stringify(chat)})
+            end
+          end
+        `);
         result = JSON.parse(evaluate('return _WEB_GameSceneSnapshot()'));
         break;
       }

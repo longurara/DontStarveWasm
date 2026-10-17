@@ -3,7 +3,7 @@ import { EngineWorker, type Role, type Snapshot } from './engine';
 import { Checkpoints } from './persistence';
 import { Room } from './rtc';
 import { validateCheckpoint, validateCommand, assertCompatibility } from './protocol.mjs';
-import { attachCanvasInput, nativeKeyCode } from './input.mjs';
+import { attachCanvasInput, attachGamepadPoller, attachTouchControls, nativeKeyCode } from './input.mjs';
 import { GameRenderer, defaultActionForEntity, formatPrefabName, type GameSceneSnapshot } from './game-renderer';
 import { DstAudioEngine } from './audio-engine';
 
@@ -302,14 +302,49 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
          <option value="summer">Summer</option>
         </select>
        </label>
+       <label style="display:inline-flex;align-items:center;gap:6px;margin:0;color:#ebd9b4;font-size:12.5px">
+        World Seed:
+        <input id="title-seed-input" type="text" placeholder="Optional Seed" style="width:110px;padding:4px 8px;background:rgba(16,13,9,0.92);color:#f5dca0;border:1px solid #9c7a44;border-radius:4px;font-size:12px">
+       </label>
        <label style="display:inline-flex;align-items:center;gap:6px;margin:0;color:#ebd9b4;cursor:pointer;font-size:12.5px">
         <input id="title-creative-check" type="checkbox" style="width:auto"> Free Crafting Mode
        </label>
        <button id="open-diag-from-title" class="secondary" style="padding:6px 10px;font-size:12px">WASM Diag (F12)</button>
       </div>
+      <div class="row" style="justify-content:space-between;margin-top:8px;padding-top:8px;border-top:1px solid rgba(156,122,68,0.28);font-size:12px;color:#dfd3ba">
+       <div class="row" style="gap:12px">
+        <strong style="color:#f5dca0">Server Mods:</strong>
+        <label style="display:inline-flex;align-items:center;gap:4px;margin:0;cursor:pointer"><input type="checkbox" class="lobby-mod-check" value="fast_work" style="width:auto"> Fast Sprinter (+35%)</label>
+        <label style="display:inline-flex;align-items:center;gap:4px;margin:0;cursor:pointer"><input type="checkbox" class="lobby-mod-check" value="extra_light" style="width:auto"> Night Explorer Kit</label>
+        <label style="display:inline-flex;align-items:center;gap:4px;margin:0;cursor:pointer"><input type="checkbox" class="lobby-mod-check" value="boss_hunter" style="width:auto"> Giant Hunter Gear</label>
+       </div>
+       <div class="row">
+        <button id="upload-mod-btn" class="klei-subtle-diag" style="padding:4px 10px;font-size:11.5px">Load Mod (.lua / .zip)</button>
+        <input id="mod-file-input" class="file" type="file" accept=".lua,.zip">
+       </div>
+      </div>
      </div>
     </div>
    </div>
+  </div>
+
+  <!-- Klei Debug Console Bar (scripts/screens/consolescreen.lua — Tilde ~ or /) -->
+  <div id="console-screen-bar" class="console-screen-bar hidden" role="dialog" aria-label="Remote Execute Console">
+   <div class="console-header-row">
+    <span style="color:#f5dca0;font-weight:700;font-size:12.5px">Klei Lua Console / Chat (~ or /)</span>
+    <div class="row" style="gap:6px">
+     <button class="klei-subtle-diag console-chip" data-console-cmd='c_godmode()'>God Mode</button>
+     <button class="klei-subtle-diag console-chip" data-console-cmd='c_give("goldnugget", 10)'>+10 Gold</button>
+     <button class="klei-subtle-diag console-chip" data-console-cmd='c_spawn("deerclops", 1)'>Spawn Deerclops</button>
+     <button class="klei-subtle-diag console-chip" data-console-cmd='c_speedmult(2)'>Speed 2x</button>
+     <button id="console-close-btn" class="klei-subtle-diag" style="padding:2px 8px">✕</button>
+    </div>
+   </div>
+   <div class="console-input-row">
+    <input id="console-input" type="text" placeholder='Enter Lua command (e.g. c_spawn("beefalo"), c_give("log",10)) or /chat message…' autocomplete="off">
+    <button id="console-run-btn" class="klei-carny-long-btn">Execute</button>
+   </div>
+   <div id="console-output" class="console-output">Ready.</div>
   </div>
 
   <!-- Full-Screen Interactive MapScreen Modal (scripts/screens/mapscreen.lua) -->
@@ -359,14 +394,18 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 
   <!-- Pause / Server Control Modal (scripts/screens/redux/pausescreen.lua) -->
   <div id="pause-screen-modal" class="screen-modal hidden" role="dialog" aria-label="Pause Menu">
-   <div class="dst-card" style="max-width:420px;text-align:center">
-    <h2 style="font-family:Georgia,serif;font-size:24px;color:#f5dca0;margin:4px 0 14px">Paused</h2>
-    <div style="display:flex;flex-direction:column;gap:8px;align-items:center">
+   <div class="dst-card" style="max-width:440px;text-align:center">
+    <h2 style="font-family:Georgia,serif;font-size:24px;color:#f5dca0;margin:4px 0 12px">Paused</h2>
+    <div style="display:flex;flex-direction:column;gap:7px;align-items:center">
      <button id="pause-resume-btn" class="klei-carny-xlong-btn" style="width:100%">Continue</button>
      <button id="pause-cookbook-btn" class="klei-carny-xlong-btn" style="width:100%">Crock Pot Cookbook</button>
      <button id="pause-player-status-btn" class="klei-carny-xlong-btn" style="width:100%">Survivor Status (P)</button>
+     <button id="pause-console-btn" class="klei-carny-xlong-btn" style="width:100%">Debug Console (~)</button>
      <button id="pause-save-world-btn" class="klei-carny-xlong-btn" style="width:100%">Save World</button>
      <button id="pause-load-world-btn" class="klei-carny-xlong-btn" style="width:100%">Load World</button>
+     <button id="pause-export-cluster-btn" class="klei-carny-xlong-btn" style="width:100%">Export Klei Cluster (.zip)</button>
+     <button id="pause-import-cluster-btn" class="klei-carny-xlong-btn" style="width:100%">Import Klei Cluster (.zip)</button>
+     <input id="world-cluster-file" class="file" type="file" accept=".zip">
      <button id="pause-creative-btn" class="klei-carny-xlong-btn" style="width:100%">Toggle Free Crafting</button>
      <button id="pause-starter-kit-btn" class="klei-carny-xlong-btn" style="width:100%">Supply Starter Kit</button>
      <button id="pause-next-phase-btn" class="klei-carny-xlong-btn" style="width:100%">Advance Time Phase</button>
@@ -925,30 +964,46 @@ function renderPlayerStatusModal(scene?: GameSceneSnapshot) {
   const list = element('player-status-list');
   if (!list) return;
   const p = scene?.player;
-  const charPrefab = p?.prefab || selectedCharacter || 'wilson';
-  const charInfo = CHARACTER_ROSTER.find(c => c.id === charPrefab) ?? CHARACTER_ROSTER[0];
-  const avatarUrl =
-    gameRenderer.getIconDataUrl(`avatar_${charPrefab}`) ||
-    gameRenderer.getIconDataUrl(`self_inspect_${charPrefab}`);
-  const avatarImg = avatarUrl ? `<img src="${avatarUrl}" alt="${charInfo.name}" style="width:44px;height:44px;object-fit:contain">` : '';
+  const peers: Array<{ userid: string; name: string; prefab: string; admin?: boolean }> =
+    Array.isArray((scene as any)?.peers) && (scene as any).peers.length > 0
+      ? (scene as any).peers
+      : [{ userid: 'KU_local', name: p?.name || 'Wilson', prefab: p?.prefab || selectedCharacter, admin: true }];
+  const mods: string[] = Array.isArray((scene as any)?.mods) ? (scene as any).mods : [];
   const dayCount = (scene?.clock?.cycles ?? 0) + 1;
   const shardLabel = scene?.clock?.inCaves ? 'Caves Shard' : 'Master Forest';
   const stateLabel = p?.isGhost ? 'Ghost (Haunting)' : 'Alive';
   const peerCount = room?.connectedPeers ?? 0;
 
-  list.innerHTML = `
-    <div class="player-status-row">
-      <div class="character-avatar-frame" style="width:52px;height:52px">${avatarImg}</div>
-      <div style="flex:1">
-        <div style="font-weight:700;color:#f6dca0;font-size:16px">${p?.name || charInfo.name} <span style="font-size:12px;color:#a8d697">[Host]</span></div>
-        <div style="font-size:12.5px;color:#d8b874">${charInfo.title} · ${stateLabel}</div>
+  const rowsHtml = peers.map(peer => {
+    const charPrefab = peer.prefab || selectedCharacter || 'wilson';
+    const charInfo = CHARACTER_ROSTER.find(c => c.id === charPrefab) ?? CHARACTER_ROSTER[0];
+    const avatarUrl =
+      gameRenderer.getIconDataUrl(`avatar_${charPrefab}`) ||
+      gameRenderer.getIconDataUrl(`self_inspect_${charPrefab}`);
+    const avatarImg = avatarUrl ? `<img src="${avatarUrl}" alt="${charInfo.name}" style="width:44px;height:44px;object-fit:contain">` : '';
+    const roleTag = peer.admin ? '[Host]' : '[Peer]';
+    return `
+      <div class="player-status-row">
+        <div class="character-avatar-frame" style="width:52px;height:52px">${avatarImg}</div>
+        <div style="flex:1">
+          <div style="font-weight:700;color:#f6dca0;font-size:16px">${peer.name || charInfo.name} <span style="font-size:12px;color:#a8d697">${roleTag}</span></div>
+          <div style="font-size:12.5px;color:#d8b874">${charInfo.title} · ${peer.admin ? stateLabel : 'Connected'}</div>
+        </div>
+        <div style="text-align:right;font-size:12.5px;color:#dfd3ba">
+          <div>Day ${dayCount} · ${shardLabel}</div>
+          <div style="color:#a4ad95">Tick ${scene?.tick ?? 0} · WebRTC Peers: ${peerCount}</div>
+        </div>
       </div>
-      <div style="text-align:right;font-size:12.5px;color:#dfd3ba">
-        <div>Day ${dayCount} · ${shardLabel}</div>
-        <div style="color:#a4ad95">Tick ${scene?.tick ?? 0} · WebRTC Peers: ${peerCount}</div>
-      </div>
-    </div>
-  `;
+    `;
+  }).join('');
+
+  const modsHtml = mods.length > 0
+    ? `<div style="margin-top:8px;padding:8px 12px;background:rgba(20,16,12,0.85);border:1px solid rgba(156,122,68,0.35);border-radius:6px;font-size:12px;color:#dfd3ba">
+         <strong style="color:#f5dca0">Active Server Mods (${mods.length}):</strong> ${mods.join(', ')}
+       </div>`
+    : '';
+
+  list.innerHTML = rowsHtml + modsHtml;
 }
 
 renderCharacterRoster();
@@ -1186,6 +1241,8 @@ async function ensureMasterAssetsLoaded() {
   return master;
 }
 
+let consoleBarOpen = false;
+
 async function startGame(characterOverride?: string) {
   dstAudio.unlock();
   if (characterOverride) selectedCharacter = characterOverride;
@@ -1195,12 +1252,16 @@ async function startGame(characterOverride?: string) {
   const master = await ensureMasterAssetsLoaded();
   const creativeChecked = element<HTMLInputElement>('title-creative-check')?.checked ?? false;
   const startSeason = element<HTMLSelectElement>('title-season-select')?.value ?? 'autumn';
+  const worldSeed = element<HTMLInputElement>('title-seed-input')?.value?.trim() ?? '';
+  const enabledMods = Array.from(document.querySelectorAll<HTMLInputElement>('.lobby-mod-check:checked')).map(el => el.value);
   const initialScene: GameSceneSnapshot = await master.request('start-game', {
     width: gameCanvas.width,
     height: gameCanvas.height,
     creativeMode: creativeChecked,
     character: selectedCharacter,
     season: startSeason,
+    worldSeed,
+    enabledMods,
   });
   gameMode = true;
   host = true;
@@ -1221,22 +1282,27 @@ async function saveWorldToLocalStorage() {
   if (!gameMode || !workers.has('master')) return;
   const master = workers.get('master')!;
   const res = await master.request('save-world-state');
-  if (res?.state) {
-    localStorage.setItem('dst_saved_world_v1', JSON.stringify(res.state));
+  const stateObj = res?.state ?? res;
+  if (stateObj) {
+    localStorage.setItem('dst_saved_world_v1', JSON.stringify(stateObj));
+    await database.saveWorldSave(stateObj).catch(() => {});
     dstAudio.playEvents([{ path: 'dontstarve/HUD/collect_resource' }]);
-    status(`Saved world state at Day ${res.state.clock?.cycles ?? 1}.`);
+    status(`Saved world state at Day ${(stateObj.cycles ?? stateObj.clock?.cycles ?? 0) + 1}.`);
   }
 }
 
 async function loadWorldFromLocalStorage() {
-  const raw = localStorage.getItem('dst_saved_world_v1');
-  if (!raw) {
+  let state: any = await database.loadWorldSave().catch(() => undefined);
+  if (!state) {
+    const raw = localStorage.getItem('dst_saved_world_v1');
+    if (raw) state = JSON.parse(raw);
+  }
+  if (!state) {
     status('No saved world found in browser storage.');
     return;
   }
-  const state = JSON.parse(raw);
   if (!gameMode) {
-    await startGame(state.player?.prefab || selectedCharacter);
+    await startGame(state.character || state.player?.prefab || selectedCharacter);
   }
   const master = workers.get('master')!;
   const scene: GameSceneSnapshot = await master.request('load-world-state', { state });
@@ -1245,8 +1311,95 @@ async function loadWorldFromLocalStorage() {
   status('Restored saved world state.');
 }
 
+async function exportWorldClusterZip() {
+  if (!gameMode || !workers.has('master')) return;
+  const master = workers.get('master')!;
+  const res = await master.request('save-world-state');
+  const stateObj = res?.state ?? res;
+  if (!stateObj) return;
+  await database.saveWorldSave(stateObj).catch(() => {});
+  const zipBytes = database.exportWorldClusterZip(stateObj);
+  const url = URL.createObjectURL(new Blob([zipBytes.slice().buffer], { type: 'application/zip' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `Klei_DoNotStarveTogether_Cluster_1_Day${(stateObj.cycles ?? 0) + 1}.zip`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  status('Exported Klei Cluster_1 save archive (.zip with KLEI     1D native session envelope).');
+}
+
+async function importWorldClusterZip(file: File) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const state = database.importWorldClusterZip(bytes);
+  localStorage.setItem('dst_saved_world_v1', JSON.stringify(state));
+  await database.saveWorldSave(state).catch(() => {});
+  if (!gameMode) {
+    await startGame(state.character || state.player?.prefab || selectedCharacter);
+  }
+  const master = workers.get('master')!;
+  const scene: GameSceneSnapshot = await master.request('load-world-state', { state });
+  togglePauseModal(false);
+  updateGameHud(scene);
+  status('Imported Klei Cluster_1 save archive (.zip) and restored world.');
+}
+
+function toggleConsoleBar(force?: boolean) {
+  consoleBarOpen = force !== undefined ? force : !consoleBarOpen;
+  element('console-screen-bar')?.classList.toggle('hidden', !consoleBarOpen);
+  if (consoleBarOpen) {
+    const inp = element<HTMLInputElement>('console-input');
+    if (inp) setTimeout(() => inp.focus(), 20);
+  }
+}
+
+async function executeConsoleCommand(rawCmd?: string) {
+  const inp = element<HTMLInputElement>('console-input');
+  const cmd = (rawCmd !== undefined ? rawCmd : inp?.value || '').trim();
+  if (!cmd || !gameMode || !workers.has('master')) return;
+  if (rawCmd === undefined && inp) inp.value = '';
+  const master = workers.get('master')!;
+  const res = await master.request('exec-console', { command: cmd });
+  if (res?.output !== undefined) {
+    const outEl = element('console-output');
+    if (outEl) outEl.textContent = `> ${cmd}  →  ${res.output}`;
+  }
+  if (cmd.startsWith('/') && room) {
+    room.broadcast({ type: 'peer-sync', peerId: 'host', name: gameScene?.player?.name || 'Host', character: selectedCharacter, chat: cmd.slice(1).trim() });
+  }
+  if (res?.scene) updateGameHud(res.scene);
+}
+
 // Preload Klei UI textures on the title screen so the character selection lobby & HUD have real Klei textures immediately
 void ensureMasterAssetsLoaded();
+
+// Wire HTML5 Gamepad Poller & Touch Virtual Controls (src/input.mjs)
+attachGamepadPoller(
+  (code: number, down: boolean) => {
+    if (!gameMode || !workers.has('master')) return;
+    void workers.get('master')!.request('game-input', { event: { kind: 'key', code, down } }).catch(() => {});
+  },
+  (action: any) => {
+    if (!gameMode || !workers.has('master')) return;
+    if (action?.kind === 'toggle-map') toggleMapModal();
+    else if (action?.kind === 'toggle-pause') togglePauseModal();
+    else if (action?.kind === 'toggle-inventory') toggleAvatarPopup();
+    else void workers.get('master')!.request('game-action', { action }).then(updateGameHud).catch(() => {});
+  },
+);
+
+if (typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0)) {
+  attachTouchControls(
+    element('game-stage'),
+    (code: number, down: boolean) => {
+      if (!gameMode || !workers.has('master')) return;
+      void workers.get('master')!.request('game-input', { event: { kind: 'key', code, down } }).catch(() => {});
+    },
+    (action: any) => {
+      if (!gameMode || !workers.has('master')) return;
+      void workers.get('master')!.request('game-action', { action }).then(updateGameHud).catch(() => {});
+    },
+  );
+}
 
 // Interactive Game Canvas Mouse & Keyboard Controls
 gameCanvas.addEventListener('mousemove', e => {
@@ -1292,6 +1445,9 @@ gameCanvas.addEventListener('click', e => {
     const worldPt = gameRenderer.screenToWorld(sx, sy, 0);
     if (worldPt) {
       gameRenderer.setWalkTarget(worldPt.x, worldPt.z);
+      if (!host && room) {
+        room.sendHost({ type: 'peer-sync', name: formatPrefabName(selectedCharacter), character: selectedCharacter, x: worldPt.x, z: worldPt.z });
+      }
       void master.request('game-action', { action: { kind: 'walk', x: worldPt.x, z: worldPt.z } }).then(updateGameHud).catch(() => {});
     }
   }
@@ -1374,7 +1530,26 @@ window.addEventListener('keydown', e => {
     return;
   }
   if (!gameMode || !workers.has('master')) return;
-  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) {
+    if (e.target.id === 'console-input' && e.code === 'Enter') {
+      e.preventDefault();
+      void executeConsoleCommand();
+    } else if (e.target.id === 'console-input' && e.code === 'Escape') {
+      e.preventDefault();
+      toggleConsoleBar(false);
+    }
+    return;
+  }
+
+  if (e.code === 'Backquote' || e.code === 'Slash') {
+    e.preventDefault();
+    toggleConsoleBar();
+    if (e.code === 'Slash' && consoleBarOpen) {
+      const inp = element<HTMLInputElement>('console-input');
+      if (inp && !inp.value) inp.value = '/';
+    }
+    return;
+  }
 
   if (e.code === 'Escape') {
     e.preventDefault();
@@ -1383,7 +1558,9 @@ window.addEventListener('keydown', e => {
       renderCraftingHud(gameScene);
       return;
     }
-    if (cookbookModalOpen) {
+    if (consoleBarOpen) {
+      toggleConsoleBar(false);
+    } else if (cookbookModalOpen) {
       toggleCookbookModal(false);
     } else if (playerStatusModalOpen) {
       togglePlayerStatusModal(false);
@@ -1615,6 +1792,13 @@ element('player-avatar-popup')?.addEventListener('click', e => {
   }
 });
 
+element('console-screen-bar')?.addEventListener('click', e => {
+  const chip = (e.target as HTMLElement).closest<HTMLElement>('[data-console-cmd]');
+  if (chip) {
+    void executeConsoleCommand(chip.dataset.consoleCmd);
+  }
+});
+
 // MapScreen Zoom & Pan Interactions
 mapScreenCanvas.addEventListener('wheel', e => {
   e.preventDefault();
@@ -1648,6 +1832,32 @@ bind('open-diag-from-title', () => toggleDiagDrawer(true));
 bind('toggle-diag-drawer', () => toggleDiagDrawer());
 bind('close-diag-drawer', () => toggleDiagDrawer(false));
 
+bind('upload-mod-btn', () => element<HTMLInputElement>('mod-file-input')?.click());
+const modFileInput = element<HTMLInputElement>('mod-file-input');
+if (modFileInput) {
+  modFileInput.onchange = async event => {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    if (!gameMode) await startGame();
+    const master = workers.get('master')!;
+    const modName = file.name.replace(/\.(lua|zip)$/i, '');
+    if (file.name.toLowerCase().endsWith('.zip')) {
+      const zipBytes = await file.arrayBuffer();
+      const res = await master.request('load-mod', { modName, zipBytes }, [zipBytes]);
+      if (res?.scene) updateGameHud(res.scene);
+      status(`Loaded ZIP mod "${modName}": ${res?.status}`);
+    } else {
+      const luaCode = await file.text();
+      const res = await master.request('load-mod', { modName, luaCode });
+      if (res?.scene) updateGameHud(res.scene);
+      status(`Loaded Lua mod "${modName}": ${res?.status}`);
+    }
+  };
+}
+
+bind('console-run-btn', () => executeConsoleCommand());
+bind('console-close-btn', () => toggleConsoleBar(false));
+
 bind('hud-open-map', () => toggleMapModal());
 bind('map-close-btn', () => toggleMapModal(false));
 bind('map-zoom-in', () => { mapZoom = Math.min(3.5, mapZoom * 1.25); gameRenderer.renderFullScreenMap(mapScreenCanvas, mapZoom, mapPanX, mapPanY); });
@@ -1672,8 +1882,22 @@ bind('pause-player-status-btn', () => {
   togglePauseModal(false);
   togglePlayerStatusModal(true);
 });
+bind('pause-console-btn', () => {
+  togglePauseModal(false);
+  toggleConsoleBar(true);
+});
 bind('pause-save-world-btn', () => saveWorldToLocalStorage());
 bind('pause-load-world-btn', () => loadWorldFromLocalStorage());
+bind('pause-export-cluster-btn', () => exportWorldClusterZip());
+bind('pause-import-cluster-btn', () => element<HTMLInputElement>('world-cluster-file')?.click());
+const worldClusterFile = element<HTMLInputElement>('world-cluster-file');
+if (worldClusterFile) {
+  worldClusterFile.onchange = event => {
+    const file = (event.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    void importWorldClusterZip(file).catch(err => status(String(err)));
+  };
+}
 bind('pause-change-char-btn', () => {
   togglePauseModal(false);
   element('main-screen-overlay').classList.remove('hidden');
@@ -1775,9 +1999,26 @@ async function connect(invitation?: string) {
   if (!compatibility) throw new Error('Start runtime first');
   room?.close(); room = new Room(); room.onStatus = status; room.onInvite = invite => { element('invite').textContent = invite; element<HTMLInputElement>('join-code').value = invite; };
   room.onHostLeft = () => { paused = true; button('consume').disabled = true; status('Host left. World simulation stopped.'); };
+  room.onPeerJoined = peer => {
+    if (host && gameMode && workers.has('master')) {
+      void workers.get('master')!.request('peer-sync', { peerId: peer, name: `Survivor ${peer.slice(0, 4)}`, character: 'wendy' }).then(updateGameHud).catch(() => {});
+    }
+  };
   room.onMessage = (peer, data) => {
-    if (host) { if (data.type === 'consume') void enqueue(() => command(peer, data)).catch(error => status(String(error))); if (data.type === 'hello') room?.send(peer, { type: 'snapshot', snapshot }); }
-    else if (data.type === 'snapshot') { display(data.snapshot); button('consume').disabled = false; }
+    if (host) {
+      if (data.type === 'consume') void enqueue(() => command(peer, data)).catch(error => status(String(error)));
+      if (data.type === 'hello') room?.send(peer, { type: 'snapshot', snapshot });
+      if (data.type === 'peer-sync' && gameMode && workers.has('master')) {
+        void workers.get('master')!.request('peer-sync', { ...data, peerId: peer }).then(updateGameHud).catch(() => {});
+      }
+    } else {
+      if (data.type === 'snapshot') { display(data.snapshot); button('consume').disabled = false; }
+      if (data.type === 'game-scene' && data.scene) {
+        gameMode = true;
+        element('main-screen-overlay').classList.add('hidden');
+        updateGameHud(data.scene);
+      }
+    }
   };
   const ice = JSON.parse(element<HTMLTextAreaElement>('ice').value);
   if (!Array.isArray(ice)) throw new Error('ICE config must be an array');
@@ -1791,7 +2032,12 @@ setInterval(() => {
   busy = true;
   if (gameMode) {
     void workers.get('master')!.request('game-tick', { count: 1 })
-      .then(updateGameHud)
+      .then(scene => {
+        updateGameHud(scene);
+        if (room && room.connectedPeers > 0 && scene.tick % 2 === 0) {
+          room.broadcastMotion({ type: 'game-scene', scene });
+        }
+      })
       .finally(() => { busy = false; })
       .catch(() => {});
     return;
@@ -1823,6 +2069,10 @@ Object.assign(window, {
     startGame,
     saveWorldToLocalStorage,
     loadWorldFromLocalStorage,
+    exportWorldClusterZip,
+    importWorldClusterZip,
+    executeConsoleCommand,
+    toggleConsoleBar,
     toggleMapModal,
     togglePauseModal,
     toggleDiagDrawer,

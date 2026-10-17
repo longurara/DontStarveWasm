@@ -1,5 +1,6 @@
 import { unzipSync, zipSync, strFromU8, strToU8 } from 'fflate';
 import { validateCheckpoint } from './protocol.mjs';
+import { encodeNativeEnvelope, decodeNativeEnvelope } from './native-save.mjs';
 
 export class Checkpoints {
   private db!: IDBDatabase;
@@ -71,6 +72,58 @@ export class Checkpoints {
       request.onsuccess = () => resolve(request.result.sort((a, b) => b.savedAt - a.savedAt));
       request.onerror = () => reject(request.error);
     });
+  }
+  async saveWorldSave(worldState: any) {
+    return new Promise<void>((resolve, reject) => {
+      const tx = this.db.transaction('meta', 'readwrite');
+      tx.objectStore('meta').put({ savedAt: Date.now(), state: worldState }, 'playable-world:latest');
+      tx.oncomplete = () => resolve();
+      tx.onabort = tx.onerror = () => reject(tx.error ?? new Error('World save transaction aborted'));
+    });
+  }
+  async loadWorldSave(): Promise<any | null> {
+    return new Promise<any | null>((resolve, reject) => {
+      const tx = this.db.transaction('meta', 'readonly');
+      const req = tx.objectStore('meta').get('playable-world:latest');
+      req.onsuccess = () => resolve(req.result?.state ?? null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  exportWorldClusterZip(worldState: any): Uint8Array {
+    const jsonBytes = strToU8(JSON.stringify(worldState, null, 2));
+    const kleiSessionPayload = strToU8(
+      `return { meta = { build_version = 756039, seed = ${JSON.stringify(String(worldState?.seed || '1'))} }, world_state_json = ${JSON.stringify(JSON.stringify(worldState))} }`,
+    );
+    const kleiShardIndexPayload = strToU8(
+      `return { version = 5, slot = 1, session_id = "15CD1F748D1D1C77", server = { clan = {}, game_mode = "survival", intention = "cooperative" } }`,
+    );
+    return zipSync({
+      'Cluster_1/cluster.ini': strToU8('[GAMEPLAY]\ngame_mode = survival\nmax_players = 6\npvp = false\npause_when_empty = true\n'),
+      'Cluster_1/Master/server.ini': strToU8('[NETWORK]\nserver_port = 10999\n\n[SHARD]\nis_master = true\n'),
+      'Cluster_1/Master/save/shardindex': encodeNativeEnvelope(kleiShardIndexPayload, true),
+      'Cluster_1/Master/save/session/15CD1F748D1D1C77/0000000184': encodeNativeEnvelope(kleiSessionPayload, true),
+      'Cluster_1/Master/save/world_state.json': jsonBytes,
+    });
+  }
+  importWorldClusterZip(data: Uint8Array): any {
+    if (data.length > 8 * 1024 * 1024) throw new Error('Cluster save archive exceeds 8 MiB');
+    const files = unzipSync(data);
+    if (files['Cluster_1/Master/save/world_state.json']) {
+      return JSON.parse(strFromU8(files['Cluster_1/Master/save/world_state.json']));
+    }
+    if (files['world_state.json']) {
+      return JSON.parse(strFromU8(files['world_state.json']));
+    }
+    for (const [name, bytes] of Object.entries(files)) {
+      if (name.includes('session/') && !name.endsWith('.meta')) {
+        const decoded = strFromU8(decodeNativeEnvelope(bytes));
+        const match = decoded.match(/world_state_json\s*=\s*(".*")/);
+        if (match) {
+          return JSON.parse(JSON.parse(match[1]));
+        }
+      }
+    }
+    throw new Error('Archive does not contain a valid DST Cluster_1/Master/save state');
   }
   export(value: any) { return zipSync({ 'checkpoint.json': strToU8(JSON.stringify(value)) }); }
   import(data: Uint8Array, expected: any) {

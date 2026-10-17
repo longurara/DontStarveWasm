@@ -1,10 +1,35 @@
-import { unzlibSync } from 'fflate';
+import { unzlibSync, zlibSync } from 'fflate';
 const LIMIT=8*1024*1024;
 
 function adler32(bytes) {
   let a=1,b=0;
   for(let i=0;i<bytes.length;i++){a=(a+bytes[i])%65521;b=(b+a)%65521;}
   return ((b<<16)|a)>>>0;
+}
+
+/** Encode a Uint8Array payload into Klei's native `KLEI     1D` (zlib+base64) or `KLEI     1 ` envelope. */
+export function encodeNativeEnvelope(input, compress = true) {
+  const bytes = input instanceof Uint8Array ? input : new TextEncoder().encode(String(input ?? ''));
+  if (bytes.length === 0 || bytes.length > LIMIT) throw new Error('Save payload must be between 1 byte and 8 MiB');
+  if (!compress) {
+    const header = new TextEncoder().encode('KLEI     1 ');
+    const out = new Uint8Array(header.length + bytes.length);
+    out.set(header, 0);
+    out.set(bytes, header.length);
+    return out;
+  }
+  const compressed = zlibSync(bytes);
+  const packet = new Uint8Array(16 + compressed.length);
+  const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
+  view.setUint32(0, 1, true);
+  view.setUint32(4, 16, true);
+  view.setUint32(8, bytes.length, true);
+  view.setUint32(12, compressed.length, true);
+  packet.set(compressed, 16);
+  let binary = '';
+  for (let i = 0; i < packet.length; i++) binary += String.fromCharCode(packet[i]);
+  const b64 = btoa(binary);
+  return new TextEncoder().encode('KLEI     1D' + b64);
 }
 
 /** KLEI%6d%c envelope as produced by the native persistent-string API. */
