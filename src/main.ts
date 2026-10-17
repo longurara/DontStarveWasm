@@ -393,15 +393,15 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
      <div id="hud-inventory" class="hud-inventory"></div>
     </div>
 
-    <!-- Bottom-Right MapControls (scripts/widgets/mapcontrols.lua) -->
+    <!-- Bottom-Right MapControls (scripts/widgets/mapcontrols.lua: minimapBtn at (0,0), rotleft (-40,-40), pauseBtn (0,-50), rotright (+40,-40)) -->
     <div class="map-controls-root" aria-label="Map Controls">
-     <div class="map-controls-rot-row">
-      <button id="cam-rot-left" class="klei-img-btn rot-left" data-hover-title="Rotate Camera Left (Q)"></button>
-      <button id="cam-rot-right" class="klei-img-btn rot-right" data-hover-title="Rotate Camera Right (E)"></button>
-     </div>
-     <div class="map-controls-main-row">
+     <div class="map-controls-top-row">
       <button id="hud-open-map" class="klei-img-btn map-btn" data-hover-title="Map (M / Tab)"></button>
+     </div>
+     <div class="map-controls-bottom-row">
+      <button id="cam-rot-left" class="klei-img-btn rot-left" data-hover-title="Rotate Camera Left (Q)"></button>
       <button id="hud-open-pause" class="klei-img-btn pause-btn" data-hover-title="Pause (Esc)"></button>
+      <button id="cam-rot-right" class="klei-img-btn rot-right" data-hover-title="Rotate Camera Right (E)"></button>
      </div>
     </div>
    </div>
@@ -419,12 +419,8 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
        OptionsScreen, and LobbyScreen)
        ========================================================================= -->
   <div id="main-screen-overlay" class="screen-modal fe-overlay-root">
-   <!-- Authentic Klei Animated Portal Background (images/fg_animated_portal.xml + fg_trees.xml) -->
-   <div class="fe-animated-bg-layer" aria-hidden="true">
-    <div class="fe-bg-portal"></div>
-    <div class="fe-fg-portal"></div>
-    <div class="fe-fg-trees"></div>
-   </div>
+   <!-- Klei PlainBackground (images/bg_redux_dark_right.xml) for subscreens -->
+   <div class="fe-animated-bg-layer" aria-hidden="true"></div>
 
    <div class="fe-shell-container">
     <!-- Hidden legacy topbar container for DOM compatibility -->
@@ -435,7 +431,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 
     <!-- 1. 100% AUTHENTIC KLEI MULTIPLAYER MAIN SCREEN (scripts/screens/redux/multiplayermainscreen.lua) -->
     <section id="fe-view-main" class="fe-screen-view fe-mainscreen-authentic">
-     <!-- Left Black Sidebar (images/bg_redux_black_sidebar.xml: black_sidebar.tex) -->
+     <!-- Left Black Sidebar (images/bg_redux_black_sidebar.xml: black_sidebar.tex at x = -460) -->
      <aside class="klei-main-sidebar" aria-label="Don't Starve Together Main Menu">
       <div id="fe-hero-shield" class="klei-main-title-shield"></div>
 
@@ -451,15 +447,18 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
       </nav>
 
       <!-- Bottom-Left Icon SubMenu (scripts/screens/redux/multiplayermainscreen.lua MakeSubMenu lines 998-1026) -->
-      <div class="klei-submenu-bar">
-       <button id="fe-main-load-save-btn" class="klei-submenu-icon-btn" data-hover-title="Data"><span id="submenu-icon-folder"></span></button>
-       <button class="klei-submenu-icon-btn" data-fe-nav="collection" data-hover-title="Account"><span id="submenu-icon-profile"></span></button>
-       <button class="klei-submenu-icon-btn" data-fe-nav="compendium" data-hover-title="Forums"><span id="submenu-icon-forums"></span></button>
-       <button id="open-diag-from-title" class="klei-submenu-icon-btn" data-hover-title="More Games"><span id="submenu-icon-moregames"></span></button>
+      <div class="klei-submenu-wrap">
+       <div class="klei-submenu-bar">
+        <button id="fe-main-load-save-btn" class="klei-submenu-icon-btn" data-submenu-label="Data"><span id="submenu-icon-folder"></span></button>
+        <button class="klei-submenu-icon-btn" data-fe-nav="collection" data-submenu-label="Account"><span id="submenu-icon-profile"></span></button>
+        <button class="klei-submenu-icon-btn" data-fe-nav="compendium" data-submenu-label="Forums"><span id="submenu-icon-forums"></span></button>
+        <button id="open-diag-from-title" class="klei-submenu-icon-btn" data-submenu-label="More Games"><span id="submenu-icon-moregames"></span></button>
+       </div>
+       <div id="fe-submenu-hover-label" class="klei-submenu-hover-label"></div>
       </div>
      </aside>
 
-     <!-- Right Stage: Top-Right OnlineStatus, Center-Right MainMenuMotdPanel, Bottom-Right Build Version -->
+     <!-- Right Stage: Top-Right OnlineStatus, Upper Rift7 Banner Artwork, Lower-Right MainMenuMotdPanel, Bottom-Right Build Version -->
      <div class="klei-main-right-stage">
       <!-- Top-Right OnlineStatus Widget (scripts/widgets/onlinestatus.lua) -->
       <div class="klei-onlinestatus-bar">
@@ -468,55 +467,67 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
        <span class="klei-onlinestatus-label">Online</span>
       </div>
 
-      <!-- MainMenuMotdPanel (scripts/widgets/redux/mainmenu_motdpanel.lua: cell1 large_gold + cell2/cell3 small_gold) -->
-      <div class="klei-motd-grid">
-       <!-- Cell 1: Left Large Gold Frame (motd_frame_large_gold.tex + box1.tex + dark_bottom_vignette1.tex) -->
-       <div class="klei-motd-box large-gold">
-        <div class="klei-motd-art box1-art"></div>
-        <div class="klei-motd-vignette"></div>
-        <div class="klei-motd-frame-overlay frame-large"></div>
-        <div class="klei-motd-content">
-         <h2 class="klei-motd-title">Return of Them &amp; Beyond</h2>
-         <p class="klei-motd-body">Survive together across Forest &amp; Caves shards in Relaxed, Endless, Survival, Wilderness, or Lights Out.</p>
-         <div class="klei-motd-btn-row">
-          <button class="klei-carny-long-btn" data-fe-nav="lobby">Play Now</button>
-         </div>
-        </div>
-       </div>
-
-       <!-- Right Column: 2 Stacked Small MOTD Gold Boxes (cell2: motd_frame_small_gold.tex, cell3: motd_frame_small_gold2.tex) -->
-       <div class="klei-motd-small-stack">
-        <!-- Cell 2: Top-Right Small Gold Frame -->
-        <div class="klei-motd-box small-gold">
-         <div class="klei-motd-art box2-art"></div>
-         <div class="klei-motd-vignette"></div>
-         <div class="klei-motd-frame-overlay frame-small1"></div>
-         <div class="klei-motd-content small-cell-content">
-          <div id="fe-card-forge-logo" class="fe-event-logo"></div>
-          <h3 class="klei-motd-small-title">The Forge · Lava Arena</h3>
-          <div class="klei-motd-btn-row">
-           <button class="klei-carny-long-btn" data-open-festival-book="lavaarena">More Info</button>
+      <!-- Lower-Right MainMenuMotdPanel (scripts/widgets/redux/mainmenu_motdpanel.lua: x=100, y=-180, scale=0.84) -->
+      <div class="klei-motd-panel-root">
+       <div class="klei-motd-grid">
+        <!-- Left Column: box_1_widget (480x270 * 1.2 * 0.84 = 484x272px 16:9) + 6 gold radio buttons below -->
+        <div class="klei-motd-col-large">
+         <div class="klei-motd-box large-gold" data-fe-nav="lobby">
+          <div class="klei-motd-art box1-art"></div>
+          <div class="klei-motd-vignette"></div>
+          <div class="klei-motd-frame-overlay frame-large"></div>
+          <div class="klei-motd-content large-cell-content">
+           <h2 class="klei-motd-title">From Beyond: Hostile Takeover</h2>
+           <div class="klei-motd-bottom-row">
+            <p class="klei-motd-body">Explore the Constant across Forest &amp; Caves shards, or enter The Forge &amp; The Gorge.</p>
+            <button class="klei-motd-url-btn" data-fe-nav="lobby" title="Enter Survivor Lobby"><span id="motd-url-icon-1"></span></button>
+           </div>
           </div>
          </div>
+         <div class="klei-motd-radio-row" aria-hidden="true">
+          <span class="klei-motd-radio on"></span>
+          <span class="klei-motd-radio"></span>
+          <span class="klei-motd-radio"></span>
+          <span class="klei-motd-radio"></span>
+          <span class="klei-motd-radio"></span>
+          <span class="klei-motd-radio"></span>
+         </div>
         </div>
 
-        <!-- Cell 3: Bottom-Right Small Gold Frame -->
-        <div class="klei-motd-box small-gold">
-         <div class="klei-motd-art box3-art"></div>
-         <div class="klei-motd-vignette"></div>
-         <div class="klei-motd-frame-overlay frame-small2"></div>
-         <div class="klei-motd-content small-cell-content">
-          <div id="fe-card-gorge-logo" class="fe-event-logo"></div>
-          <h3 class="klei-motd-small-title">The Gorge · Quagmire</h3>
-          <div class="klei-motd-btn-row">
-           <button class="klei-carny-long-btn" data-open-festival-book="quagmire">More Info</button>
+        <!-- Right Column: 2 Stacked 16:9 Small MOTD Gold Boxes (222x125px each) -->
+        <div class="klei-motd-small-stack">
+         <!-- Cell 2: Top-Right Small Gold Frame (motd_frame_small_gold.tex) -->
+         <div class="klei-motd-box small-gold" data-open-festival-book="lavaarena">
+          <div class="klei-motd-art box2-art"></div>
+          <div class="klei-motd-vignette"></div>
+          <div class="klei-motd-frame-overlay frame-small1"></div>
+          <div class="klei-motd-content small-cell-content">
+           <div id="fe-card-forge-logo" class="fe-event-logo hidden"></div>
+           <div class="klei-motd-bottom-row small-bottom-row">
+            <h3 class="klei-motd-small-title">The Forge · Lava Arena</h3>
+            <button class="klei-motd-url-btn small" data-open-festival-book="lavaarena" title="Open Lava Arena Book"><span id="motd-url-icon-2"></span></button>
+           </div>
+          </div>
+         </div>
+
+         <!-- Cell 3: Bottom-Right Small Gold Frame (motd_frame_small_gold2.tex) -->
+         <div class="klei-motd-box small-gold" data-open-festival-book="quagmire">
+          <div class="klei-motd-art box3-art"></div>
+          <div class="klei-motd-vignette"></div>
+          <div class="klei-motd-frame-overlay frame-small2"></div>
+          <div class="klei-motd-content small-cell-content">
+           <div id="fe-card-gorge-logo" class="fe-event-logo hidden"></div>
+           <div class="klei-motd-bottom-row small-bottom-row">
+            <h3 class="klei-motd-small-title">The Gorge · Quagmire</h3>
+            <button class="klei-motd-url-btn small" data-open-festival-book="quagmire" title="Open Quagmire Recipe Book"><span id="motd-url-icon-3"></span></button>
+           </div>
           </div>
          </div>
         </div>
        </div>
       </div>
 
-      <!-- Bottom-Right Klei Build Version String (TEMPLATES.AddBuildString in multiplayermainscreen.lua line 264) -->
+      <!-- Bottom-Right Klei Build Version String (TEMPLATES.AddBuildString in multiplayermainscreen.lua line 570) -->
       <div class="klei-main-version-footer">
        <span>756039 (Release)</span>
       </div>
@@ -526,68 +537,72 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     <!-- 2. PLAYSTYLE SELECT SCREEN (scripts/screens/redux/playstyleselectscreen.lua) -->
     <section id="fe-view-playstyles" class="fe-screen-view fe-redux-subscreen hidden">
      <div class="fe-redux-screen-header">
-      <h1 class="klei-screen-title">What is your playstyle?</h1>
-      <button class="klei-carny-long-btn" data-fe-nav="create">World &amp; Server Settings →</button>
+      <h1 class="klei-screen-title">Host Game</h1>
      </div>
-     <div class="dst-card fe-redux-panel">
-      <div id="fe-playstyle-cards-grid" class="fe-playstyle-cards-grid"></div>
-      <div id="fe-playstyle-detail-banner" class="fe-playstyle-detail-banner"></div>
+     <div class="klei-playstyle-window-wrap">
+      <div class="dst-card fe-redux-panel klei-playstyle-window">
+       <h2 class="klei-playstyle-window-title">What is your playstyle?</h2>
+       <div id="fe-playstyle-cards-grid" class="fe-playstyle-cards-grid"></div>
+       <div id="fe-playstyle-detail-banner" class="fe-playstyle-detail-banner"></div>
+      </div>
      </div>
      <div class="fe-redux-screen-footer">
       <button class="klei-back-button" data-fe-nav="main"><span class="klei-back-arrow"></span><span>Back</span></button>
+      <button class="klei-carny-xlong-btn" data-fe-nav="create">Configure World</button>
      </div>
     </section>
 
     <!-- 2B. FESTIVAL EVENT SCREEN: LAVAARENA BOOK & QUAGMIRE BOOK (scripts/screens/redux/festivaleventscreen.lua) -->
     <section id="fe-view-festivals" class="fe-screen-view fe-redux-subscreen hidden">
-     <div class="fe-redux-screen-header">
-      <h1 class="klei-screen-title">Festival Event Books</h1>
-      <div class="fe-subtab-bar">
-       <button class="fe-subtab-btn active" data-festival-tab="lavaarena">The Forge</button>
-       <button class="fe-subtab-btn" data-festival-tab="quagmire">The Gorge</button>
+     <div class="fe-subscreener-layout">
+      <aside class="fe-subscreener-left">
+       <h1 class="klei-screen-title">Event Books</h1>
+       <nav class="klei-standard-menu fe-subscreener-menu">
+        <button class="klei-menu-item active" data-festival-tab="lavaarena">The Forge</button>
+        <button class="klei-menu-item" data-festival-tab="quagmire">The Gorge</button>
+       </nav>
+       <button class="klei-back-button" data-fe-nav="main"><span class="klei-back-arrow"></span><span>Back</span></button>
+      </aside>
+      <div class="dst-card fe-redux-panel fe-subscreener-right">
+       <div id="fe-festival-book-body"></div>
       </div>
-     </div>
-     <div class="dst-card fe-redux-panel">
-      <div id="fe-festival-book-body"></div>
-     </div>
-     <div class="fe-redux-screen-footer">
-      <button class="klei-back-button" data-fe-nav="main"><span class="klei-back-arrow"></span><span>Back</span></button>
      </div>
     </section>
 
     <!-- 3. SERVER CREATION & SAVE SLOTS SCREEN (scripts/screens/redux/servercreationscreen.lua) -->
     <section id="fe-view-create" class="fe-screen-view fe-redux-subscreen hidden">
-     <div class="fe-redux-screen-header">
+     <div class="fe-create-header-row">
       <h1 class="klei-screen-title">Host Game</h1>
-      <button class="klei-carny-xlong-btn" data-fe-nav="lobby">Generate World</button>
+      <!-- Klei HeaderTabs (scripts/widgets/redux/headertabs.lua: list_tabs_normal/selected/hover.tex) -->
+      <div class="klei-header-tabs">
+       <button class="klei-header-tab-btn active" data-create-tab="settings">Cluster Settings</button>
+       <button class="klei-header-tab-btn" data-create-tab="worldgen">Forest</button>
+       <button class="klei-header-tab-btn" data-create-tab="caves">Caves</button>
+       <button class="klei-header-tab-btn" data-create-tab="snapshots">Snapshots</button>
+      </div>
      </div>
-     <div class="dst-card fe-redux-panel">
+     <div class="dst-card fe-redux-panel fe-create-window">
       <div class="fe-create-layout">
-       <!-- Left Save Slots 1..5 -->
+       <!-- Left Save Slots 1..5 (scripts/screens/redux/serverslotscreen.lua) -->
        <div id="fe-saveslots-list" class="fe-saveslots-list"></div>
-       <!-- Right Sub-Tabs (Settings, Forest WorldGen, Caves, Snapshots) -->
+       <!-- Right Sub-Tabs (Cluster Settings, Forest WorldGen, Caves, Snapshots) -->
        <div class="fe-create-panel">
-        <div class="fe-subtab-bar" style="margin-bottom:10px">
-         <button class="fe-subtab-btn active" data-create-tab="settings">Settings</button>
-         <button class="fe-subtab-btn" data-create-tab="worldgen">Forest</button>
-         <button class="fe-subtab-btn" data-create-tab="caves">Caves</button>
-         <button class="fe-subtab-btn" data-create-tab="snapshots">Snapshots</button>
-        </div>
         <div id="fe-create-tab-settings" class="fe-create-tab-body">
+         <div class="klei-section-subtitle">What is your server playstyle intention?</div>
          <div id="fe-intention-grid" class="fe-intention-grid"></div>
-         <div class="fe-form-grid" style="margin-top:12px">
-          <label>Server Name <input id="fe-server-name" type="text" value="Wilson's Constant World"></label>
-          <label>Max Players <select id="fe-max-players" class="klei-select"><option value="1">1 Player (Solo)</option><option value="4">4 Players</option><option value="6" selected>6 Players (Standard)</option></select></label>
-          <label>Server Privacy <select id="fe-server-privacy" class="klei-select"><option value="public">Public</option><option value="friends">Friends Only</option><option value="local">Local Only</option></select></label>
-          <label>PvP <select id="fe-server-pvp" class="klei-select"><option value="off" selected>Disabled</option><option value="on">Enabled</option></select></label>
+         <div class="fe-form-grid" style="margin-top:14px">
+          <label class="klei-spinner-row"><span>Server Name</span> <input id="fe-server-name" class="klei-gold-textbox" type="text" value="Wilson's Constant World"></label>
+          <label class="klei-spinner-row"><span>Max Players</span> <select id="fe-max-players" class="klei-select"><option value="1">1 Player (Solo)</option><option value="4">4 Players</option><option value="6" selected>6 Players</option></select></label>
+          <label class="klei-spinner-row"><span>Privacy</span> <select id="fe-server-privacy" class="klei-select"><option value="public">Public</option><option value="friends">Friends Only</option><option value="local">Local Only</option></select></label>
+          <label class="klei-spinner-row"><span>PvP</span> <select id="fe-server-pvp" class="klei-select"><option value="off" selected>Disabled</option><option value="on">Enabled</option></select></label>
          </div>
         </div>
         <div id="fe-create-tab-worldgen" class="fe-create-tab-body hidden">
          <div class="fe-form-grid">
-          <label>World Size <select id="fe-world-size" class="klei-select"><option value="small">Small</option><option value="medium">Medium</option><option value="default" selected>Default</option><option value="huge">Huge</option></select></label>
-          <label>Land Branching <select id="fe-world-branch" class="klei-select"><option value="default" selected>Default</option><option value="most">Most</option><option value="loop">Loop</option></select></label>
-          <label>Resource Regrowth <select id="fe-world-regrowth" class="klei-select"><option value="default" selected>Default</option><option value="fast">Fast</option><option value="veryslow">Slow</option></select></label>
-          <label>Seasonal Giants <select id="fe-world-giants" class="klei-select"><option value="default" selected>Default</option><option value="more">More</option><option value="none">None</option></select></label>
+          <label class="klei-spinner-row"><span>World Size</span> <select id="fe-world-size" class="klei-select"><option value="small">Small</option><option value="medium">Medium</option><option value="default" selected>Default</option><option value="huge">Huge</option></select></label>
+          <label class="klei-spinner-row"><span>Land Branching</span> <select id="fe-world-branch" class="klei-select"><option value="default" selected>Default</option><option value="most">Most</option><option value="loop">Loop</option></select></label>
+          <label class="klei-spinner-row"><span>Resource Regrowth</span> <select id="fe-world-regrowth" class="klei-select"><option value="default" selected>Default</option><option value="fast">Fast</option><option value="veryslow">Slow</option></select></label>
+          <label class="klei-spinner-row"><span>Seasonal Giants</span> <select id="fe-world-giants" class="klei-select"><option value="default" selected>Default</option><option value="more">More</option><option value="none">None</option></select></label>
          </div>
         </div>
         <div id="fe-create-tab-caves" class="fe-create-tab-body hidden">
@@ -604,6 +619,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
      </div>
      <div class="fe-redux-screen-footer">
       <button class="klei-back-button" data-fe-nav="playstyles"><span class="klei-back-arrow"></span><span>Back</span></button>
+      <button class="klei-carny-xlong-btn" data-fe-nav="lobby">Generate World</button>
      </div>
     </section>
 
@@ -612,16 +628,22 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
      <div class="fe-redux-screen-header">
       <h1 class="klei-screen-title">Browse Games</h1>
       <div class="row" style="gap:8px">
-       <input id="fe-browse-search" type="text" placeholder="Search servers…" style="width:220px;padding:6px 10px">
+       <input id="fe-browse-search" class="klei-gold-textbox" type="text" placeholder="Search servers…" style="width:240px">
        <button id="fe-browse-refresh-btn" class="klei-carny-long-btn">Refresh</button>
       </div>
      </div>
      <div class="dst-card fe-redux-panel">
+      <div class="klei-serverlist-header">
+       <span>Mode</span>
+       <span style="flex:1">Server Name &amp; World Details</span>
+       <span>Players / Ping</span>
+       <span>Action</span>
+      </div>
       <div id="fe-server-browser-list" class="fe-server-browser-list"></div>
       <div class="row" style="justify-content:space-between;margin-top:12px;padding-top:10px;border-top:1px solid rgba(156,122,68,0.3)">
        <div class="row" style="gap:8px">
-        <strong style="color:#f5dca0;font-size:13px">Direct Invite Code:</strong>
-        <input id="fe-webrtc-code-input" type="text" placeholder="Paste room.token invite code…" style="width:260px;padding:5px 10px">
+        <strong style="color:#d7d29d;font-size:13px">Direct Invite Code:</strong>
+        <input id="fe-webrtc-code-input" class="klei-gold-textbox" type="text" placeholder="Paste room.token invite code…" style="width:260px">
         <button id="fe-webrtc-join-btn" class="klei-carny-long-btn">Join</button>
        </div>
        <button class="klei-carny-xlong-btn" data-fe-nav="playstyles">Host Game</button>
@@ -632,90 +654,103 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
      </div>
     </section>
 
-    <!-- 5. COMPENDIUM SCREEN (scripts/screens/redux/compendiumscreen.lua) -->
+    <!-- 5. COMPENDIUM SCREEN (scripts/screens/redux/compendiumscreen.lua — Subscreener left menu + right panel) -->
     <section id="fe-view-compendium" class="fe-screen-view fe-redux-subscreen hidden">
-     <div class="fe-redux-screen-header">
-      <h1 class="klei-screen-title">Compendium</h1>
-      <div class="fe-subtab-bar">
-       <button class="fe-subtab-btn active" data-comp-tab="cookbook">Cookbook</button>
-       <button class="fe-subtab-btn" data-comp-tab="plants">Plant Registry</button>
-       <button class="fe-subtab-btn" data-comp-tab="scrapbook">Scrapbook</button>
-       <button class="fe-subtab-btn" data-comp-tab="bios">Survivors</button>
-       <button class="fe-subtab-btn" data-comp-tab="morgue">Morgue</button>
+     <div class="fe-subscreener-layout">
+      <aside class="fe-subscreener-left">
+       <h1 class="klei-screen-title">Compendium</h1>
+       <nav class="klei-standard-menu fe-subscreener-menu">
+        <button class="klei-menu-item active" data-comp-tab="cookbook">Cookbook</button>
+        <button class="klei-menu-item" data-comp-tab="plants">Plant Registry</button>
+        <button class="klei-menu-item" data-comp-tab="scrapbook">Scrapbook</button>
+        <button class="klei-menu-item" data-comp-tab="bios">Survivors</button>
+        <button class="klei-menu-item" data-comp-tab="morgue">Morgue</button>
+       </nav>
+       <button class="klei-back-button" data-fe-nav="main"><span class="klei-back-arrow"></span><span>Back</span></button>
+      </aside>
+      <div class="dst-card fe-redux-panel fe-subscreener-right">
+       <div id="fe-compendium-body" class="fe-compendium-body"></div>
       </div>
-     </div>
-     <div class="dst-card fe-redux-panel">
-      <div id="fe-compendium-body" class="fe-compendium-body"></div>
-     </div>
-     <div class="fe-redux-screen-footer">
-      <button class="klei-back-button" data-fe-nav="main"><span class="klei-back-arrow"></span><span>Back</span></button>
      </div>
     </section>
 
-    <!-- 6. ITEM COLLECTION & WARDROBE SCREEN (scripts/screens/redux/collectionscreen.lua) -->
+    <!-- 6. ITEM COLLECTION & WARDROBE SCREEN (scripts/screens/redux/collectionscreen.lua — Subscreener left menu + right panel) -->
     <section id="fe-view-collection" class="fe-screen-view fe-redux-subscreen hidden">
-     <div class="fe-redux-screen-header">
-      <h1 class="klei-screen-title">Item Collection</h1>
-      <button class="klei-carny-long-btn" data-fe-nav="lobby">Wardrobe &amp; Lobby</button>
-     </div>
-     <div class="dst-card fe-redux-panel">
-      <div id="fe-collection-grid" class="fe-collection-grid"></div>
-     </div>
-     <div class="fe-redux-screen-footer">
-      <button class="klei-back-button" data-fe-nav="main"><span class="klei-back-arrow"></span><span>Back</span></button>
+     <div class="fe-subscreener-layout">
+      <aside class="fe-subscreener-left">
+       <h1 class="klei-screen-title">Curio Cabinet</h1>
+       <nav class="klei-standard-menu fe-subscreener-menu">
+        <button class="klei-menu-item active" data-fe-nav="collection">Survivors</button>
+        <button class="klei-menu-item" data-fe-nav="lobby">Wardrobe</button>
+        <button class="klei-menu-item" data-open-festival-book="lavaarena">Forge Chests</button>
+        <button class="klei-menu-item" data-open-festival-book="quagmire">Gorge Chests</button>
+       </nav>
+       <button class="klei-back-button" data-fe-nav="main"><span class="klei-back-arrow"></span><span>Back</span></button>
+      </aside>
+      <div class="dst-card fe-redux-panel fe-subscreener-right">
+       <div id="fe-collection-grid" class="fe-collection-grid"></div>
+      </div>
      </div>
     </section>
 
-    <!-- 7. MODS SCREEN (scripts/screens/redux/modsscreen.lua) -->
+    <!-- 7. MODS SCREEN (scripts/screens/redux/modsscreen.lua — Subscreener left menu + right panel) -->
     <section id="fe-view-mods" class="fe-screen-view fe-redux-subscreen hidden">
-     <div class="fe-redux-screen-header">
-      <h1 class="klei-screen-title">Mods</h1>
-      <button id="fe-mods-upload-btn" class="klei-carny-xlong-btn">Install Mod (.lua / .zip)</button>
-     </div>
-     <div class="dst-card fe-redux-panel">
-      <div id="fe-mods-list-cards" class="fe-mods-list-cards"></div>
-     </div>
-     <div class="fe-redux-screen-footer">
-      <button class="klei-back-button" data-fe-nav="main"><span class="klei-back-arrow"></span><span>Back</span></button>
+     <div class="fe-subscreener-layout">
+      <aside class="fe-subscreener-left">
+       <h1 class="klei-screen-title">Mods</h1>
+       <nav class="klei-standard-menu fe-subscreener-menu">
+        <button class="klei-menu-item active">Server Mods</button>
+        <button id="fe-mods-upload-btn" class="klei-menu-item">Install Mod (.zip)</button>
+       </nav>
+       <button class="klei-back-button" data-fe-nav="main"><span class="klei-back-arrow"></span><span>Back</span></button>
+      </aside>
+      <div class="dst-card fe-redux-panel fe-subscreener-right">
+       <div id="fe-mods-list-cards" class="fe-mods-list-cards"></div>
+      </div>
      </div>
     </section>
 
-    <!-- 8. OPTIONS & CONTROLS SCREEN (scripts/screens/redux/optionsscreen.lua) -->
+    <!-- 8. OPTIONS & CONTROLS SCREEN (scripts/screens/redux/optionsscreen.lua — Subscreener left menu + right panel) -->
     <section id="fe-view-options" class="fe-screen-view fe-redux-subscreen hidden">
-     <div class="fe-redux-screen-header">
-      <h1 class="klei-screen-title">Options</h1>
-      <button class="klei-carny-long-btn" data-fe-nav="main">Apply</button>
-     </div>
-     <div class="dst-card fe-redux-panel">
-      <div class="fe-form-grid">
-       <label>Master Volume (<span id="opt-master-volume-val">85%</span>) <input id="opt-master-volume" type="range" min="0" max="100" value="85"></label>
-       <label>HUD Size <select id="opt-hud-scale" class="klei-select"><option value="1">100%</option><option value="0.9">90%</option><option value="1.1">110%</option></select></label>
-       <label>Screen Shake <select id="opt-cam-shake" class="klei-select"><option value="on" selected>Enabled</option><option value="off">Disabled</option></select></label>
-       <label>Controller / Input <select id="opt-input-mode" class="klei-select"><option value="auto" selected>Keyboard + Mouse + Gamepad</option></select></label>
+     <div class="fe-subscreener-layout">
+      <aside class="fe-subscreener-left">
+       <h1 class="klei-screen-title">Options</h1>
+       <nav class="klei-standard-menu fe-subscreener-menu">
+        <button class="klei-menu-item active">Settings</button>
+        <button class="klei-menu-item" data-fe-nav="main">Apply</button>
+       </nav>
+       <button class="klei-back-button" data-fe-nav="main"><span class="klei-back-arrow"></span><span>Back</span></button>
+      </aside>
+      <div class="dst-card fe-redux-panel fe-subscreener-right">
+       <div class="fe-form-grid">
+        <label class="klei-spinner-row"><span>Master Volume (<span id="opt-master-volume-val">85%</span>)</span> <input id="opt-master-volume" type="range" min="0" max="100" value="85"></label>
+        <label class="klei-spinner-row"><span>HUD Size</span> <select id="opt-hud-scale" class="klei-select"><option value="1">100%</option><option value="0.9">90%</option><option value="1.1">110%</option></select></label>
+        <label class="klei-spinner-row"><span>Screen Shake</span> <select id="opt-cam-shake" class="klei-select"><option value="on" selected>Enabled</option><option value="off">Disabled</option></select></label>
+        <label class="klei-spinner-row"><span>Controller / Input</span> <select id="opt-input-mode" class="klei-select"><option value="auto" selected>Keyboard + Mouse + Gamepad</option></select></label>
+       </div>
+       <div class="klei-section-subtitle" style="margin-top:16px">Controls Binding</div>
+       <div class="fe-controls-table" style="margin-top:8px">
+        <div><strong>W / A / S / D</strong>: Walk</div>
+        <div><strong>Space</strong>: Action (Chop / Mine / Pick)</div>
+        <div><strong>F</strong>: Attack</div>
+        <div><strong>C</strong>: Crafting Menu</div>
+        <div><strong>M / Tab</strong>: Map / Server Status</div>
+        <div><strong>I</strong>: Inspect Self</div>
+        <div><strong>Q / E</strong>: Rotate Camera</div>
+        <div><strong>~ /</strong>: Remote Console</div>
+       </div>
       </div>
-      <div class="fe-controls-table" style="margin-top:14px">
-       <div><strong>W / A / S / D</strong>: Walk</div>
-       <div><strong>Space</strong>: Action (Chop / Mine / Pick)</div>
-       <div><strong>F</strong>: Attack</div>
-       <div><strong>C</strong>: Crafting Menu</div>
-       <div><strong>M / Tab</strong>: Map</div>
-       <div><strong>I</strong>: Inspect Self</div>
-       <div><strong>Q / E</strong>: Rotate Camera</div>
-       <div><strong>~ /</strong>: Console</div>
-      </div>
-     </div>
-     <div class="fe-redux-screen-footer">
-      <button class="klei-back-button" data-fe-nav="main"><span class="klei-back-arrow"></span><span>Back</span></button>
      </div>
     </section>
 
-    <!-- 9. SURVIVOR LOBBY SCREEN (scripts/screens/redux/lobbyscreen.lua + widgets/redux/ovalportrait.lua) -->
-    <section id="fe-view-lobby" class="fe-screen-view fe-redux-subscreen hidden">
-     <div class="fe-redux-screen-header">
-      <h1 class="klei-screen-title">Select Your Character</h1>
-      <div class="row" style="gap:8px">
-       <label style="display:inline-flex;align-items:center;gap:6px;margin:0;color:#f5dca0;font-size:13px;font-weight:700">
-        Playstyle:
+    <!-- 9. SURVIVOR LOBBY SCREEN (scripts/screens/redux/lobbyscreen.lua + widgets/redux/characterselect.lua + widgets/redux/ovalportrait.lua) -->
+    <section id="fe-view-lobby" class="fe-screen-view fe-lobby-authentic hidden">
+     <!-- Left ChatSidebar (images/bg_redux_dark_sidebar.xml: dark_sidebar.tex) -->
+     <aside class="klei-lobby-sidebar">
+      <h1 class="klei-screen-title" style="font-size:24px">Select Your Character</h1>
+      <div class="klei-lobby-server-box">
+       <label class="klei-lobby-field">
+        <span>Playstyle Mode</span>
         <select id="title-playstyle-select" class="klei-select">
          <option value="survival" selected>Survival</option>
          <option value="relaxed">Relaxed</option>
@@ -726,62 +761,54 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
          <option value="quagmire">The Gorge</option>
         </select>
        </label>
-      </div>
-     </div>
-     <div class="dst-card fe-redux-panel dst-lobby-card">
-      <div class="lobby-layout">
-       <div id="char-roster-grid" class="char-roster-grid" role="listbox" aria-label="Playable Characters"></div>
-       <div class="char-details-box">
-        <div class="character-hero-box">
-         <div id="title-wilson-avatar" class="character-oval-portrait"></div>
-         <div style="flex:1">
-          <div id="title-char-gold-name" class="char-gold-nameplate"></div>
-          <div id="title-char-name" class="char-detail-name">Wilson P. Higgsbury</div>
-          <div id="title-char-title" class="char-detail-title">The Gentleman Scientist</div>
-          <div id="title-char-quote" class="char-detail-quote">"I will conquer this world with the power of my MIND!"</div>
-          <div id="title-char-stats" class="char-detail-stats">Health: 150 · Hunger: 150 · Sanity: 200</div>
-          <div id="title-char-perk" class="char-detail-perk">Grows a magnificent insulating beard.</div>
-         </div>
-        </div>
-        <div class="row" style="justify-content:space-between;margin-top:12px">
-         <div class="row">
-          <button id="play-game" class="klei-carny-xlong-btn">Go!</button>
-          <button id="load-saved-world-btn" class="klei-carny-long-btn">Load Save</button>
-         </div>
-         <label style="display:inline-flex;align-items:center;gap:6px;margin:0;color:#ebd9b4;font-size:12.5px">
-          Season:
-          <select id="title-season-select" class="klei-select">
-           <option value="autumn">Autumn</option>
-           <option value="winter">Winter</option>
-           <option value="spring">Spring</option>
-           <option value="summer">Summer</option>
-          </select>
-         </label>
-         <label style="display:inline-flex;align-items:center;gap:6px;margin:0;color:#ebd9b4;font-size:12.5px">
-          Seed:
-          <input id="title-seed-input" type="text" placeholder="Default" style="width:96px;padding:4px 8px;background:rgba(16,13,9,0.92);color:#f5dca0;border:1px solid #9c7a44;border-radius:4px;font-size:12px">
-         </label>
-         <label style="display:inline-flex;align-items:center;gap:6px;margin:0;color:#ebd9b4;cursor:pointer;font-size:12.5px">
-          <input id="title-creative-check" type="checkbox" style="width:auto"> Free Crafting
-         </label>
-        </div>
-        <div class="row" style="justify-content:space-between;margin-top:8px;padding-top:8px;border-top:1px solid rgba(156,122,68,0.28);font-size:12px;color:#dfd3ba">
-         <div class="row" style="gap:12px">
-          <strong style="color:#f5dca0">Mods:</strong>
-          <label style="display:inline-flex;align-items:center;gap:4px;margin:0;cursor:pointer"><input type="checkbox" class="lobby-mod-check" value="fast_work" style="width:auto"> Fast Sprinter</label>
-          <label style="display:inline-flex;align-items:center;gap:4px;margin:0;cursor:pointer"><input type="checkbox" class="lobby-mod-check" value="extra_light" style="width:auto"> Night Explorer</label>
-          <label style="display:inline-flex;align-items:center;gap:4px;margin:0;cursor:pointer"><input type="checkbox" class="lobby-mod-check" value="boss_hunter" style="width:auto"> Giant Hunter</label>
-         </div>
-         <div class="row">
-          <button id="upload-mod-btn" class="klei-subtle-diag" style="padding:4px 10px;font-size:11.5px">Load Mod</button>
-          <input id="mod-file-input" class="file" type="file" accept=".lua,.zip">
-         </div>
+       <label class="klei-lobby-field">
+        <span>Starting Season</span>
+        <select id="title-season-select" class="klei-select">
+         <option value="autumn">Autumn</option>
+         <option value="winter">Winter</option>
+         <option value="spring">Spring</option>
+         <option value="summer">Summer</option>
+        </select>
+       </label>
+       <label class="klei-lobby-field">
+        <span>World Seed</span>
+        <input id="title-seed-input" class="klei-gold-textbox" type="text" placeholder="Default">
+       </label>
+       <label class="klei-lobby-check">
+        <input id="title-creative-check" type="checkbox" style="width:auto"> Free Crafting Mode
+       </label>
+       <div class="klei-lobby-mods-box">
+        <div style="color:#d7d29d;font-weight:700;font-size:12px;margin-bottom:4px">Active Mods</div>
+        <label class="klei-lobby-check"><input type="checkbox" class="lobby-mod-check" value="fast_work" style="width:auto"> Fast Sprinter</label>
+        <label class="klei-lobby-check"><input type="checkbox" class="lobby-mod-check" value="extra_light" style="width:auto"> Night Explorer</label>
+        <label class="klei-lobby-check"><input type="checkbox" class="lobby-mod-check" value="boss_hunter" style="width:auto"> Giant Hunter</label>
+        <div class="row" style="gap:6px;margin-top:6px">
+         <button id="upload-mod-btn" class="klei-carny-long-btn" style="min-width:110px;height:30px;font-size:12px">Load Mod</button>
+         <button id="load-saved-world-btn" class="klei-carny-long-btn" style="min-width:110px;height:30px;font-size:12px">Load Save</button>
+         <input id="mod-file-input" class="file" type="file" accept=".lua,.zip">
         </div>
        </div>
       </div>
-     </div>
-     <div class="fe-redux-screen-footer">
       <button class="klei-back-button" data-fe-nav="main"><span class="klei-back-arrow"></span><span>Back</span></button>
+     </aside>
+
+     <!-- Center CharacterSelect Grid & Right OvalPortrait Details (scripts/widgets/redux/characterselect.lua + ovalportrait.lua) -->
+     <div class="klei-lobby-main-stage">
+      <div class="klei-character-select-col">
+       <div id="char-roster-grid" class="char-roster-grid" role="listbox" aria-label="Playable Characters"></div>
+      </div>
+      <div class="klei-ovalportrait-col">
+       <div id="title-char-gold-name" class="char-gold-nameplate"></div>
+       <div id="title-wilson-avatar" class="character-oval-portrait"></div>
+       <div id="title-char-stats" class="char-detail-stats"></div>
+       <div id="title-char-name" class="char-detail-name hidden">Wilson P. Higgsbury</div>
+       <div id="title-char-title" class="char-detail-title">The Gentleman Scientist</div>
+       <div id="title-char-quote" class="char-detail-quote">"I will conquer this world with the power of my MIND!"</div>
+       <div id="title-char-perk" class="char-detail-perk">Grows a magnificent insulating beard.</div>
+       <div class="klei-lobby-action-row">
+        <button id="play-game" class="klei-carny-xlong-btn">Select</button>
+       </div>
+      </div>
      </div>
     </section>
    </div>
@@ -811,13 +838,13 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
    <div class="map-modal-card">
     <canvas id="map-screen-canvas" width="1280" height="720"></canvas>
     <div class="map-controls-root" style="z-index:5">
-     <div class="map-controls-rot-row">
-      <button id="map-zoom-in" class="klei-img-btn rot-left" data-hover-title="Zoom In">+</button>
-      <button id="map-zoom-out" class="klei-img-btn rot-right" data-hover-title="Zoom Out">−</button>
-      <button id="map-reset-view" class="klei-img-btn" data-hover-title="Center Map">⟲</button>
-     </div>
-     <div class="map-controls-main-row">
+     <div class="map-controls-top-row">
       <button id="map-close-btn" class="klei-img-btn map-btn" data-hover-title="Close Map (M / Esc)"></button>
+     </div>
+     <div class="map-controls-bottom-row">
+      <button id="map-zoom-in" class="klei-img-btn rot-left" data-hover-title="Zoom In">+</button>
+      <button id="map-reset-view" class="klei-img-btn pause-btn" data-hover-title="Center Map"></button>
+      <button id="map-zoom-out" class="klei-img-btn rot-right" data-hover-title="Zoom Out">−</button>
      </div>
     </div>
    </div>
@@ -834,37 +861,45 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
    </div>
   </div>
 
-  <!-- PlayerStatusScreen Modal (scripts/screens/playerstatusscreen.lua) -->
+  <!-- PlayerStatusScreen Modal (scripts/screens/playerstatusscreen.lua: scoreboard_frame.tex) -->
   <div id="player-status-modal" class="screen-modal hidden" role="dialog" aria-label="Survivor Status">
-   <div class="dst-card fe-redux-panel" style="max-width:680px">
-    <div class="row" style="justify-content:space-between;margin-bottom:10px">
-     <h2 style="font-family:Georgia,serif;font-size:24px;color:#f5dca0;margin:2px 0 0">Server Status</h2>
-     <button id="player-status-close-btn" class="klei-carny-long-btn">Close</button>
+   <div class="klei-scoreboard-window">
+    <div class="klei-scoreboard-header">
+     <div>
+      <h2 id="sb-server-title" class="klei-scoreboard-title">Wilson's Constant World</h2>
+      <div id="sb-server-sub" class="klei-scoreboard-subtitle">Survival · Forest &amp; Caves Cluster</div>
+     </div>
+     <div class="row" style="gap:12px">
+      <span id="sb-day-label" class="klei-scoreboard-day">Day 1</span>
+      <button id="player-status-close-btn" class="klei-carny-long-btn">Close</button>
+     </div>
     </div>
+    <div class="klei-scoreboard-divider"></div>
     <div id="player-status-list" class="player-status-list"></div>
    </div>
   </div>
 
-  <!-- Pause / Server Control Modal (scripts/screens/redux/pausescreen.lua) -->
+  <!-- PauseScreen Modal (scripts/screens/redux/pausescreen.lua: CurlyWindow("Paused", "Wait a minute!")) -->
   <div id="pause-screen-modal" class="screen-modal hidden" role="dialog" aria-label="Pause Menu">
-   <div class="dst-card fe-redux-panel" style="max-width:400px;text-align:center">
-    <h2 style="font-family:Georgia,serif;font-size:24px;color:#f5dca0;margin:4px 0 12px">Paused</h2>
-    <div style="display:flex;flex-direction:column;gap:7px;align-items:center">
-     <button id="pause-resume-btn" class="klei-carny-xlong-btn" style="width:100%">Continue</button>
-     <button id="pause-player-status-btn" class="klei-carny-xlong-btn" style="width:100%">Server Status</button>
-     <button id="pause-cookbook-btn" class="klei-carny-xlong-btn" style="width:100%">Cookbook</button>
-     <button id="pause-save-world-btn" class="klei-carny-xlong-btn" style="width:100%">Save World</button>
-     <button id="pause-load-world-btn" class="klei-carny-xlong-btn" style="width:100%">Load World</button>
-     <button id="pause-export-cluster-btn" class="klei-carny-xlong-btn" style="width:100%">Export Cluster (.zip)</button>
-     <button id="pause-import-cluster-btn" class="klei-carny-xlong-btn" style="width:100%">Import Cluster (.zip)</button>
+   <div class="klei-pause-curly-window">
+    <h2 class="klei-pause-title">Paused</h2>
+    <div class="klei-pause-subtitle">Wait a minute!</div>
+    <div class="klei-pause-menu-stack">
+     <button id="pause-player-status-btn" class="klei-carny-xlong-btn">Server Status</button>
+     <button id="pause-cookbook-btn" class="klei-carny-xlong-btn">Scrapbook &amp; Cookbook</button>
+     <button id="pause-save-world-btn" class="klei-carny-xlong-btn">Save World</button>
+     <button id="pause-load-world-btn" class="klei-carny-xlong-btn">Load World</button>
+     <button id="pause-export-cluster-btn" class="klei-carny-xlong-btn">Export Cluster (.zip)</button>
+     <button id="pause-import-cluster-btn" class="klei-carny-xlong-btn">Import Cluster (.zip)</button>
      <input id="world-cluster-file" class="file" type="file" accept=".zip">
-     <button id="pause-creative-btn" class="klei-carny-xlong-btn" style="width:100%">Toggle Free Crafting</button>
-     <button id="pause-starter-kit-btn" class="klei-carny-xlong-btn" style="width:100%">Supply Starter Kit</button>
-     <button id="pause-next-phase-btn" class="klei-carny-xlong-btn" style="width:100%">Advance Time Phase</button>
-     <button id="pause-console-btn" class="klei-carny-xlong-btn" style="width:100%">Console (~)</button>
-     <button id="pause-change-char-btn" class="klei-carny-xlong-btn" style="width:100%">Change Character</button>
-     <button id="pause-mainmenu-btn" class="klei-carny-xlong-btn" style="width:100%">Disconnect</button>
-     <button id="pause-open-diag-btn" class="klei-carny-xlong-btn hidden" style="width:100%">WASM Diagnostics</button>
+     <button id="pause-creative-btn" class="klei-carny-xlong-btn">Server Commands (Free Craft)</button>
+     <button id="pause-starter-kit-btn" class="klei-carny-xlong-btn">Supply Starter Kit</button>
+     <button id="pause-next-phase-btn" class="klei-carny-xlong-btn">Advance Time Phase</button>
+     <button id="pause-console-btn" class="klei-carny-xlong-btn">Remote Console (~)</button>
+     <button id="pause-change-char-btn" class="klei-carny-xlong-btn">Change Character</button>
+     <button id="pause-mainmenu-btn" class="klei-carny-xlong-btn">Disconnect</button>
+     <button id="pause-resume-btn" class="klei-carny-xlong-btn">Continue</button>
+     <button id="pause-open-diag-btn" class="klei-carny-xlong-btn hidden">WASM Diagnostics</button>
     </div>
    </div>
   </div>
@@ -1066,12 +1101,19 @@ function hasRecipeIngredients(recipe: RecipeDefinition, scene?: GameSceneSnapsho
 function renderCharacterRoster() {
   const grid = element('char-roster-grid');
   if (!grid) return;
-  grid.innerHTML = CHARACTER_ROSTER.map(ch => {
+
+  // Klei CharacterSelect (scripts/widgets/redux/characterselect.lua): 5x5 grid with Random (?) slot first
+  const randomIconUrl = gameRenderer.getIconDataUrl('btn_icon_random') || gameRenderer.getIconDataUrl('avatar_wilson');
+  const randomSlotHtml = `<button class="char-select-slot" data-char-select="random" title="Random Survivor">${randomIconUrl ? `<img src="${randomIconUrl}" alt="Random">` : `<span>?</span>`}</button>`;
+
+  const rosterSlotsHtml = CHARACTER_ROSTER.map(ch => {
     const avatarUrl = gameRenderer.getIconDataUrl(`avatar_${ch.id}`);
     const active = ch.id === selectedCharacter ? 'selected' : '';
     const imgHtml = avatarUrl ? `<img src="${avatarUrl}" alt="${ch.name}">` : `<span>${ch.name.slice(0, 2)}</span>`;
     return `<button class="char-select-slot ${active}" data-char-select="${ch.id}" title="${ch.name} (${ch.title})">${imgHtml}</button>`;
   }).join('');
+
+  grid.innerHTML = randomSlotHtml + rosterSlotsHtml;
 
   const cur = CHARACTER_ROSTER.find(c => c.id === selectedCharacter) ?? CHARACTER_ROSTER[0];
   const ovalPortraitUrl =
@@ -1090,13 +1132,23 @@ function renderCharacterRoster() {
   element('title-char-title').textContent = cur.title;
   element('title-char-quote').textContent = cur.quote;
 
+  // Klei OvalPortrait / CharacterSelect status circles (scripts/widgets/redux/ovalportrait.lua)
   const hpIcon = gameRenderer.getIconDataUrl('status_health') || gameRenderer.getIconDataUrl('badge_health');
   const huIcon = gameRenderer.getIconDataUrl('status_hunger') || gameRenderer.getIconDataUrl('badge_hunger');
   const saIcon = gameRenderer.getIconDataUrl('status_sanity') || gameRenderer.getIconDataUrl('badge_sanity');
   element('title-char-stats').innerHTML = `
-    <span class="char-stat-pill">${hpIcon ? `<img src="${hpIcon}" alt="">` : ''} Health: <strong>${cur.health}</strong></span>
-    <span class="char-stat-pill">${huIcon ? `<img src="${huIcon}" alt="">` : ''} Hunger: <strong>${cur.hunger}</strong></span>
-    <span class="char-stat-pill">${saIcon ? `<img src="${saIcon}" alt="">` : ''} Sanity: <strong>${cur.sanity}</strong></span>
+    <div class="klei-oval-stat" title="Health: ${cur.health}">
+      <div class="klei-oval-stat-ring">${hpIcon ? `<img src="${hpIcon}" alt="Health">` : ''}</div>
+      <span>${cur.health}</span>
+    </div>
+    <div class="klei-oval-stat" title="Hunger: ${cur.hunger}">
+      <div class="klei-oval-stat-ring">${huIcon ? `<img src="${huIcon}" alt="Hunger">` : ''}</div>
+      <span>${cur.hunger}</span>
+    </div>
+    <div class="klei-oval-stat" title="Sanity: ${cur.sanity}">
+      <div class="klei-oval-stat-ring">${saIcon ? `<img src="${saIcon}" alt="Sanity">` : ''}</div>
+      <span>${cur.sanity}</span>
+    </div>
   `;
   element('title-char-perk').textContent = cur.perk;
 }
@@ -1104,7 +1156,13 @@ function renderCharacterRoster() {
 element('char-roster-grid')?.addEventListener('click', e => {
   const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-char-select]');
   if (!btn) return;
-  selectedCharacter = btn.dataset.charSelect!;
+  const pick = btn.dataset.charSelect!;
+  if (pick === 'random') {
+    const rand = CHARACTER_ROSTER[Math.floor(Math.random() * CHARACTER_ROSTER.length)];
+    selectedCharacter = rand.id;
+  } else {
+    selectedCharacter = pick;
+  }
   dstAudio.playEvents([{ path: 'dontstarve/HUD/click_move' }]);
   renderCharacterRoster();
 });
@@ -1129,10 +1187,8 @@ function selectPlaystyleMode(modeId: string) {
 }
 
 function renderFrontEndScreens() {
-  // 1. Official DST Logos, Submenu Icons, User Profile Avatar & Event Badges
+  // 1. Official DST Logo (`images/frontscreen.xml` -> `title.tex` at `multiplayermainscreen.lua:577`)
   const titleLogoUrl = gameRenderer.getIconDataUrl('fe_title_logo');
-  const logoBox = element('fe-logo-box');
-  if (logoBox && titleLogoUrl) logoBox.innerHTML = `<img src="${titleLogoUrl}" alt="Don't Starve Together">`;
   const heroShield = element('fe-hero-shield');
   if (heroShield && titleLogoUrl) heroShield.innerHTML = `<img src="${titleLogoUrl}" alt="Don't Starve Together">`;
 
@@ -1148,34 +1204,17 @@ function renderFrontEndScreens() {
     if (el && url) el.innerHTML = `<img src="${url}" alt="">`;
   }
 
-  const userAvatarEl = element('fe-main-user-avatar');
-  const userAvatarUrl = gameRenderer.getIconDataUrl(`avatar_${selectedCharacter}`) || gameRenderer.getIconDataUrl('avatar_wilson');
-  if (userAvatarEl && userAvatarUrl) {
-    userAvatarEl.innerHTML = `<img src="${userAvatarUrl}" alt="Profile">`;
+  // Populate goto_url.tex on MainMenuMotdPanel cells (scripts/widgets/redux/mainmenu_motdpanel.lua:193)
+  const gotoUrlTex = gameRenderer.getIconDataUrl('btn_icon_goto_url');
+  for (const motdIconId of ['motd-url-icon-1', 'motd-url-icon-2', 'motd-url-icon-3']) {
+    const el = element(motdIconId);
+    if (el && gotoUrlTex) el.innerHTML = `<img src="${gotoUrlTex}" alt="">`;
   }
 
   const forgeLogoUrl = gameRenderer.getIconDataUrl('mode_forge_title');
   const gorgeLogoUrl = gameRenderer.getIconDataUrl('mode_gorge_title');
-  if (element('fe-card-forge-logo') && forgeLogoUrl) element('fe-card-forge-logo').innerHTML = `<img src="${forgeLogoUrl}" alt="The Forge">`;
-  if (element('fe-card-gorge-logo') && gorgeLogoUrl) element('fe-card-gorge-logo').innerHTML = `<img src="${gorgeLogoUrl}" alt="The Gorge">`;
   if (element('forge-hud-logo') && forgeLogoUrl) element('forge-hud-logo').innerHTML = `<img src="${forgeLogoUrl}" alt="The Forge">`;
   if (element('gorge-hud-logo') && gorgeLogoUrl) element('gorge-hud-logo').innerHTML = `<img src="${gorgeLogoUrl}" alt="The Gorge">`;
-
-  // 2. Main Menu Playstyle Strip (5 Core Playstyles)
-  const mainStrip = element('fe-main-playstyle-strip');
-  if (mainStrip) {
-    mainStrip.innerHTML = PLAYSTYLE_MODES.filter(m => !m.isEvent).map(m => {
-      const iconUrl = gameRenderer.getIconDataUrl(m.iconKey);
-      const activeCls = m.id === selectedPlaystyle ? 'selected' : '';
-      return `
-        <button class="fe-mini-playstyle-card ${activeCls}" data-select-playstyle="${m.id}" data-quick-lobby="${m.id}">
-          <div class="fe-playstyle-icon-wrap">${iconUrl ? `<img src="${iconUrl}" alt="${m.name}">` : ''}</div>
-          <div class="fe-mini-playstyle-name">${m.name}</div>
-          <div class="fe-mini-playstyle-sub">${m.subtitle.split('·')[0]}</div>
-        </button>
-      `;
-    }).join('');
-  }
 
   // 2B. FestivalEventScreen (LavaarenaBook & QuagmireBook — scripts/widgets/redux/lavaarena_book.lua & quagmire_book.lua)
   const festBody = element('fe-festival-book-body');
@@ -1209,8 +1248,8 @@ function renderFrontEndScreens() {
               </div>
             </div>
             <div class="row" style="gap:8px">
-              <button class="klei-carny-long-btn" data-quick-lobby="lavaarena">Select Gladiator →</button>
-              <button class="klei-carny-xlong-btn" data-quick-mode="lavaarena">Enter Lava Arena Now</button>
+              <button class="klei-carny-long-btn" data-quick-lobby="lavaarena">Select Gladiator</button>
+              <button class="klei-carny-xlong-btn" data-quick-mode="lavaarena">Enter Lava Arena</button>
             </div>
           </div>
 
@@ -1237,8 +1276,8 @@ function renderFrontEndScreens() {
             </div>
           </div>
 
-          <div class="dst-title-eyebrow" style="margin:12px 0 6px;color:#ffd97d">Lava Arena Achievements (images/lavaarena_achievements.xml)</div>
-          <div class="cookbook-grid" style="max-height:220px">
+          <div class="dst-title-eyebrow" style="margin:12px 0 6px;color:#ffd97d">Lava Arena Quests & Achievements</div>
+          <div class="cookbook-grid" style="max-height:200px">
             ${achs.map(a => {
               const u = gameRenderer.getIconDataUrl(a.key);
               return `
@@ -1282,8 +1321,8 @@ function renderFrontEndScreens() {
               </div>
             </div>
             <div class="row" style="gap:8px">
-              <button class="klei-carny-long-btn" data-quick-lobby="quagmire">Select Chef →</button>
-              <button class="klei-carny-xlong-btn" data-quick-mode="quagmire">Enter Quagmire Now</button>
+              <button class="klei-carny-long-btn" data-quick-lobby="quagmire">Select Chef</button>
+              <button class="klei-carny-xlong-btn" data-quick-mode="quagmire">Enter Quagmire</button>
             </div>
           </div>
 
@@ -1310,8 +1349,8 @@ function renderFrontEndScreens() {
             </div>
           </div>
 
-          <div class="dst-title-eyebrow" style="margin:12px 0 6px;color:#ffd97d">Quagmire Achievements (images/quagmire_achievements.xml)</div>
-          <div class="cookbook-grid" style="max-height:220px">
+          <div class="dst-title-eyebrow" style="margin:12px 0 6px;color:#ffd97d">Quagmire Achievements</div>
+          <div class="cookbook-grid" style="max-height:200px">
             ${gorgeAchs.map(a => {
               const u = gameRenderer.getIconDataUrl(a.key);
               return `
@@ -1330,19 +1369,16 @@ function renderFrontEndScreens() {
     }
   }
 
-  // 3. PlaystyleSelectScreen (All 7 Modes + Detail Banner)
+  // 3. PlaystyleSelectScreen (scripts/screens/redux/playstyleselectscreen.lua)
   const psGrid = element('fe-playstyle-cards-grid');
   if (psGrid) {
     psGrid.innerHTML = PLAYSTYLE_MODES.map(m => {
       const iconUrl = gameRenderer.getIconDataUrl(m.iconKey);
       const activeCls = m.id === selectedPlaystyle ? 'selected' : '';
-      const badgeHtml = m.isEvent ? `<span class="fe-event-badge">EVENT</span>` : '';
       return `
         <button class="fe-playstyle-card ${activeCls}" data-select-playstyle="${m.id}">
-          ${badgeHtml}
-          <div class="fe-playstyle-card-title">${m.name}</div>
           <div class="fe-playstyle-card-art">${iconUrl ? `<img src="${iconUrl}" alt="${m.name}">` : ''}</div>
-          <div class="fe-playstyle-card-sub">${m.subtitle}</div>
+          <div class="fe-playstyle-card-title">${m.name}</div>
         </button>
       `;
     }).join('');
@@ -1350,27 +1386,16 @@ function renderFrontEndScreens() {
   const psBanner = element('fe-playstyle-detail-banner');
   if (psBanner) {
     const curMode = PLAYSTYLE_MODES.find(m => m.id === selectedPlaystyle) ?? PLAYSTYLE_MODES[2];
-    const iconUrl = gameRenderer.getIconDataUrl(curMode.iconKey);
-    const rulesHtml = curMode.rules.map(r => `<span class="fe-rule-chip">✔ ${r}</span>`).join('');
     psBanner.innerHTML = `
-      <div class="row" style="gap:16px;align-items:center;justify-content:space-between">
-        <div class="row" style="gap:14px;align-items:center;flex:1">
-          <div class="fe-playstyle-banner-icon">${iconUrl ? `<img src="${iconUrl}" alt="${curMode.name}">` : ''}</div>
-          <div style="flex:1">
-            <div style="font-size:20px;font-weight:700;color:#f5dca0">${curMode.name} Mode <span style="font-size:13px;color:#d8b874;font-weight:400">· ${curMode.subtitle}</span></div>
-            <p style="margin:4px 0 8px;color:#ebd9b4;font-size:13px;line-height:1.4">${curMode.desc}</p>
-            <div class="row" style="gap:8px;flex-wrap:wrap">${rulesHtml}</div>
-          </div>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:7px;min-width:210px">
-          <button class="klei-carny-xlong-btn" data-quick-mode="${curMode.id}">Launch ${curMode.name} Now</button>
-          <button class="klei-carny-long-btn" data-fe-nav="lobby" style="width:100%">Choose Survivor First →</button>
-        </div>
+      <div class="fe-playstyle-desc-text">${curMode.desc}</div>
+      <div class="fe-playstyle-desc-actions">
+        <button class="klei-carny-long-btn" data-fe-nav="create">Configure World</button>
+        <button class="klei-carny-xlong-btn" data-quick-mode="${curMode.id}">Generate ${curMode.name}</button>
       </div>
     `;
   }
 
-  // 4. ServerCreationScreen Save Slots 1..5, Intentions, and Caves
+  // 4. ServerCreationScreen Save Slots 1..5, Intentions, and Caves (scripts/screens/redux/servercreationscreen.lua)
   const slotsEl = element('fe-saveslots-list');
   if (slotsEl) {
     const hasLocalSave = Boolean(localStorage.getItem('dst_saved_world_v1'));
@@ -1378,13 +1403,13 @@ function renderFrontEndScreens() {
     slotsEl.innerHTML = [1, 2, 3, 4, 5].map(slot => {
       const active = slot === selectedSaveSlot ? 'selected' : '';
       const modeName = PLAYSTYLE_MODES.find(m => m.id === selectedPlaystyle)?.name || 'Survival';
-      const label = slot === 1 && hasLocalSave ? `Cluster_1 · Saved World` : `Cluster_${slot} · ${slot === selectedSaveSlot ? modeName : 'New World'}`;
+      const label = slot === 1 && hasLocalSave ? `Day 1 · ${modeName}` : slot === selectedSaveSlot ? `New ${modeName} World` : 'Empty Slot';
       return `
         <button class="fe-saveslot-item ${active}" data-save-slot="${slot}">
           <div class="character-avatar-frame" style="width:42px;height:42px">${curCharAvatar ? `<img src="${curCharAvatar}" alt="">` : ''}</div>
           <div style="text-align:left;flex:1">
-            <div style="font-weight:700;color:#f5dca0;font-size:14px">Save Slot ${slot}</div>
-            <div style="font-size:11.5px;color:#d8b874">${label}</div>
+            <div style="font-weight:700;color:#d6c99c;font-size:14px">Cluster_${slot}</div>
+            <div style="font-size:11.5px;color:#b8ad8a">${label}</div>
           </div>
         </button>
       `;
@@ -1400,8 +1425,8 @@ function renderFrontEndScreens() {
         <button class="fe-intention-card ${active}" data-select-intention="${it.id}">
           <div class="fe-intention-icon">${iconUrl ? `<img src="${iconUrl}" alt="${it.name}">` : ''}</div>
           <div>
-            <div style="font-weight:700;color:#f5dca0;font-size:14px">${it.name}</div>
-            <div style="font-size:11.5px;color:#dfd3ba">${it.desc}</div>
+            <div style="font-weight:700;color:#d6c99c;font-size:14px">${it.name}</div>
+            <div style="font-size:11.5px;color:#b8ad8a">${it.desc}</div>
           </div>
         </button>
       `;
@@ -1414,14 +1439,12 @@ function renderFrontEndScreens() {
     const noCavesUrl = gameRenderer.getIconDataUrl('playstyle_nocaves');
     cavesGrid.innerHTML = `
       <button class="fe-caves-card ${cavesEnabled ? 'selected' : ''}" data-caves-toggle="on">
-        <div class="fe-caves-art">${cavesUrl ? `<img src="${cavesUrl}" alt="Enable Caves">` : ''}</div>
-        <div style="font-weight:700;color:#f5dca0;font-size:16px">Enable Caves Shard (Master + Caves)</div>
-        <div style="font-size:12px;color:#dfd3ba">Includes plugged sinkholes (<code>cave_entrance</code>), subterranean caves, and Light Flowers.</div>
+        <div class="fe-caves-art">${cavesUrl ? `<img src="${cavesUrl}" alt="Caves Enabled">` : ''}</div>
+        <div style="font-weight:700;color:#d6c99c;font-size:15px">Forest & Caves</div>
       </button>
       <button class="fe-caves-card ${!cavesEnabled ? 'selected' : ''}" data-caves-toggle="off">
         <div class="fe-caves-art">${noCavesUrl ? `<img src="${noCavesUrl}" alt="No Caves">` : ''}</div>
-        <div style="font-weight:700;color:#f5dca0;font-size:16px">Forest Surface Only (No Caves)</div>
-        <div style="font-size:12px;color:#dfd3ba">Single-shard surface world for lightweight performance.</div>
+        <div style="font-weight:700;color:#d6c99c;font-size:15px">Forest Only</div>
       </button>
     `;
   }
@@ -1727,6 +1750,7 @@ function applyKleiHudTextures() {
     ['--tex-fe-options-frame', 'fe_options_frame'],
     ['--tex-fe-wardrobe-bg', 'fe_wardrobe_bg'],
     ['--tex-fe-banner-dst10', 'fe_banner_dst10'],
+    ['--tex-fe-banner-rift7', 'fe_banner_rift7'],
     ['--tex-fe-banner-magma', 'fe_banner_magma'],
     ['--tex-fe-banner-gorge', 'fe_banner_gorge'],
     ['--tex-fe-menu-focus', 'fe_menu_focus'],
@@ -1741,6 +1765,12 @@ function applyKleiHudTextures() {
     ['--tex-fe-div-bottom', 'fe_div_bottom'],
     ['--tex-fe-avatar-frame', 'fe_avatar_frame'],
     ['--tex-fe-avatar-bg', 'fe_avatar_bg'],
+    ['--tex-fe-radio-gold-on', 'fe_radio_gold_on'],
+    ['--tex-fe-radio-gold-off', 'fe_radio_gold_off'],
+    ['--tex-fe-spinner-bg', 'fe_spinner_bg'],
+    ['--tex-fe-option-hl', 'fe_option_highlight'],
+    ['--tex-fe-item-divider', 'fe_item_divider'],
+    ['--tex-fe-player-banner', 'fe_player_list_banner'],
     ['--tex-playstyle-frame', 'playstyle_frame'],
     ['--tex-playstyle-frame-hl', 'playstyle_frame_hl'],
     ['--tex-saveslot-bg', 'saveslot_bg'],
@@ -1985,6 +2015,14 @@ function renderPlayerStatusModal(scene?: GameSceneSnapshot) {
   const peerCount = room?.connectedPeers ?? 0;
   const hostIconUrl = gameRenderer.getIconDataUrl('sb_host');
   const pingIconUrl = gameRenderer.getIconDataUrl('sb_ping_good');
+  const modeName = PLAYSTYLE_MODES.find(m => m.id === selectedPlaystyle)?.name || 'Survival';
+
+  const srvNameEl = element('sb-server-name');
+  if (srvNameEl) srvNameEl.textContent = element<HTMLInputElement>('fe-create-server-name')?.value || 'Klei Constant World';
+  const srvSubEl = element('sb-server-sub');
+  if (srvSubEl) srvSubEl.textContent = `Day ${dayCount} · ${modeName}`;
+  const srvDescEl = element('sb-server-desc');
+  if (srvDescEl) srvDescEl.textContent = element<HTMLInputElement>('fe-create-server-desc')?.value || 'Survive the Seasons, Hunt Giants, Explore the Caves';
 
   const rowsHtml = peers.map(peer => {
     const charPrefab = peer.prefab || selectedCharacter || 'wilson';
@@ -1998,17 +2036,17 @@ function renderPlayerStatusModal(scene?: GameSceneSnapshot) {
       <div class="player-status-row ${peer.admin ? 'host-row' : ''}">
         <div class="character-avatar-frame" style="width:52px;height:52px">${avatarImg}</div>
         <div style="flex:1">
-          <div style="font-weight:700;color:#f6dca0;font-size:16px;display:flex;align-items:center;gap:6px">
+          <div style="font-weight:700;color:#d6c99c;font-size:16px;display:flex;align-items:center;gap:6px">
             ${peer.admin && hostIconUrl ? `<img src="${hostIconUrl}" alt="" style="width:18px;height:18px;object-fit:contain">` : ''}
             ${peer.name || charInfo.name} <span style="font-size:12px;color:#a8d697">${roleTag}</span>
           </div>
-          <div style="font-size:12.5px;color:#d8b874">${charInfo.title} · ${peer.admin ? stateLabel : 'Connected'}</div>
+          <div style="font-size:12.5px;color:#b8ad8a">${charInfo.title} · ${peer.admin ? stateLabel : 'Connected'}</div>
         </div>
         <div style="text-align:right;font-size:12.5px;color:#dfd3ba">
           <div>Day ${dayCount} · ${shardLabel}</div>
           <div style="color:#a4ad95;display:inline-flex;align-items:center;gap:4px">
             ${pingIconUrl ? `<img src="${pingIconUrl}" alt="" style="width:15px;height:15px;object-fit:contain">` : ''}
-            Tick ${scene?.tick ?? 0} · WebRTC Peers: ${peerCount}
+            ${peerCount + 1}/6 Players
           </div>
         </div>
       </div>
@@ -2017,7 +2055,7 @@ function renderPlayerStatusModal(scene?: GameSceneSnapshot) {
 
   const modsHtml = mods.length > 0
     ? `<div style="margin-top:8px;padding:8px 12px;background:rgba(20,16,12,0.85);border:1px solid rgba(156,122,68,0.35);border-radius:6px;font-size:12px;color:#dfd3ba">
-         <strong style="color:#f5dca0">Active Server Mods (${mods.length}):</strong> ${mods.join(', ')}
+         <strong style="color:#d6c99c">Active Server Mods (${mods.length}):</strong> ${mods.join(', ')}
        </div>`
     : '';
 
@@ -2058,6 +2096,14 @@ window.addEventListener('mousemove', e => {
   const target = e.target as HTMLElement | null;
   const hoverEl = target?.closest<HTMLElement>('[data-hover-title]');
   uiHoverText = hoverEl?.dataset.hoverTitle || '';
+
+  // Update MakeSubMenu hover label on MultiplayerMainScreen (scripts/screens/redux/multiplayermainscreen.lua:432)
+  const subLabelEl = element('fe-submenu-hover-label');
+  if (subLabelEl) {
+    const subBtn = target?.closest<HTMLElement>('.klei-submenu-icon-btn[data-hover-title]');
+    subLabelEl.textContent = subBtn?.dataset.hoverTitle || '';
+  }
+
   updateHovererPositionAndText(e.clientX, e.clientY);
 });
 
@@ -3044,11 +3090,21 @@ element('main-screen-overlay')?.addEventListener('click', e => {
     return;
   }
 
-  const skinBtn = target.closest<HTMLElement>('[data-equip-char-skin]');
+    const skinBtn = target.closest<HTMLElement>('[data-equip-char-skin]');
   if (skinBtn) {
     selectedCharacter = skinBtn.dataset.equipCharSkin!;
     renderCharacterRoster();
     switchFrontEndScreen('lobby');
+    return;
+  }
+
+  const motdRadio = target.closest<HTMLElement>('[data-motd-page]');
+  if (motdRadio) {
+    const page = Number(motdRadio.dataset.motdPage) || 1;
+    dstAudio.playEvents([{ path: 'dontstarve/HUD/click_move' }]);
+    document.querySelectorAll<HTMLElement>('[data-motd-page]').forEach(el => {
+      el.classList.toggle('active', Number(el.dataset.motdPage) === page);
+    });
     return;
   }
 });
@@ -3151,6 +3207,11 @@ bind('hud-resurrect-btn', () => {
 
 bind('hud-open-pause', () => togglePauseModal());
 bind('pause-resume-btn', () => togglePauseModal(false));
+bind('pause-options-btn', () => {
+  togglePauseModal(false);
+  element('main-screen-overlay').classList.remove('hidden');
+  switchFrontEndScreen('options');
+});
 bind('pause-cookbook-btn', () => {
   togglePauseModal(false);
   toggleCookbookModal(true);

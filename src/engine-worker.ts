@@ -624,6 +624,14 @@ async function handle(data: any) {
             'menu_focus.tex as fe_menu_focus', 'menu_selected.tex as fe_menu_selected',
             'arrow2_left.tex as fe_arrow_left', 'arrow2_left_over.tex as fe_arrow_left_over',
             'arrow2_right.tex as fe_arrow_right', 'value_gold.tex as fe_value_gold',
+            'radiobutton_filled_gold_on.tex as fe_radio_gold_on',
+            'radiobutton_filled_gold_off.tex as fe_radio_gold_off',
+            'spinner_background_normal.tex as fe_spinner_bg',
+            'option_highlight.tex as fe_option_highlight',
+            'checkbox_normal.tex as fe_checkbox_off',
+            'checkbox_normal_check.tex as fe_checkbox_on',
+            'item_divider.tex as fe_item_divider',
+            'player_list_banner.tex as fe_player_list_banner',
           ],
           'images/crafting_menu_avatars.xml': [
             'avatar_wilson.tex', 'avatar_willow.tex', 'avatar_wolfgang.tex', 'avatar_wendy.tex',
@@ -708,6 +716,8 @@ async function handle(data: any) {
             'profile.tex as btn_icon_profile',
             'forums.tex as btn_icon_forums',
             'more_games.tex as btn_icon_moregames',
+            'goto_url.tex as btn_icon_goto_url',
+            'random.tex as btn_icon_random',
             'save.tex as btn_icon_save',
             'refresh.tex as btn_icon_refresh',
             'mods.tex as btn_icon_mods',
@@ -1121,6 +1131,89 @@ async function handle(data: any) {
             }
             captured.delete(texInfo.id >>> 0);
             try { evaluate(`WebAtlases.Release(${JSON.stringify(xmlPath)})`); } catch {}
+          } catch {}
+        }
+
+        // Rasterize Klei's MakeRift7Banner (anim/dst_menu_rift7.zip, multiplayermainscreen.lua:262)
+        if (resources.exists('anim/dst_menu_rift7.zip')) {
+          captured.clear();
+          try {
+            const rift7 = JSON.parse(
+              await evaluations.evaluateAsync('return WebAssets.DecodeRenderJson("anim/dst_menu_rift7.zip", 2, true)', 50000000),
+            );
+            const frame = rift7?.animations?.[0]?.frames?.[0];
+            if (frame && Array.isArray(frame.elements) && Array.isArray(rift7.vertices)) {
+              const outW = 640;
+              const outH = 360;
+              const out = new Uint8Array(outW * outH * 4);
+              for (let i = 0; i < out.length; i += 4) {
+                out[i] = 10;
+                out[i + 1] = 10;
+                out[i + 2] = 12;
+                out[i + 3] = 255;
+              }
+              const elements = [...frame.elements].sort((a: any, b: any) => b.depth - a.depth);
+              const sc = 0.667 * (outW / 1280);
+              const cx = outW * 0.5;
+              const cy = outH * 0.5;
+              for (const item of elements) {
+                const sym = rift7.symbols?.[String(item.symbol)];
+                if (!sym?.frames?.length) continue;
+                const sf =
+                  sym.frames.find((f: any) => item.frame >= f.frame && item.frame < f.frame + f.duration) ??
+                  sym.frames[0];
+                if (!sf || sf.count <= 0) continue;
+                const [a, b, c, d, tx, ty] = item.matrix;
+                const end = Math.min(rift7.vertices.length, sf.offset + sf.count);
+                for (let i = sf.offset; i + 2 < end; i += 3) {
+                  const v0 = rift7.vertices[i];
+                  const v1 = rift7.vertices[i + 1];
+                  const v2 = rift7.vertices[i + 2];
+                  const mip = captured.get((v0[5] | 0) >>> 0);
+                  if (!mip) continue;
+                  const W = mip.width;
+                  const H = mip.height;
+                  const src = mip.rgba;
+                  const x0 = cx + (a * v0[0] + b * v0[1] + tx) * sc;
+                  const y0 = cy + (c * v0[0] + d * v0[1] + ty) * sc;
+                  const x1 = cx + (a * v1[0] + b * v1[1] + tx) * sc;
+                  const y1 = cy + (c * v1[0] + d * v1[1] + ty) * sc;
+                  const x2 = cx + (a * v2[0] + b * v2[1] + tx) * sc;
+                  const y2 = cy + (c * v2[0] + d * v2[1] + ty) * sc;
+                  const denom = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2);
+                  if (Math.abs(denom) < 1e-5) continue;
+                  const bx0 = Math.max(0, Math.floor(Math.min(x0, x1, x2)));
+                  const bx1 = Math.min(outW - 1, Math.ceil(Math.max(x0, x1, x2)));
+                  const by0 = Math.max(0, Math.floor(Math.min(y0, y1, y2)));
+                  const by1 = Math.min(outH - 1, Math.ceil(Math.max(y0, y1, y2)));
+                  for (let py = by0; py <= by1; ++py) {
+                    const sy = py + 0.5;
+                    for (let px = bx0; px <= bx1; ++px) {
+                      const sx = px + 0.5;
+                      const w0 = ((y1 - y2) * (sx - x2) + (x2 - x1) * (sy - y2)) / denom;
+                      const w1 = ((y2 - y0) * (sx - x2) + (x0 - x2) * (sy - y2)) / denom;
+                      const w2 = 1 - w0 - w1;
+                      if (w0 < -1e-4 || w1 < -1e-4 || w2 < -1e-4) continue;
+                      const u = w0 * v0[3] + w1 * v1[3] + w2 * v2[3];
+                      const v = w0 * v0[4] + w1 * v1[4] + w2 * v2[4];
+                      const txP = Math.max(0, Math.min(W - 1, Math.floor(u * W)));
+                      const tyP = Math.max(0, Math.min(H - 1, Math.floor(v * H)));
+                      const si = (tyP * W + txP) * 4;
+                      const sa = src[si + 3];
+                      if (sa === 0) continue;
+                      const di = (py * outW + px) * 4;
+                      const alpha = sa / 255;
+                      out[di] = Math.min(255, Math.round(src[si] + out[di] * (1 - alpha)));
+                      out[di + 1] = Math.min(255, Math.round(src[si + 1] + out[di + 1] * (1 - alpha)));
+                      out[di + 2] = Math.min(255, Math.round(src[si + 2] + out[di + 2] * (1 - alpha)));
+                      out[di + 3] = 255;
+                    }
+                  }
+                }
+              }
+              icons['fe_banner_rift7'] = { width: outW, height: outH, rgba: out.buffer };
+              transfers.push(out.buffer);
+            }
           } catch {}
         }
 
@@ -1646,9 +1739,9 @@ async function handle(data: any) {
             if sim_m then
               local orig_find_entities = sim_m.FindEntities
               sim_m.ProjectScreenPos = function(self, x, y, z)
-                local vw = _G._WEB_ViewportW or 1280
-                local vh = _G._WEB_ViewportH or 720
-                local cam = TheCamera
+                local vw = rawget(_G, "_WEB_ViewportW") or 1280
+                local vh = rawget(_G, "_WEB_ViewportH") or 720
+                local cam = rawget(_G, "TheCamera")
                 local cx, cy, cz = 0, 1.5, 0
                 local heading = 45
                 local pitch = 42.85
@@ -1688,7 +1781,7 @@ async function handle(data: any) {
                 local ambient = 1.0
                 if phase == "dusk" then ambient = 0.65
                 elseif phase == "night" then ambient = 0.08 end
-                if _G._WEB_InCaves then ambient = math.min(ambient, 0.22) end
+                if rawget(_G, "_WEB_InCaves") then ambient = math.min(ambient, 0.22) end
                 local bonus = 0
                 if orig_find_entities then
                   local ok_f, nearby = pcall(orig_find_entities, TheSim, wx, 0, wz, 10)
@@ -1733,16 +1826,16 @@ async function handle(data: any) {
             -- 5. Upgrade TheShard & TheNet for Multi-Shard & WebRTC Peer Replication
             local shard_m = _web_methods(rawget(_G, "TheShard"))
             if shard_m then
-              shard_m.GetShardId = function(self) return _G._WEB_InCaves and "2" or "1" end
-              shard_m.IsMaster = function(self) return not _G._WEB_InCaves end
-              shard_m.IsSecondary = function(self) return _G._WEB_InCaves == true end
+              shard_m.GetShardId = function(self) return rawget(_G, "_WEB_InCaves") and "2" or "1" end
+              shard_m.IsMaster = function(self) return not rawget(_G, "_WEB_InCaves") end
+              shard_m.IsSecondary = function(self) return rawget(_G, "_WEB_InCaves") == true end
               shard_m.IsMigrating = function(self, userid) return false end
               shard_m.StartMigration = function(self, userid, worldid)
-                _G._WEB_InCaves = (tostring(worldid) == "2" or not _G._WEB_InCaves)
+                rawset(_G, "_WEB_InCaves", (tostring(worldid) == "2" or not rawget(_G, "_WEB_InCaves")))
                 return true
               end
               shard_m.GetSecondaryShardPlayerCounts = function(self, userflags)
-                return _G._WEB_InCaves and 1 or 0, 0
+                return rawget(_G, "_WEB_InCaves") and 1 or 0, 0
               end
             end
 
