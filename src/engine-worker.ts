@@ -1741,8 +1741,8 @@ async function handle(data: any) {
                 _G._WEB_InCaves = (tostring(worldid) == "2" or not _G._WEB_InCaves)
                 return true
               end
-              shard_m.GetSecondaryShardPlayerCounts = function(self)
-                return { ["2"] = _G._WEB_InCaves and 1 or 0 }
+              shard_m.GetSecondaryShardPlayerCounts = function(self, userflags)
+                return _G._WEB_InCaves and 1 or 0, 0
               end
             end
 
@@ -1758,8 +1758,11 @@ async function handle(data: any) {
                       prefab = p.prefab or "wilson",
                       admin = (idx == 1),
                       performance = 0,
+                      playerage = 1,
+                      userflags = 0,
+                      base_skin = "",
                       netid = "127.0.0.1",
-                      colour = { 1, 1, 1, 1 },
+                      colour = { 0.8039, 0.3098, 0.2235, 1.0 },
                     })
                   end
                 end

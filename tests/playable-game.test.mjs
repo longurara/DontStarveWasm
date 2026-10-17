@@ -270,11 +270,15 @@ test('playable game loop spawns Wilson, attaches PlayerHud, steps at <5ms/tick, 
     .replaceAll('${chosenPlaystyle}', 'survival')
     .replaceAll('${chosenIntention}', 'cooperative');
   await evaluateAsync(startGameLua, 200000000);
+  assert.equal(engine._dst_tick(60), 0, engine.ccall('dst_result', 'string', [], []));
+  evaluate('StaticUpdate(GetTickTime()); local x,y,z=ThePlayer.Transform:GetWorldPosition(); WebEntity.UpdateSpatialSleep(x, z, 56, 68)', 50000000);
   const fullSnap = JSON.parse(evaluate('return _WEB_GameSceneSnapshot()'));
   assert.equal(fullSnap.player.prefab, 'wilson');
   assert.equal(evaluate('return TheShard:GetShardId()'), '1');
   assert.equal(evaluate('return tostring(TheShard:IsMaster())'), 'true');
+  assert.equal(evaluate('local c, g = TheShard:GetSecondaryShardPlayerCounts(0); return tostring(c) .. "," .. tostring(g)'), '0,0');
   assert.ok(Array.isArray(fullSnap.peers) && fullSnap.peers.length >= 1, 'Expected TheNet:GetClientTable() peers in snapshot');
 });
+
 
 
