@@ -1330,6 +1330,19 @@ async function handle(data: any) {
           -- Klei Console Commands, TheSim, TheNet, TheShard, Component Userdata)
           -- =====================================================================
           local function _WEB_InstallFullPortBindings()
+            local function _web_methods(obj)
+              if type(obj) == "userdata" then
+                local mt = getmetatable(obj)
+                if mt and type(mt.__index) == "table" then
+                  return mt.__index
+                end
+                return nil
+              elseif type(obj) == "table" then
+                return obj
+              end
+              return nil
+            end
+
             -- 1. Top-level missing C++ functions: getminimumradius, getrealtime, kleiregistermods
             rawset(_G, "getminimumradius", function(inst)
               if type(inst) == "table" and inst.Physics ~= nil and inst.Physics.GetRadius ~= nil then
@@ -1519,10 +1532,17 @@ async function handle(data: any) {
               end
             })
             rawset(_G, "WorldSim", ws_api)
-            rawset(_G, "MapGenSim", setmetatable({}, { __index = ws_api }))
+            local mgs_m = _web_methods(rawget(_G, "MapGenSim"))
+            if mgs_m then
+              for k, v in pairs(ws_api) do
+                if mgs_m[k] == nil then mgs_m[k] = v end
+              end
+            else
+              rawset(_G, "MapGenSim", setmetatable({}, { __index = ws_api }))
+            end
 
             -- 3. ModManager & Klei Mod System
-            local mod_mgr = rawget(_G, "ModManager") or {}
+            local mod_mgr = _web_methods(rawget(_G, "ModManager")) or {}
             mod_mgr.mods = mod_mgr.mods or {}
             mod_mgr.modnames = mod_mgr.modnames or {}
             mod_mgr.enabledmods = mod_mgr.enabledmods or {}
@@ -1531,11 +1551,11 @@ async function handle(data: any) {
             mod_mgr.postinit_component = mod_mgr.postinit_component or {}
             mod_mgr.postinit_player = mod_mgr.postinit_player or {}
             mod_mgr.postinit_sim = mod_mgr.postinit_sim or {}
-            mod_mgr.GetEnabledServerModNames = function(self) return self.modnames end
-            mod_mgr.GetServerModsNames = function(self) return self.modnames end
-            mod_mgr.GetMod = function(self, name) return self.mods[name] end
-            mod_mgr.RegisterPrefabs = function(self) return true end
-            mod_mgr.SetPostEnv = function(self) return true end
+            mod_mgr.GetEnabledServerModNames = mod_mgr.GetEnabledServerModNames or function(self) return self.modnames end
+            mod_mgr.GetServerModsNames = mod_mgr.GetServerModsNames or function(self) return self.modnames end
+            mod_mgr.GetMod = mod_mgr.GetMod or function(self, name) return self.mods[name] end
+            mod_mgr.RegisterPrefabs = mod_mgr.RegisterPrefabs or function(self) return true end
+            mod_mgr.SetPostEnv = mod_mgr.SetPostEnv or function(self) return true end
             mod_mgr.FrontendLoadMod = function(self, modname)
               if modname and not table.contains(self.modnames, modname) then
                 table.insert(self.modnames, modname)
@@ -1554,28 +1574,17 @@ async function handle(data: any) {
               if type(prefab) == "string" and type(fn) == "function" then
                 self.postinit_prefab[prefab] = self.postinit_prefab[prefab] or {}
                 table.insert(self.postinit_prefab[prefab], fn)
-                for _, ent in pairs(Ents) do
-                  if ent:IsValid() and ent.prefab == prefab then pcall(fn, ent) end
-                end
               end
             end
             mod_mgr.AddPrefabPostInitAny = function(self, fn)
               if type(fn) == "function" then
                 table.insert(self.postinit_prefab_any, fn)
-                for _, ent in pairs(Ents) do
-                  if ent:IsValid() then pcall(fn, ent) end
-                end
               end
             end
             mod_mgr.AddComponentPostInit = function(self, comp, fn)
               if type(comp) == "string" and type(fn) == "function" then
                 self.postinit_component[comp] = self.postinit_component[comp] or {}
                 table.insert(self.postinit_component[comp], fn)
-                for _, ent in pairs(Ents) do
-                  if ent:IsValid() and ent.components and ent.components[comp] then
-                    pcall(fn, ent.components[comp], ent)
-                  end
-                end
               end
             end
             mod_mgr.AddPlayerPostInit = function(self, fn)
@@ -1590,7 +1599,7 @@ async function handle(data: any) {
                 pcall(fn, ThePlayer)
               end
             end
-            mod_mgr.GetPostInitFns = function(self, kind, id)
+            mod_mgr.GetPostInitFns = mod_mgr.GetPostInitFns or function(self, kind, id)
               if kind == "PrefabPostInit" and id then return self.postinit_prefab[id] or {} end
               if kind == "PrefabPostInitAny" then return self.postinit_prefab_any end
               if kind == "ComponentPostInit" and id then return self.postinit_component[id] or {} end
@@ -1622,7 +1631,9 @@ async function handle(data: any) {
               end
               return false, err
             end
-            rawset(_G, "ModManager", mod_mgr)
+            if rawget(_G, "ModManager") == nil then
+              rawset(_G, "ModManager", mod_mgr)
+            end
             rawset(_G, "kleiregistermods", function(mods)
               if type(mods) == "table" then
                 for _, m in ipairs(mods) do mod_mgr:FrontendLoadMod(tostring(m)) end
@@ -1630,138 +1641,114 @@ async function handle(data: any) {
               return true
             end)
 
-            -- 4. Upgrade TheSim runtime methods (3D isometric ProjectScreenPos / GetScreenPos, dynamic GetLightAtPoint, FindEntities)
-            TheSim.ProjectScreenPos = function(self, x, y, z)
-              local vw = _G._WEB_ViewportW or 1280
-              local vh = _G._WEB_ViewportH or 720
-              local cam = TheCamera
-              local cx, cy, cz = 0, 1.5, 0
-              local heading = 45
-              local pitch = 42.85
-              local dist = 30
-              local fov = 35
-              if cam then
-                if cam.currentpos then cx, cy, cz = cam.currentpos.x, cam.currentpos.y, cam.currentpos.z end
-                heading = cam.heading or 45
-                pitch = cam.pitch or 42.85
-                dist = cam.distance or 30
-                fov = cam.fov or 35
-              elseif ThePlayer and ThePlayer.Transform then
-                cx, cy, cz = ThePlayer.Transform:GetWorldPosition()
+            -- 4. Upgrade TheSim runtime methods (3D isometric ProjectScreenPos / GetScreenPos, dynamic GetLightAtPoint)
+            local sim_m = _web_methods(rawget(_G, "TheSim"))
+            if sim_m then
+              local orig_find_entities = sim_m.FindEntities
+              sim_m.ProjectScreenPos = function(self, x, y, z)
+                local vw = _G._WEB_ViewportW or 1280
+                local vh = _G._WEB_ViewportH or 720
+                local cam = TheCamera
+                local cx, cy, cz = 0, 1.5, 0
+                local heading = 45
+                local pitch = 42.85
+                local dist = 30
+                local fov = 35
+                if cam then
+                  if cam.currentpos then cx, cy, cz = cam.currentpos.x, cam.currentpos.y, cam.currentpos.z end
+                  heading = cam.heading or 45
+                  pitch = cam.pitch or 42.85
+                  dist = cam.distance or 30
+                  fov = cam.fov or 35
+                elseif ThePlayer and ThePlayer.Transform then
+                  cx, cy, cz = ThePlayer.Transform:GetWorldPosition()
+                end
+                local dx = (tonumber(x) or 0) - cx
+                local dy = (tonumber(y) or 0) - cy
+                local dz = (tonumber(z) or 0) - cz
+                local hRad = heading * 0.017453292519943295
+                local pRad = pitch * 0.017453292519943295
+                local cosH, sinH = math.cos(hRad), math.sin(hRad)
+                local cosP, sinP = math.cos(pRad), math.sin(pRad)
+                local rx = -dx * sinH + dz * cosH
+                local flatDepth = -dx * cosH - dz * sinH
+                local ry = dy * cosP + flatDepth * sinP
+                local depth = dist - (flatDepth * cosP - dy * sinP)
+                if depth < 1.0 then depth = 1.0 end
+                local f = (vh * 0.5) / math.tan(fov * 0.5 * 0.017453292519943295)
+                local sx_out = vw * 0.5 + (rx * f) / depth
+                local sy_out = vh * 0.5 - (ry * f) / depth
+                return sx_out, sy_out
               end
-              local dx = (tonumber(x) or 0) - cx
-              local dy = (tonumber(y) or 0) - cy
-              local dz = (tonumber(z) or 0) - cz
-              local hRad = heading * 0.017453292519943295
-              local pRad = pitch * 0.017453292519943295
-              local cosH, sinH = math.cos(hRad), math.sin(hRad)
-              local cosP, sinP = math.cos(pRad), math.sin(pRad)
-              local rx = -dx * sinH + dz * cosH
-              local flatDepth = -dx * cosH - dz * sinH
-              local ry = dy * cosP + flatDepth * sinP
-              local depth = dist - (flatDepth * cosP - dy * sinP)
-              if depth < 1.0 then depth = 1.0 end
-              local f = (vh * 0.5) / math.tan(fov * 0.5 * 0.017453292519943295)
-              local sx_out = vw * 0.5 + (rx * f) / depth
-              local sy_out = vh * 0.5 - (ry * f) / depth
-              return sx_out, sy_out
-            end
-            TheSim.GetScreenPos = TheSim.ProjectScreenPos
+              sim_m.GetScreenPos = sim_m.ProjectScreenPos
 
-            TheSim.GetLightAtPoint = function(self, x, y, z)
-              local wx, wz = tonumber(x) or 0, tonumber(z) or 0
-              local phase = TheWorld and TheWorld.state and TheWorld.state.phase or "day"
-              local ambient = 1.0
-              if phase == "dusk" then ambient = 0.65
-              elseif phase == "night" then ambient = 0.08 end
-              if _G._WEB_InCaves then ambient = math.min(ambient, 0.22) end
-              local bonus = 0
-              for _, ent in pairs(Ents) do
-                if ent:IsValid() and ent.Transform and not ent:IsInLimbo() then
-                  local pf = ent.prefab or ""
-                  if pf == "campfire" or pf == "firepit" or pf == "torch" or pf == "lantern" or pf == "minerhat" or pf == "lighter" or ent.Light ~= nil then
-                    local ex, ey, ez = ent.Transform:GetWorldPosition()
-                    local d2 = (ex - wx) * (ex - wx) + (ez - wz) * (ez - wz)
-                    if d2 < 100 then
-                      bonus = math.max(bonus, math.max(0, 1.0 - math.sqrt(d2) / 10.0))
+              sim_m.GetLightAtPoint = function(self, x, y, z)
+                local wx, wz = tonumber(x) or 0, tonumber(z) or 0
+                local phase = TheWorld and TheWorld.state and TheWorld.state.phase or "day"
+                local ambient = 1.0
+                if phase == "dusk" then ambient = 0.65
+                elseif phase == "night" then ambient = 0.08 end
+                if _G._WEB_InCaves then ambient = math.min(ambient, 0.22) end
+                local bonus = 0
+                if orig_find_entities then
+                  local ok_f, nearby = pcall(orig_find_entities, TheSim, wx, 0, wz, 10)
+                  if ok_f and type(nearby) == "table" then
+                    for _, ent in ipairs(nearby) do
+                      if ent and ent:IsValid() and ent.Transform and not ent:IsInLimbo() then
+                        local pf = ent.prefab or ""
+                        if pf == "campfire" or pf == "firepit" or pf == "torch" or pf == "lantern" or pf == "minerhat" or pf == "lighter" or ent.Light ~= nil then
+                          local ex, ey, ez = ent.Transform:GetWorldPosition()
+                          local d2 = (ex - wx) * (ex - wx) + (ez - wz) * (ez - wz)
+                          if d2 < 100 then
+                            bonus = math.max(bonus, math.max(0, 1.0 - math.sqrt(d2) / 10.0))
+                          end
+                        end
+                      end
                     end
                   end
                 end
-              end
-              if ThePlayer and ThePlayer.components and ThePlayer.components.inventory then
-                local inv = ThePlayer.components.inventory
-                local h = inv:GetEquippedItem(EQUIPSLOTS.HANDS)
-                local hd = inv:GetEquippedItem(EQUIPSLOTS.HEAD)
-                if (h and (h.prefab == "torch" or h.prefab == "lantern" or h.prefab == "lighter")) or (hd and hd.prefab == "minerhat") then
-                  local px, py, pz = ThePlayer.Transform:GetWorldPosition()
-                  local d2 = (px - wx) * (px - wx) + (pz - wz) * (pz - wz)
-                  if d2 < 81 then
-                    bonus = math.max(bonus, math.max(0, 0.95 - math.sqrt(d2) / 9.0))
+                if ThePlayer and ThePlayer.components and ThePlayer.components.inventory then
+                  local inv = ThePlayer.components.inventory
+                  local h = inv:GetEquippedItem(EQUIPSLOTS.HANDS)
+                  local hd = inv:GetEquippedItem(EQUIPSLOTS.HEAD)
+                  if (h and (h.prefab == "torch" or h.prefab == "lantern" or h.prefab == "lighter")) or (hd and hd.prefab == "minerhat") then
+                    local px, py, pz = ThePlayer.Transform:GetWorldPosition()
+                    local d2 = (px - wx) * (px - wx) + (pz - wz) * (pz - wz)
+                    if d2 < 81 then
+                      bonus = math.max(bonus, math.max(0, 0.95 - math.sqrt(d2) / 9.0))
+                    end
                   end
                 end
+                return math.min(1.0, ambient + bonus)
               end
-              return math.min(1.0, ambient + bonus)
-            end
 
-            TheSim.GetAmbientColour = function(self)
-              local phase = TheWorld and TheWorld.state and TheWorld.state.phase or "day"
-              if phase == "night" then return 30, 35, 65
-              elseif phase == "dusk" then return 165, 130, 135
-              else return 255, 248, 235 end
-            end
-
-            TheSim.FindEntities = function(self, x, y, z, radius, musttags, canttags, mustoneoftags)
-              local wx, wz = tonumber(x) or 0, tonumber(z) or 0
-              local r = tonumber(radius) or 10
-              local r2 = r * r
-              local out = {}
-              for _, ent in pairs(Ents) do
-                if ent:IsValid() and ent.Transform and not ent:IsInLimbo() then
-                  local ex, ey, ez = ent.Transform:GetWorldPosition()
-                  local d2 = (ex - wx) * (ex - wx) + (ez - wz) * (ez - wz)
-                  if d2 <= r2 then
-                    local ok = true
-                    if type(musttags) == "table" then
-                      for _, t in ipairs(musttags) do
-                        if not ent:HasTag(t) then ok = false; break end
-                      end
-                    end
-                    if ok and type(canttags) == "table" then
-                      for _, t in ipairs(canttags) do
-                        if ent:HasTag(t) then ok = false; break end
-                      end
-                    end
-                    if ok and type(mustoneoftags) == "table" and #mustoneoftags > 0 then
-                      local any = false
-                      for _, t in ipairs(mustoneoftags) do
-                        if ent:HasTag(t) then any = true; break end
-                      end
-                      ok = any
-                    end
-                    if ok then table.insert(out, ent) end
-                  end
-                end
+              sim_m.GetAmbientColour = function(self)
+                local phase = TheWorld and TheWorld.state and TheWorld.state.phase or "day"
+                if phase == "night" then return 30, 35, 65
+                elseif phase == "dusk" then return 165, 130, 135
+                else return 255, 248, 235 end
               end
-              return out
             end
 
             -- 5. Upgrade TheShard & TheNet for Multi-Shard & WebRTC Peer Replication
-            if rawget(_G, "TheShard") then
-              TheShard.GetShardId = function(self) return _G._WEB_InCaves and "2" or "1" end
-              TheShard.IsMaster = function(self) return not _G._WEB_InCaves end
-              TheShard.IsSecondary = function(self) return _G._WEB_InCaves == true end
-              TheShard.IsMigrating = function(self, userid) return false end
-              TheShard.StartMigration = function(self, userid, worldid)
+            local shard_m = _web_methods(rawget(_G, "TheShard"))
+            if shard_m then
+              shard_m.GetShardId = function(self) return _G._WEB_InCaves and "2" or "1" end
+              shard_m.IsMaster = function(self) return not _G._WEB_InCaves end
+              shard_m.IsSecondary = function(self) return _G._WEB_InCaves == true end
+              shard_m.IsMigrating = function(self, userid) return false end
+              shard_m.StartMigration = function(self, userid, worldid)
                 _G._WEB_InCaves = (tostring(worldid) == "2" or not _G._WEB_InCaves)
                 return true
               end
-              TheShard.GetSecondaryShardPlayerCounts = function(self)
+              shard_m.GetSecondaryShardPlayerCounts = function(self)
                 return { ["2"] = _G._WEB_InCaves and 1 or 0 }
               end
             end
 
-            if rawget(_G, "TheNet") then
-              TheNet.GetClientTable = function(self)
+            local net_m = _web_methods(rawget(_G, "TheNet"))
+            if net_m then
+              net_m.GetClientTable = function(self)
                 local list = {}
                 for idx, p in ipairs(AllPlayers or {}) do
                   if p and p:IsValid() then
@@ -1778,137 +1765,125 @@ async function handle(data: any) {
                 end
                 return list
               end
-              TheNet.GetClientTableForUser = function(self, userid)
+              net_m.GetClientTableForUser = function(self, userid)
                 for _, c in ipairs(self:GetClientTable()) do
                   if c.userid == userid then return c end
                 end
                 return nil
               end
-              TheNet.Say = function(self, msg, whisper)
+              net_m.Say = function(self, msg, whisper)
                 _G._WEB_Say(msg, 150)
                 _G._WEB_PushNotice((ThePlayer and ThePlayer.name or "Player") .. ": " .. tostring(msg or ""))
                 return true
               end
-              TheNet.Announce = function(self, msg)
+              net_m.Announce = function(self, msg)
                 _G._WEB_PushNotice(tostring(msg or ""))
                 return true
               end
-              TheNet.SendRemoteExecute = function(self, cmd, x, z)
+              net_m.SendRemoteExecute = function(self, cmd, x, z)
                 local fn = loadstring(tostring(cmd or ""))
                 if fn then pcall(fn) end
                 return true
               end
-              TheNet.SendWorldRollbackRequestToServer = function(self, count)
+              net_m.SendWorldRollbackRequestToServer = function(self, count)
                 _G._WEB_PushNotice("Đã yêu cầu Rollback thế giới (" .. tostring(count or 1) .. " ngày).")
                 return true
               end
             end
 
-            -- 6. Upgrade Component Userdata Metatables (LightWatcher, SoundEmitter, MapExplorer, Follower, ShadowManager, etc.)
+            -- 6. Upgrade Component Userdata Metatables (LightWatcher, SoundEmitter, MapExplorer)
             if ThePlayer then
-              -- SoundEmitter state tracking
-              if ThePlayer.SoundEmitter then
-                local mt = getmetatable(ThePlayer.SoundEmitter)
-                if mt and type(mt.__index) == "table" and not mt.__index._web_hooked then
-                  local idx = mt.__index
-                  idx._web_hooked = true
-                  local orig_play = idx.PlaySound
-                  local orig_kill = idx.KillSound
-                  local orig_killall = idx.KillAllSounds
-                  idx.PlaySound = function(se, event, name, volume, ...)
-                    local st = _G._WEB_CompState[se] or { playing = {}, params = {}, vol = 1 }
-                    _G._WEB_CompState[se] = st
-                    if type(name) == "string" and name ~= "" then st.playing[name] = event or true end
-                    if type(event) == "string" then
-                      _G._WEB_PushSound(event, volume, type(name) == "string" and name or nil)
-                    end
-                    if orig_play then return orig_play(se, event, name, volume, ...) end
+              local se_m = _web_methods(ThePlayer.SoundEmitter)
+              if se_m and not se_m._web_hooked then
+                se_m._web_hooked = true
+                local orig_play = se_m.PlaySound
+                local orig_kill = se_m.KillSound
+                local orig_killall = se_m.KillAllSounds
+                se_m.PlaySound = function(se, event, name, volume, ...)
+                  local st = _G._WEB_CompState[se] or { playing = {}, params = {}, vol = 1 }
+                  _G._WEB_CompState[se] = st
+                  if type(name) == "string" and name ~= "" then st.playing[name] = event or true end
+                  if type(event) == "string" then
+                    _G._WEB_PushSound(event, volume, type(name) == "string" and name or nil)
                   end
-                  idx.PlaySoundWithParams = function(se, event, params, volume)
-                    local st = _G._WEB_CompState[se] or { playing = {}, params = {}, vol = 1 }
-                    _G._WEB_CompState[se] = st
-                    if type(params) == "table" then
-                      for k, v in pairs(params) do st.params[k] = v end
-                    end
-                    if type(event) == "string" then _G._WEB_PushSound(event, volume) end
+                  if orig_play then return orig_play(se, event, name, volume, ...) end
+                end
+                se_m.PlaySoundWithParams = function(se, event, params, volume)
+                  local st = _G._WEB_CompState[se] or { playing = {}, params = {}, vol = 1 }
+                  _G._WEB_CompState[se] = st
+                  if type(params) == "table" then
+                    for k, v in pairs(params) do st.params[k] = v end
                   end
-                  idx.KillSound = function(se, name, ...)
-                    local st = _G._WEB_CompState[se]
-                    if st and type(name) == "string" then st.playing[name] = nil end
-                    if type(name) == "string" and #_G._WEB_SoundEvents < 16 then
-                      table.insert(_G._WEB_SoundEvents, { path = "", name = name, action = "kill" })
-                    end
-                    if orig_kill then return orig_kill(se, name, ...) end
+                  if type(event) == "string" then _G._WEB_PushSound(event, volume) end
+                end
+                se_m.KillSound = function(se, name, ...)
+                  local st = _G._WEB_CompState[se]
+                  if st and type(name) == "string" then st.playing[name] = nil end
+                  if type(name) == "string" and #_G._WEB_SoundEvents < 16 then
+                    table.insert(_G._WEB_SoundEvents, { path = "", name = name, action = "kill" })
                   end
-                  idx.KillAllSounds = function(se, ...)
-                    local st = _G._WEB_CompState[se]
-                    if st then st.playing = {} end
-                    if #_G._WEB_SoundEvents < 16 then
-                      table.insert(_G._WEB_SoundEvents, { path = "", action = "killall" })
-                    end
-                    if orig_killall then return orig_killall(se, ...) end
+                  if orig_kill then return orig_kill(se, name, ...) end
+                end
+                se_m.KillAllSounds = function(se, ...)
+                  local st = _G._WEB_CompState[se]
+                  if st then st.playing = {} end
+                  if #_G._WEB_SoundEvents < 16 then
+                    table.insert(_G._WEB_SoundEvents, { path = "", action = "killall" })
                   end
-                  idx.PlayingSound = function(se, name)
-                    local st = _G._WEB_CompState[se]
-                    return st ~= nil and st.playing[name] ~= nil
-                  end
-                  idx.SetParameter = function(se, sound, param, val)
-                    local st = _G._WEB_CompState[se] or { playing = {}, params = {}, vol = 1 }
-                    _G._WEB_CompState[se] = st
-                    st.params[tostring(sound) .. ":" .. tostring(param)] = val
-                  end
-                  idx.SetVolume = function(se, sound, vol)
-                    local st = _G._WEB_CompState[se] or { playing = {}, params = {}, vol = 1 }
-                    _G._WEB_CompState[se] = st
-                    st.vol = tonumber(vol) or 1
-                  end
+                  if orig_killall then return orig_killall(se, ...) end
+                end
+                se_m.PlayingSound = function(se, name)
+                  local st = _G._WEB_CompState[se]
+                  return st ~= nil and st.playing[name] ~= nil
+                end
+                se_m.SetParameter = function(se, sound, param, val)
+                  local st = _G._WEB_CompState[se] or { playing = {}, params = {}, vol = 1 }
+                  _G._WEB_CompState[se] = st
+                  st.params[tostring(sound) .. ":" .. tostring(param)] = val
+                end
+                se_m.SetVolume = function(se, sound, vol)
+                  local st = _G._WEB_CompState[se] or { playing = {}, params = {}, vol = 1 }
+                  _G._WEB_CompState[se] = st
+                  st.vol = tonumber(vol) or 1
                 end
               end
 
-              -- LightWatcher dynamic light sensing
-              if ThePlayer.LightWatcher then
-                local mt = getmetatable(ThePlayer.LightWatcher)
-                if mt and type(mt.__index) == "table" then
-                  local idx = mt.__index
-                  idx.GetLightValue = function(lw)
-                    if ThePlayer and ThePlayer.Transform then
-                      local lx, ly, lz = ThePlayer.Transform:GetWorldPosition()
-                      return TheSim:GetLightAtPoint(lx, ly, lz)
-                    end
-                    return 1.0
+              local lw_m = _web_methods(ThePlayer.LightWatcher)
+              if lw_m then
+                lw_m.GetLightValue = function(lw)
+                  if ThePlayer and ThePlayer.Transform then
+                    local lx, ly, lz = ThePlayer.Transform:GetWorldPosition()
+                    return TheSim:GetLightAtPoint(lx, ly, lz)
                   end
-                  idx.IsInLight = function(lw)
-                    return idx.GetLightValue(lw) >= 0.15
-                  end
-                  idx.GetTimeInDark = function(lw)
-                    return idx.IsInLight(lw) and 0 or 5.0
-                  end
-                  idx.GetTimeInLight = function(lw)
-                    return idx.IsInLight(lw) and 10.0 or 0
-                  end
+                  return 1.0
+                end
+                lw_m.IsInLight = function(lw)
+                  return lw_m.GetLightValue(lw) >= 0.15
+                end
+                lw_m.GetTimeInDark = function(lw)
+                  return lw_m.IsInLight(lw) and 0 or 5.0
+                end
+                lw_m.GetTimeInLight = function(lw)
+                  return lw_m.IsInLight(lw) and 10.0 or 0
                 end
               end
 
-              -- MapExplorer fog-of-war tile recording
-              if ThePlayer.player_classified and ThePlayer.player_classified.MapExplorer then
-                local mt = getmetatable(ThePlayer.player_classified.MapExplorer)
-                if mt and type(mt.__index) == "table" then
-                  local idx = mt.__index
-                  local seen_tiles = {}
-                  idx.RevealArea = function(me, x, y, z)
-                    local tx, ty = ws_api:GetTileXY(x, z)
-                    for dx = -4, 4 do
-                      for dy = -4, 4 do
-                        seen_tiles[(ty + dy) * 2048 + (tx + dx)] = true
-                      end
+              local me_m = _web_methods(ThePlayer.player_classified and ThePlayer.player_classified.MapExplorer)
+              if me_m then
+                local seen_tiles = {}
+                me_m.RevealArea = function(me, x, y, z)
+                  local tx, ty = ws_api:GetTileXY(x, z)
+                  for dx = -4, 4 do
+                    for dy = -4, 4 do
+                      seen_tiles[(ty + dy) * 2048 + (tx + dx)] = true
                     end
-                    return true
                   end
-                  idx.IsTileSeeable = function(me, tx, ty) return true end
-                  idx.IsTileVisited = function(me, tx, ty) return seen_tiles[(tonumber(ty) or 0) * 2048 + (tonumber(tx) or 0)] ~= false end
-                  idx.RecordMap = function(me) return "KLEI_MAP_V1" end
-                  idx.LearnRecordedMap = function(me, data) return true end
+                  return true
                 end
+                me_m.IsTileSeeable = function(me, tx, ty) return true end
+                me_m.IsTileVisited = function(me, tx, ty) return seen_tiles[(tonumber(ty) or 0) * 2048 + (tonumber(tx) or 0)] ~= false end
+                me_m.RecordMap = function(me) return "KLEI_MAP_V1" end
+                me_m.LearnRecordedMap = function(me, data) return true end
               end
             end
 

@@ -256,5 +256,25 @@ test('playable game loop spawns Wilson, attaches PlayerHud, steps at <5ms/tick, 
   `));
   assert.ok(examineCheck.pct > 0 && examineCheck.pct < 100, `Expected axe durability percent to decrease after use, got ${examineCheck.pct}`);
   assert.ok(typeof examineCheck.quote === 'string' && examineCheck.quote.length > 3, `Expected Wilson examine quote for axe, got "${examineCheck.quote}"`);
+
+  // Verify engine-worker.ts start-game post-boot Lua block executes cleanly against live WASM userdata globals
+  const workerSrc = await readFile(new URL('../src/engine-worker.ts', import.meta.url), 'utf8');
+  const startBlockMatch = workerSrc.match(/await evaluations\.evaluateAsync\(`(\s*TheSim:LoadPrefabs\(\{[\s\S]*?return json\.encode_compliant\(scene\)\s*end\s*)`,\s*200000000\);/);
+  assert.ok(startBlockMatch, 'Expected to locate start-game Lua block in src/engine-worker.ts');
+  const startGameLua = startBlockMatch[1]
+    .replaceAll('${chosenCharacter}', 'wilson')
+    .replaceAll('${chosenSeason}', 'autumn')
+    .replaceAll("${initialCreative ? 'true' : 'false'}", 'false')
+    .replaceAll('${worldSeedStr}', '')
+    .replaceAll("${enabledModsList.map(m => JSON.stringify(m)).join(', ')}", '')
+    .replaceAll('${chosenPlaystyle}', 'survival')
+    .replaceAll('${chosenIntention}', 'cooperative');
+  await evaluateAsync(startGameLua, 200000000);
+  const fullSnap = JSON.parse(evaluate('return _WEB_GameSceneSnapshot()'));
+  assert.equal(fullSnap.player.prefab, 'wilson');
+  assert.equal(evaluate('return TheShard:GetShardId()'), '1');
+  assert.equal(evaluate('return tostring(TheShard:IsMaster())'), 'true');
+  assert.ok(Array.isArray(fullSnap.peers) && fullSnap.peers.length >= 1, 'Expected TheNet:GetClientTable() peers in snapshot');
 });
+
 
