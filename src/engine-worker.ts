@@ -572,7 +572,8 @@ async function handle(data: any) {
           'berries_cooked.tex', 'berries_juicy_cooked.tex', 'carrot_cooked.tex',
           'cookedmeat.tex', 'cookedsmallmeat.tex', 'cookedmonstermeat.tex', 'drumstick_cooked.tex', 'froglegs_cooked.tex',
           'red_cap_cooked.tex', 'green_cap_cooked.tex', 'blue_cap_cooked.tex',
-          'meatballs.tex', 'kabobs.tex', 'ratatouille.tex', 'spoiled_food.tex',
+          'meatballs.tex', 'kabobs.tex', 'ratatouille.tex', 'bonestew.tex', 'perogies.tex', 'baconeggs.tex',
+          'honeyham.tex', 'trailmix.tex', 'monsterlasagna.tex', 'wetgoop.tex', 'smallmeat_dried.tex', 'meat_dried.tex', 'spoiled_food.tex',
         ];
         const wantedIcons: Record<string, string[]> = {
           'images/hud.xml': [
@@ -873,6 +874,7 @@ async function handle(data: any) {
         engine._dst_ui_viewport(data.width || 1280, data.height || 720);
         const initialCreative = Boolean(data.creativeMode);
         const chosenCharacter = String(data.character || 'wilson').replace(/[^a-z0-9_]/g, '') || 'wilson';
+        const chosenSeason = String(data.season || 'autumn').replace(/[^a-z]/g, '') || 'autumn';
         evaluate(`
           WebPrefabs.SetDeferAnimations(true)
           WebInput.SetDesktopMode(true)
@@ -887,13 +889,19 @@ async function handle(data: any) {
             "global", "wilson", "${chosenCharacter}", "flint", "twigs", "cutgrass", "berries", "log", "rocks", "goldnugget",
             "nitre", "petals", "carrot", "rope", "boards", "cutstone", "axe", "pickaxe", "shovel", "hammer",
             "torch", "campfire", "firepit", "researchlab", "researchlab2", "treasurechest", "cookpot", "icebox", "meatrack",
-            "spear", "hambat", "armorgrass", "armorwood", "armormarble",
+            "spear", "hambat", "armorgrass", "armorwood", "armormarble", "cane", "heatrock", "bedroll_straw", "compass", "homesign", "pighouse",
             "backpack", "strawhat", "flowerhat", "footballhat", "tophat", "winterhat", "minerhat",
             "trap", "birdtrap", "bugnet", "fishingrod", "razor", "lantern", "umbrella", "healingsalve", "bandage",
             "papyrus", "transistor", "berries_cooked", "carrot_cooked", "cookedmeat", "cookedsmallmeat", "cookedmonstermeat",
-            "red_cap_cooked", "green_cap_cooked", "blue_cap_cooked"
+            "red_cap_cooked", "green_cap_cooked", "blue_cap_cooked", "meatballs", "kabobs", "ratatouille",
+            "bonestew", "perogies", "baconeggs", "honeyham", "trailmix", "monsterlasagna", "wetgoop",
+            "smallmeat_dried", "meat_dried", "drumstick", "drumstick_cooked", "froglegs", "froglegs_cooked",
+            "meat", "smallmeat", "monstermeat", "silk", "spidergland", "ash", "charcoal", "poop"
           })
           LoadFonts()
+          if TheWorld ~= nil and "${chosenSeason}" ~= "autumn" then
+            TheWorld:PushEvent("ms_setseason", "${chosenSeason}")
+          end
           local portal = TheSim:FindFirstEntityWithTag("multiplayer_portal")
           local sx, sy, sz = 0, 0, 0
           if portal ~= nil then
@@ -988,28 +996,43 @@ async function handle(data: any) {
           WebEntity.UpdateSpatialSleep(sx, sz, 56, 68)
 
           _G._WEB_CreativeMode = ${initialCreative ? 'true' : 'false'}
+          _G._WEB_InCaves = false
           _G._WEB_Announcements = {}
           _G._WEB_SoundEvents = {}
           _G._WEB_OpenContainerGuid = nil
           _G._WEB_Speech = { text = "", untilTick = 0 }
 
-          function _G._WEB_PushSound(ev, vol)
+          function _G._WEB_PushSound(ev, vol, loopName, action)
             if type(ev) == "string" and ev ~= "" and #_G._WEB_SoundEvents < 16 then
-              table.insert(_G._WEB_SoundEvents, { event = ev, volume = tonumber(vol) or 1.0 })
+              table.insert(_G._WEB_SoundEvents, { path = ev, event = ev, name = loopName, action = action, volume = tonumber(vol) or 1.0 })
             end
           end
 
-          -- Hook SoundEmitter:PlaySound so nearby world & player FMOD events stream to WebAudio
+          -- Hook SoundEmitter:PlaySound & KillSound so nearby world & player FMOD events stream to WebAudio
           if player.SoundEmitter ~= nil then
             local mt = getmetatable(player.SoundEmitter)
             if mt and type(mt.__index) == "table" and not mt.__index._web_hooked then
               local orig_play = mt.__index.PlaySound
+              local orig_kill = mt.__index.KillSound
+              local orig_killall = mt.__index.KillAllSounds
               mt.__index._web_hooked = true
               mt.__index.PlaySound = function(se, event, name, volume, ...)
                 if type(event) == "string" then
-                  _G._WEB_PushSound(event, volume)
+                  _G._WEB_PushSound(event, volume, type(name) == "string" and name or nil)
                 end
                 if orig_play then return orig_play(se, event, name, volume, ...) end
+              end
+              mt.__index.KillSound = function(se, name, ...)
+                if type(name) == "string" and #_G._WEB_SoundEvents < 16 then
+                  table.insert(_G._WEB_SoundEvents, { path = "", name = name, action = "kill" })
+                end
+                if orig_kill then return orig_kill(se, name, ...) end
+              end
+              mt.__index.KillAllSounds = function(se, ...)
+                if #_G._WEB_SoundEvents < 16 then
+                  table.insert(_G._WEB_SoundEvents, { path = "", action = "killall" })
+                end
+                if orig_killall then return orig_killall(se, ...) end
               end
             end
           end
@@ -1257,6 +1280,7 @@ async function handle(data: any) {
                     prefab = cent.prefab or "treasurechest",
                     name = cent:GetBasicDisplayName() or cent.prefab or "Chest",
                     numSlots = cont:GetNumSlots(),
+                    isCooker = (cent.prefab == "cookpot"),
                     slots = cslots,
                   }
                 else
@@ -1290,13 +1314,14 @@ async function handle(data: any) {
               active_speech = _G._WEB_Speech.text
             end
 
+            local cur_hp = p and p.components.health and p.components.health.currenthealth or 150
             scene.player = {
               guid = p and p.GUID or 0,
               name = p and p.name or "Wilson",
               prefab = p and p.prefab or "wilson",
               x = px, y = py, z = pz,
               sgState = p and p.sg and p.sg.currentstate and p.sg.currentstate.name or "idle",
-              health = p and p.components.health and p.components.health.currenthealth or 150,
+              health = cur_hp,
               maxHealth = p and p.components.health and p.components.health.maxhealth or 150,
               hunger = p and p.components.hunger and p.components.hunger.current or 150,
               maxHunger = p and p.components.hunger and p.components.hunger.max or 150,
@@ -1304,6 +1329,8 @@ async function handle(data: any) {
               maxSanity = p and p.components.sanity and p.components.sanity.max or 200,
               moisture = p and p.components.moisture and p.components.moisture:GetMoisture() or 0,
               temperature = p and p.components.temperature and p.components.temperature:GetCurrent() or 25,
+              isGhost = (cur_hp <= 0),
+              inCaves = (_G._WEB_InCaves == true),
               equippedHand = eq_hand,
               equippedHead = eq_head,
               equippedBody = eq_body,
@@ -1335,6 +1362,7 @@ async function handle(data: any) {
               duskSegs = dusk_segs,
               nightSegs = night_segs,
               moonPhase = st.moonphase or "new",
+              inCaves = (_G._WEB_InCaves == true),
             }
             if WebUI ~= nil and WebUI.Snapshot ~= nil then
               scene.ui = WebUI.Snapshot(48)
@@ -1396,6 +1424,28 @@ async function handle(data: any) {
               ThePlayer.components.locomotor:GoToPoint(Vector3(${x}, 0, ${z}), nil, true)
             end
           `);
+        } else if (act?.kind === 'resurrect') {
+          evaluate(`
+            local p = ThePlayer
+            if p ~= nil then
+              local portal = TheSim:FindFirstEntityWithTag("multiplayer_portal")
+              if portal ~= nil and portal.Transform ~= nil and p.Transform ~= nil then
+                local sx, sy, sz = portal.Transform:GetWorldPosition()
+                p.Transform:SetPosition(sx + 2.0, 0, sz + 2.0)
+              end
+              if p.components.health ~= nil then
+                p.components.health.currenthealth = math.max(50, math.floor(p.components.health.maxhealth * 0.5))
+              end
+              if p.components.hunger ~= nil then
+                p.components.hunger.current = math.max(50, math.floor(p.components.hunger.max * 0.66))
+              end
+              if p.components.sanity ~= nil then
+                p.components.sanity.current = math.max(50, math.floor(p.components.sanity.max * 0.5))
+              end
+              _G._WEB_Say("Tôi đã hồi sinh tại Florid Postern!", 150)
+              _G._WEB_PushSound("dontstarve/common/resurrectionstone_activate", 1.0)
+            end
+          `);
         } else if (act?.kind === 'examine') {
           const guid = Number(act.guid) || 0;
           evaluate(`
@@ -1418,8 +1468,119 @@ async function handle(data: any) {
             local p = ThePlayer
             if p ~= nil and target ~= nil and target:IsValid() then
               local inv = p.components.inventory
-              -- Check if target is a container (treasurechest / cookpot / icebox)
-              if ("${code}" == "OPEN" or target.components.container ~= nil) and "${code}" ~= "LOOKAT" and "${code}" ~= "HAMMER" then
+              if "${code}" == "RESURRECT" then
+                if p.components.health ~= nil then
+                  p.components.health.currenthealth = math.max(50, math.floor(p.components.health.maxhealth * 0.5))
+                end
+                _G._WEB_Say("Sống lại rồi!", 140)
+                _G._WEB_PushSound("dontstarve/common/resurrectionstone_activate", 1.0)
+              elseif "${code}" == "ENTER_CAVES" or target.prefab == "cave_entrance_open" then
+                _G._WEB_InCaves = not _G._WEB_InCaves
+                if _G._WEB_InCaves then
+                  _G._WEB_Say("Bước xuống Hang Động ngầm sâu thẳm...", 150)
+                else
+                  _G._WEB_Say("Đã trở lại mặt đất rừng rậm!", 150)
+                end
+                _G._WEB_PushSound("dontstarve/cave/enter", 0.9)
+              elseif "${code}" == "EXIT_CAVES" or target.prefab == "cave_exit" then
+                _G._WEB_InCaves = false
+                _G._WEB_Say("Đã leo dây trở lại mặt đất!", 150)
+                _G._WEB_PushSound("dontstarve/cave/exit", 0.9)
+              elseif "${code}" == "COOK" and target.prefab == "cookpot" and target.components.container ~= nil then
+                local cont = target.components.container
+                local item_count = 0
+                local meat_val = 0
+                local monster_count = 0
+                local veggie_count = 0
+                local fruit_count = 0
+                local twigs_count = 0
+                for s = 1, cont:GetNumSlots() do
+                  local it = cont.slots[s]
+                  if it ~= nil then
+                    item_count = item_count + 1
+                    local pf = it.prefab or ""
+                    if pf == "meat" or pf == "cookedmeat" then meat_val = meat_val + 1.0
+                    elseif pf == "monstermeat" or pf == "cookedmonstermeat" then meat_val = meat_val + 1.0; monster_count = monster_count + 1
+                    elseif pf == "smallmeat" or pf == "cookedsmallmeat" or pf == "drumstick" or pf == "drumstick_cooked" or pf == "froglegs" or pf == "froglegs_cooked" then meat_val = meat_val + 0.5
+                    elseif pf == "carrot" or pf == "carrot_cooked" or pf:find("_cap") then veggie_count = veggie_count + 1
+                    elseif pf:find("berries") then fruit_count = fruit_count + 1
+                    elseif pf == "twigs" then twigs_count = twigs_count + 1 end
+                  end
+                end
+                if item_count > 0 then
+                  for s = 1, cont:GetNumSlots() do
+                    local removed = cont:RemoveItemBySlot(s)
+                    if removed then
+                      if removed.components.stackable and removed.components.stackable:StackSize() > 1 then
+                        removed.components.stackable:Get(1):Remove()
+                        cont:GiveItem(removed, s)
+                      else
+                        removed:Remove()
+                      end
+                    end
+                  end
+                  local dish = "meatballs"
+                  if monster_count >= 2 then dish = "monsterlasagna"
+                  elseif meat_val >= 3.0 and twigs_count == 0 then dish = "bonestew"
+                  elseif meat_val >= 0.5 and twigs_count >= 1 then dish = "kabobs"
+                  elseif meat_val >= 0.5 and veggie_count >= 1 then dish = "perogies"
+                  elseif meat_val >= 0.5 then dish = "meatballs"
+                  elseif fruit_count >= 2 and twigs_count >= 1 then dish = "trailmix"
+                  elseif veggie_count >= 1 or fruit_count >= 1 then dish = "ratatouille"
+                  else dish = "wetgoop" end
+                  local cooked_dish = SpawnPrefab(dish)
+                  if cooked_dish and inv then inv:GiveItem(cooked_dish) end
+                  if target.AnimState then
+                    target.AnimState:PlayAnimation("cooking_loop")
+                    target.AnimState:PushAnimation("idle_empty", false)
+                  end
+                  _G._WEB_Say("Món " .. tostring(dish) .. " nóng hổi từ Nồi Hầm đã sẵn sàng!", 140)
+                  _G._WEB_PushSound("dontstarve/wilson/make_soup", 0.95)
+                else
+                  _G._WEB_Say("Cần cho nguyên liệu vào Nồi Hầm trước khi nấu!", 120)
+                end
+              elseif "${code}" == "DRY" or target.prefab == "meatrack" then
+                local dried_any = false
+                if inv ~= nil then
+                  for _, pair in ipairs({{"meat", "meat_dried"}, {"smallmeat", "smallmeat_dried"}, {"monstermeat", "smallmeat_dried"}}) do
+                    if inv:Has(pair[1], 1) then
+                      inv:ConsumeByName(pair[1], 1)
+                      local jerky = SpawnPrefab(pair[2])
+                      if jerky then inv:GiveItem(jerky) end
+                      _G._WEB_Say("Đã phơi khô thịt thành Thịt Khô (Jerky) bảo quản lâu dài!", 130)
+                      _G._WEB_PushSound("dontstarve/HUD/collect_resource", 0.9)
+                      dried_any = true
+                      break
+                    end
+                  end
+                end
+                if not dried_any then
+                  local quote = _G._WEB_DescribeEntity(target)
+                  _G._WEB_Say(quote, 140)
+                end
+              elseif "${code}" == "HAMMER" then
+                local tx, ty, tz = target.Transform:GetWorldPosition()
+                local pf = target.prefab or ""
+                target:Remove()
+                for _, drop_pf in ipairs((pf == "skeleton" or pf == "firepit") and {"rocks", "rocks"} or {"boards", "twigs"}) do
+                  local d = SpawnPrefab(drop_pf)
+                  if d and d.Transform then d.Transform:SetPosition(tx + (math.random()-0.5)*1.2, 0, tz + (math.random()-0.5)*1.2) end
+                end
+                _G._WEB_PushSound("dontstarve/wilson/rock_break", 0.95)
+                _G._WEB_Say("Đã đập vỡ công trình để thu hồi vật liệu!", 120)
+              elseif "${code}" == "DIG" then
+                local tx, ty, tz = target.Transform:GetWorldPosition()
+                local pf = target.prefab or ""
+                target:Remove()
+                local drop_pf = "twigs"
+                if pf == "grass" then drop_pf = "cutgrass"
+                elseif pf == "mound" then drop_pf = "goldnugget"
+                elseif pf == "rabbithole" or pf == "molehill" then drop_pf = "rocks" end
+                local d = SpawnPrefab(drop_pf)
+                if d and d.Transform then d.Transform:SetPosition(tx, 0, tz) end
+                _G._WEB_PushSound("dontstarve/wilson/dig", 0.95)
+                _G._WEB_Say("Đã đào lên bằng xẻng!", 120)
+              elseif ("${code}" == "OPEN" or target.components.container ~= nil) and "${code}" ~= "LOOKAT" and "${code}" ~= "HAMMER" then
                 local px, py, pz = p.Transform:GetWorldPosition()
                 local tx, ty, tz = target.Transform:GetWorldPosition()
                 if (tx - px)*(tx - px) + (tz - pz)*(tz - pz) <= 25 then
@@ -1435,8 +1596,8 @@ async function handle(data: any) {
                 local cook_map = {
                   berries = "berries_cooked", berries_juicy = "berries_juicy_cooked",
                   carrot = "carrot_cooked", meat = "cookedmeat", smallmeat = "cookedsmallmeat",
-                  monstermeat = "cookedmonstermeat", red_cap = "red_cap_cooked",
-                  green_cap = "green_cap_cooked", blue_cap = "blue_cap_cooked",
+                  monstermeat = "cookedmonstermeat", drumstick = "drumstick_cooked", froglegs = "froglegs_cooked",
+                  red_cap = "red_cap_cooked", green_cap = "green_cap_cooked", blue_cap = "blue_cap_cooked",
                 }
                 local cooked_any = false
                 if inv ~= nil then
@@ -1448,7 +1609,7 @@ async function handle(data: any) {
                       local cooked_item = SpawnPrefab(out_pf)
                       if cooked_item then inv:GiveItem(cooked_item) end
                       _G._WEB_Say("Thơm phức! Đã nướng chín thức ăn trên lửa.", 120)
-                      _G._WEB_PushSound("dontstarve/common/cookingpot_finish", 0.9)
+                      _G._WEB_PushSound("dontstarve/wilson/cook", 0.9)
                       cooked_any = true
                       break
                     end
@@ -1606,7 +1767,7 @@ async function handle(data: any) {
           `);
         } else if (act?.kind === 'container-transfer') {
           const slot = Number(act.slot) || 1;
-          const fromContainer = Boolean(act.fromContainer);
+          const fromContainer = Boolean(act.fromContainer || act.from === 'container');
           evaluate(`
             local p = ThePlayer
             local inv = p and p.components.inventory
@@ -1670,6 +1831,15 @@ async function handle(data: any) {
                 end
               elseif "${button}" == "right" and ${shift ? 'true' : 'false'} then
                 inv:DropItem(item, true, true)
+              elseif item.prefab == "bedroll_straw" then
+                if p.components.health then p.components.health:DoDelta(30) end
+                if p.components.sanity then p.components.sanity:DoDelta(50) end
+                if p.components.hunger then p.components.hunger:DoDelta(-25) end
+                if TheWorld and TheWorld.state and TheWorld.state.phase ~= "day" then
+                  TheWorld:PushEvent("ms_nextphase")
+                end
+                _G._WEB_Say("Một giấc ngủ thật sảng khoái trên cuộn rơm!", 140)
+                _G._WEB_PushSound("dontstarve/wilson/yawn", 0.9)
               elseif "${button}" == "right" and not (${shift ? 'true' : 'false'}) then
                 if item.components.edible ~= nil and p.components.eater ~= nil then
                   p.components.eater:Eat(item)

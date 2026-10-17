@@ -92,6 +92,8 @@ export interface PlayerHudSnapshot {
   maxSanity: number;
   moisture: number;
   temperature: number;
+  isGhost?: boolean;
+  inCaves?: boolean;
   equippedHand: string;
   equippedHead: string;
   equippedBody: string;
@@ -122,6 +124,7 @@ export interface WorldClockSnapshot {
   duskSegs?: number;
   nightSegs?: number;
   moonPhase?: string;
+  inCaves?: boolean;
 }
 
 export interface GameSceneSnapshot {
@@ -136,7 +139,7 @@ export interface GameSceneSnapshot {
   clock: WorldClockSnapshot;
   ui?: { rootGuid: number; count: number; nodes: unknown[] };
   announcements?: string[];
-  soundEvents?: Array<{ path: string; name?: string; volume?: number }>;
+  soundEvents?: Array<{ path: string; name?: string; volume?: number; action?: string }>;
 }
 
 
@@ -310,6 +313,15 @@ export const PREFAB_LABELS: Record<string, string> = {
   meatballs: 'Meatballs',
   kabobs: 'Kabobs',
   ratatouille: 'Ratatouille',
+  bonestew: 'Meaty Stew',
+  perogies: 'Pierogi',
+  baconeggs: 'Bacon and Eggs',
+  honeyham: 'Honey Ham',
+  trailmix: 'Trail Mix',
+  monsterlasagna: 'Monster Lasagna',
+  wetgoop: 'Wet Goop',
+  smallmeat_dried: 'Small Jerky',
+  meat_dried: 'Jerky',
   spoiled_food: 'Rot',
   abigail_flower: "Abigail's Flower",
   slingshot: 'Trusty Slingshot',
@@ -332,6 +344,7 @@ export const PREFAB_LABELS: Record<string, string> = {
   pond: 'Pond',
   cave_entrance: 'Plugged Sinkhole',
   cave_entrance_open: 'Open Sinkhole',
+  cave_exit: 'Rope to Surface',
   moose_nesting_ground: 'Moose/Goose Nest',
   carnival_host: 'Corvus Goodfeather',
   fireflies: 'Fireflies',
@@ -343,20 +356,36 @@ export function formatPrefabName(prefab: string): string {
   return prefab.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
-export function defaultActionForEntity(e: SceneEntity, equippedHand: string): { code: string; label: string } {
+export function defaultActionForEntity(e: SceneEntity, equippedHand: string, isGhost = false): { code: string; label: string } {
+  if (isGhost) {
+    if (e.prefab === 'multiplayer_portal') return { code: 'RESURRECT', label: 'Haunt to Resurrect' };
+    return { code: 'INSPECT', label: 'Haunt / Examine' };
+  }
   if (e.kind === 'player') return { code: 'INSPECT', label: 'Examine Self' };
   if (e.kind === 'item') return { code: 'PICKUP', label: 'Pick Up' };
+  if (equippedHand === 'hammer' && (e.kind === 'structure' || e.prefab === 'skeleton' || e.prefab === 'pighouse')) {
+    return { code: 'HAMMER', label: 'Hammer' };
+  }
+  if ((equippedHand === 'shovel' || equippedHand === 'goldenshovel') && (e.prefab === 'mound' || e.prefab === 'rabbithole' || e.prefab === 'molehill' || e.prefab === 'sapling' || e.prefab === 'grass' || e.prefab.startsWith('berrybush'))) {
+    return { code: 'DIG', label: 'Dig' };
+  }
   if (e.prefab === 'treasurechest' || e.prefab === 'cookpot' || e.prefab === 'icebox') {
-    return { code: 'INSPECT', label: 'Open' };
+    return { code: 'OPEN', label: 'Open' };
+  }
+  if (e.prefab === 'meatrack') {
+    return { code: 'DRY', label: 'Hang Meat / Harvest' };
   }
   if (e.prefab === 'campfire' || e.prefab === 'firepit') {
-    return { code: 'INSPECT', label: 'Cook / Add Fuel' };
+    return { code: 'COOK', label: 'Cook / Add Fuel' };
   }
   if (e.prefab === 'cave_entrance') {
     return { code: 'MINE', label: 'Mine Sinkhole' };
   }
   if (e.prefab === 'cave_entrance_open') {
-    return { code: 'INSPECT', label: 'Enter Caves' };
+    return { code: 'ENTER_CAVES', label: 'Enter Caves' };
+  }
+  if (e.prefab === 'cave_exit') {
+    return { code: 'EXIT_CAVES', label: 'Ascend to Surface' };
   }
   if (e.kind === 'plant') {
     if (e.prefab.startsWith('flower') || e.prefab.includes('mushroom') || e.prefab === 'carrot_planted' || e.prefab === 'sapling' || e.prefab === 'grass' || e.prefab.startsWith('berrybush') || e.prefab === 'reeds') {
@@ -364,14 +393,10 @@ export function defaultActionForEntity(e: SceneEntity, equippedHand: string): { 
     }
   }
   if (e.kind === 'tree') {
-    return equippedHand === 'axe' || equippedHand === 'goldenaxe' || equippedHand === 'lucy'
-      ? { code: 'CHOP', label: 'Chop' }
-      : { code: 'CHOP', label: 'Chop' };
+    return { code: 'CHOP', label: 'Chop' };
   }
   if (e.kind === 'rock') {
-    return equippedHand === 'pickaxe' || equippedHand === 'goldenpickaxe'
-      ? { code: 'MINE', label: 'Mine' }
-      : { code: 'MINE', label: 'Mine' };
+    return { code: 'MINE', label: 'Mine' };
   }
   if (e.kind === 'monster') return { code: 'ATTACK', label: 'Attack' };
   return { code: 'INSPECT', label: 'Examine' };
@@ -1686,11 +1711,35 @@ export class GameRenderer {
     }
     const s = Math.max(8, scale);
     const isHovered = this.hoveredEntity?.entity.guid === entity.guid;
+    const isGhostPlayer = entity.kind === 'player' && Boolean(snap.player.isGhost || snap.player.health <= 0);
     ctx.save();
     ctx.translate(sx, sy);
 
+    const filters: string[] = [];
     if (isHovered) {
-      ctx.filter = 'brightness(1.22)';
+      filters.push('brightness(1.22)');
+    }
+    if (isGhostPlayer) {
+      ctx.globalAlpha = 0.62;
+      filters.push('saturate(0.35) brightness(1.35)');
+    } else if (entity.multColour) {
+      const [mr, mg, mb, ma] = entity.multColour;
+      if (ma !== undefined && ma < 0.99) {
+        ctx.globalAlpha = Math.max(0.05, Math.min(1, ma));
+      }
+      const lum = (mr + mg + mb) / 3;
+      if (Math.abs(lum - 1) > 0.08) {
+        filters.push(`brightness(${Math.max(0.25, Math.min(2.0, lum)).toFixed(2)})`);
+      }
+    }
+    if (entity.addColour) {
+      const [ar, ag, ab] = entity.addColour;
+      if (ar + ag + ab > 0.15) {
+        filters.push(`brightness(${(1 + (ar + ag + ab) * 0.45).toFixed(2)})`);
+      }
+    }
+    if (filters.length > 0) {
+      ctx.filter = filters.join(' ');
     }
 
     const originalSprite = this.animCompositor.getEntitySprite(entity, snap.player, cam, now);
@@ -1710,8 +1759,26 @@ export class GameRenderer {
       );
       ctx.restore();
       ctx.filter = 'none';
+      ctx.globalAlpha = 1;
 
       const topY = -Math.max(s * 2.0, frame.anchorY * ratio + 4);
+      if (
+        entity.kind !== 'player' &&
+        entity.health !== undefined &&
+        entity.maxHealth !== undefined &&
+        entity.maxHealth > 0 &&
+        (entity.health < entity.maxHealth || (isHovered && (entity.kind === 'monster' || entity.kind === 'creature')))
+      ) {
+        const hpPct = Math.max(0, Math.min(1, entity.health / entity.maxHealth));
+        const bw = Math.max(34, Math.min(68, s * 1.15));
+        const bh = 5;
+        const bx = -bw * 0.5;
+        const by = topY - 12;
+        ctx.fillStyle = 'rgba(12, 9, 6, 0.85)';
+        ctx.fillRect(bx - 1, by - 1, bw + 2, bh + 2);
+        ctx.fillStyle = hpPct > 0.5 ? '#5ec24e' : hpPct > 0.25 ? '#e0a938' : '#d63e34';
+        ctx.fillRect(bx, by, bw * hpPct, bh);
+      }
       if (entity.kind === 'player' && snap.player.speech && s > 10) {
         this.drawPlayerSpeechBubble(ctx, topY - 8, snap.player.speech);
       }
@@ -1736,10 +1803,12 @@ export class GameRenderer {
     projected: ProjectedEntity[],
     cam: CameraSnapshot,
   ) {
+    const W = this.canvas.width;
+    const H = this.canvas.height;
     const [ar, ag, ab] = snap.ambient ?? [255, 255, 255];
     const brightness = (ar * 0.299 + ag * 0.587 + ab * 0.114) / 255;
 
-    // Draw warm additive glow around light-emitting entities
+    // 1. Draw warm additive glow around light-emitting entities
     for (const item of projected) {
       const e = item.entity;
       if (!e.lightRadius || e.lightRadius <= 0.1) continue;
@@ -1755,13 +1824,81 @@ export class GameRenderer {
       ctx.fill();
     }
 
-    // Dusk / Night ambient tinting
+    // 2. Seasonal / Subterranean Caves colour-cube grading
+    const season = snap.clock?.season || 'autumn';
+    const inCaves = Boolean(snap.clock?.inCaves || snap.player?.inCaves);
+    ctx.save();
+    if (inCaves) {
+      ctx.fillStyle = 'rgba(18, 22, 38, 0.42)';
+      ctx.fillRect(0, 0, W, H);
+    } else if (season === 'winter') {
+      ctx.fillStyle = 'rgba(165, 210, 245, 0.12)';
+      ctx.fillRect(0, 0, W, H);
+    } else if (season === 'spring') {
+      ctx.fillStyle = 'rgba(120, 175, 140, 0.08)';
+      ctx.fillRect(0, 0, W, H);
+    } else if (season === 'summer') {
+      ctx.fillStyle = 'rgba(245, 190, 110, 0.11)';
+      ctx.fillRect(0, 0, W, H);
+    }
+    ctx.restore();
+
+    // 3. Rain streaks when raining
+    if (snap.clock?.isRaining) {
+      const now = performance.now();
+      ctx.save();
+      ctx.strokeStyle = 'rgba(185, 215, 240, 0.28)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      for (let i = 0; i < 42; ++i) {
+        const rx = ((i * 173 + now * 0.45) % (W + 120)) - 60;
+        const ry = ((i * 251 + now * 1.15) % (H + 120)) - 60;
+        ctx.moveTo(rx, ry);
+        ctx.lineTo(rx - 9, ry + 26);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // 4. Dusk / Night ambient tinting
     if (brightness < 0.92) {
       const darkness = Math.min(0.76, (1 - brightness) * 0.85);
       ctx.save();
       ctx.fillStyle = `rgba(${Math.round(ar * 0.18)}, ${Math.round(ag * 0.2)}, ${Math.round(ab * 0.32)}, ${darkness.toFixed(3)})`;
-      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      ctx.fillRect(0, 0, W, H);
       ctx.restore();
+    }
+
+    // 5. Vitals Screen Overlays (BloodOver, IceOver, HeatOver, SanityOver)
+    const p = snap.player;
+    if (p) {
+      const hpRatio = p.health / Math.max(1, p.maxHealth);
+      const saRatio = p.sanity / Math.max(1, p.maxSanity);
+      const temp = p.temperature ?? 25;
+
+      const drawEdgeVignette = (r: number, g: number, b: number, maxAlpha: number) => {
+        ctx.save();
+        const grad = ctx.createRadialGradient(W * 0.5, H * 0.5, Math.min(W, H) * 0.28, W * 0.5, H * 0.5, Math.max(W, H) * 0.68);
+        grad.addColorStop(0, `rgba(${r}, ${g}, ${b}, 0)`);
+        grad.addColorStop(1, `rgba(${r}, ${g}, ${b}, ${maxAlpha.toFixed(3)})`);
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, H);
+        ctx.restore();
+      };
+
+      if (hpRatio < 0.35 && hpRatio > 0) {
+        const pulse = 0.5 + 0.5 * Math.sin(performance.now() * 0.008);
+        drawEdgeVignette(165, 18, 18, (0.35 - hpRatio) * (0.85 + 0.35 * pulse));
+      }
+      if (temp < 5) {
+        drawEdgeVignette(120, 200, 255, Math.min(0.45, ((5 - temp) / 15) * 0.45));
+      } else if (temp > 65) {
+        drawEdgeVignette(255, 120, 25, Math.min(0.42, ((temp - 65) / 20) * 0.42));
+      }
+      if (saRatio < 0.33) {
+        const pulse = 0.5 + 0.5 * Math.cos(performance.now() * 0.005);
+        drawEdgeVignette(35, 12, 48, (0.33 - saRatio) * (0.9 + 0.25 * pulse));
+      }
     }
     void cam;
   }

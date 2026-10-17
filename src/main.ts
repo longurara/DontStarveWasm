@@ -135,6 +135,26 @@ const RECIPES: RecipeDefinition[] = [
 
 const FAVORITE_RECIPES = new Set<string>(['axe', 'pickaxe', 'torch', 'campfire', 'spear']);
 
+interface CookbookEntry {
+  id: string;
+  name: string;
+  health: string;
+  hunger: string;
+  sanity: string;
+  recipeHint: string;
+}
+
+const CROCK_POT_RECIPES: CookbookEntry[] = [
+  { id: 'meatballs', name: 'Meatballs', health: '+3', hunger: '+62.5', sanity: '+5', recipeHint: '1x Any Meat + 3x Berries / Veggies / Fillers (No Twigs)' },
+  { id: 'bonestew', name: 'Meaty Stew', health: '+12', hunger: '+150', sanity: '+5', recipeHint: '3x Meat / Small Meat + 1x Filler (No Twigs)' },
+  { id: 'perogies', name: 'Pierogi', health: '+40', hunger: '+37.5', sanity: '+5', recipeHint: '1x Meat + 1x Carrot / Mushroom + 2x Fillers (No Twigs)' },
+  { id: 'kabobs', name: 'Kabobs', health: '+3', hunger: '+37.5', sanity: '+5', recipeHint: '1x Any Meat + 1x Twigs + 2x Fillers' },
+  { id: 'ratatouille', name: 'Ratatouille', health: '+3', hunger: '+25', sanity: '+5', recipeHint: '1x Carrot / Veggie + 3x Berries / Fillers (No Meat, No Twigs)' },
+  { id: 'trailmix', name: 'Trail Mix', health: '+30', hunger: '+12.5', sanity: '+5', recipeHint: '2x Berries + 2x Non-Meat Fillers' },
+  { id: 'monsterlasagna', name: 'Monster Lasagna', health: '-20', hunger: '+37.5', sanity: '-20', recipeHint: '2+ Monster Meat (Warning: Toxic to non-Webber survivors!)' },
+  { id: 'wetgoop', name: 'Wet Goop', health: '0', hunger: '0', sanity: '0', recipeHint: 'Invalid ingredient combination (e.g. 2+ Twigs)' },
+];
+
 document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
 <div class="app-shell">
  <section id="game-stage" class="game-stage" aria-label="Don't Starve Together Playable World">
@@ -171,6 +191,15 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
       </div>
       <div class="cm-frame-bottom"></div>
      </div>
+    </div>
+
+    <!-- Ghost Resurrection Banner & PlayerAvatarPopup (scripts/widgets/playeravatarpopup.lua) -->
+    <div class="hud-center-top">
+     <div id="hud-resurrect-banner" class="ghost-resurrect-banner hidden">
+      <span>You are a Ghost! Haunt the Florid Postern to return to the living.</span>
+      <button id="hud-resurrect-btn" class="klei-carny-long-btn">Resurrect at Portal</button>
+     </div>
+     <div id="player-avatar-popup" class="player-avatar-popup hidden" role="dialog" aria-label="Survivor Inspection"></div>
     </div>
 
     <!-- Top-Right UIClock & Triangular StatusDisplays (scripts/widgets/uiclock.lua + statusdisplays.lua) -->
@@ -264,6 +293,15 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
         <button id="play-game" class="klei-carny-xlong-btn">Start World</button>
         <button id="load-saved-world-btn" class="klei-carny-long-btn">Load Saved World</button>
        </div>
+       <label style="display:inline-flex;align-items:center;gap:6px;margin:0;color:#ebd9b4;font-size:12.5px">
+        Starting Season:
+        <select id="title-season-select" class="klei-select">
+         <option value="autumn">Autumn</option>
+         <option value="winter">Winter</option>
+         <option value="spring">Spring</option>
+         <option value="summer">Summer</option>
+        </select>
+       </label>
        <label style="display:inline-flex;align-items:center;gap:6px;margin:0;color:#ebd9b4;cursor:pointer;font-size:12.5px">
         <input id="title-creative-check" type="checkbox" style="width:auto"> Free Crafting Mode
        </label>
@@ -291,12 +329,42 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
    </div>
   </div>
 
+  <!-- Crock Pot CookbookPopupScreen Modal (scripts/screens/redux/cookbookpopupscreen.lua) -->
+  <div id="cookbook-screen-modal" class="screen-modal hidden" role="dialog" aria-label="Crock Pot Cookbook">
+   <div class="dst-card" style="max-width:740px">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px">
+     <div>
+      <div class="dst-title-eyebrow">Culinary Reference · Crock Pot</div>
+      <h2 style="font-family:Georgia,serif;font-size:24px;color:#f5dca0;margin:2px 0 0">Survivor's Cookbook</h2>
+     </div>
+     <button id="cookbook-close-btn" class="klei-carny-long-btn">Close</button>
+    </div>
+    <div id="cookbook-grid" class="cookbook-grid"></div>
+   </div>
+  </div>
+
+  <!-- PlayerStatusScreen Modal (scripts/screens/playerstatusscreen.lua) -->
+  <div id="player-status-modal" class="screen-modal hidden" role="dialog" aria-label="Survivor Status">
+   <div class="dst-card" style="max-width:640px">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px">
+     <div>
+      <div class="dst-title-eyebrow">Server Roster · Don't Starve Together</div>
+      <h2 style="font-family:Georgia,serif;font-size:24px;color:#f5dca0;margin:2px 0 0">Connected Survivors</h2>
+     </div>
+     <button id="player-status-close-btn" class="klei-carny-long-btn">Close (P)</button>
+    </div>
+    <div id="player-status-list" class="player-status-list"></div>
+   </div>
+  </div>
+
   <!-- Pause / Server Control Modal (scripts/screens/redux/pausescreen.lua) -->
   <div id="pause-screen-modal" class="screen-modal hidden" role="dialog" aria-label="Pause Menu">
    <div class="dst-card" style="max-width:420px;text-align:center">
     <h2 style="font-family:Georgia,serif;font-size:24px;color:#f5dca0;margin:4px 0 14px">Paused</h2>
     <div style="display:flex;flex-direction:column;gap:8px;align-items:center">
      <button id="pause-resume-btn" class="klei-carny-xlong-btn" style="width:100%">Continue</button>
+     <button id="pause-cookbook-btn" class="klei-carny-xlong-btn" style="width:100%">Crock Pot Cookbook</button>
+     <button id="pause-player-status-btn" class="klei-carny-xlong-btn" style="width:100%">Survivor Status (P)</button>
      <button id="pause-save-world-btn" class="klei-carny-xlong-btn" style="width:100%">Save World</button>
      <button id="pause-load-world-btn" class="klei-carny-xlong-btn" style="width:100%">Load World</button>
      <button id="pause-creative-btn" class="klei-carny-xlong-btn" style="width:100%">Toggle Free Crafting</button>
@@ -399,6 +467,9 @@ let selectedRecipeId = 'axe';
 let craftingDrawerOpen = true;
 let mapModalOpen = false;
 let pauseModalOpen = false;
+let cookbookModalOpen = false;
+let playerStatusModalOpen = false;
+let avatarPopupOpen = false;
 let mapZoom = 1.0;
 let mapPanX = 0;
 let mapPanY = 0;
@@ -757,7 +828,10 @@ function renderInventoryHud(scene?: GameSceneSnapshot) {
       );
     }
     const cookBtnHtml = openCont.isCooker
-      ? `<button id="container-cook-btn" class="klei-carny-long-btn container-cook-btn" data-container-cook="${openCont.guid}">Cook</button>`
+      ? `<div style="display:flex;flex-direction:column;gap:4px;align-items:center">
+           <button id="container-cook-btn" class="klei-carny-long-btn container-cook-btn" data-container-cook="${openCont.guid}">Cook</button>
+           <button id="container-cookbook-btn" class="klei-subtle-diag" data-open-cookbook="1" style="font-size:11px;padding:3px 8px">Recipe Guide</button>
+         </div>`
       : '';
     contBox.innerHTML = `
       <div class="container-grid ${openCont.isCooker ? 'cooker-grid' : 'chest-grid'}">${cSlots.join('')}</div>
@@ -789,9 +863,98 @@ function renderInventoryHud(scene?: GameSceneSnapshot) {
   }
 }
 
+function renderPlayerAvatarPopup(scene?: GameSceneSnapshot) {
+  const popup = element('player-avatar-popup');
+  if (!popup) return;
+  popup.classList.toggle('hidden', !avatarPopupOpen || !scene);
+  if (!avatarPopupOpen || !scene) return;
+  const p = scene.player;
+  const charPrefab = p.prefab || selectedCharacter || 'wilson';
+  const charInfo = CHARACTER_ROSTER.find(c => c.id === charPrefab) ?? CHARACTER_ROSTER[0];
+  const avatarUrl =
+    gameRenderer.getIconDataUrl(`avatar_${charPrefab}`) ||
+    gameRenderer.getIconDataUrl(`self_inspect_${charPrefab}`);
+  const avatarImg = avatarUrl ? `<img src="${avatarUrl}" alt="${charInfo.name}">` : '';
+
+  const eqSlots = [
+    { label: 'Hands', prefab: p.equippedHand, pct: p.equipped?.hands?.percent },
+    { label: 'Body', prefab: p.equippedBody, pct: p.equipped?.body?.percent },
+    { label: 'Head', prefab: p.equippedHead, pct: p.equipped?.head?.percent },
+  ];
+  const eqHtml = eqSlots.map(eq => {
+    const icon = eq.prefab ? formatSlotIconHtml(eq.prefab) : '<span style="opacity:0.4;font-size:11px">Empty</span>';
+    const title = eq.prefab ? `${formatPrefabName(eq.prefab)}${eq.pct !== undefined ? ` (${eq.pct}%)` : ''}` : `No ${eq.label}`;
+    return `<div class="avatar-equip-item" title="${title}"><div class="inv-slot equip">${icon}</div><span>${title}</span></div>`;
+  }).join('');
+
+  const dayCount = (scene.clock?.cycles ?? 0) + 1;
+  const shardName = scene.clock?.inCaves ? 'Subterranean Caves' : 'Master Forest';
+  popup.innerHTML = `
+    <div class="avatar-popup-header">
+      <div class="character-avatar-frame" style="width:58px;height:58px">${avatarImg}</div>
+      <div style="flex:1">
+        <div class="char-detail-name" style="font-size:16px">${charInfo.name}</div>
+        <div class="char-detail-title" style="margin:0">${charInfo.title} · Day ${dayCount} (${shardName})</div>
+        <div class="small" style="color:#dfd3ba;margin-top:3px">HP: ${Math.round(p.health)}/${p.maxHealth} · Hunger: ${Math.round(p.hunger)}/${p.maxHunger} · Sanity: ${Math.round(p.sanity)}/${p.maxSanity} · Temp: ${Math.round(p.temperature)}°C</div>
+      </div>
+      <button id="close-avatar-popup-btn" class="klei-subtle-diag" style="padding:3px 8px">✕</button>
+    </div>
+    <div class="avatar-equip-row">${eqHtml}</div>
+  `;
+}
+
+function renderCookbookModal() {
+  const grid = element('cookbook-grid');
+  if (!grid) return;
+  grid.innerHTML = CROCK_POT_RECIPES.map(dish => {
+    const iconHtml = formatSlotIconHtml(dish.id);
+    return `
+      <div class="cookbook-card">
+        <div class="inv-slot" style="flex-shrink:0">${iconHtml}</div>
+        <div style="flex:1">
+          <div style="font-weight:700;color:#f6dca0;font-size:15px">${dish.name}</div>
+          <div style="font-size:12px;color:#e2d1b0;margin:2px 0">Health: <strong>${dish.health}</strong> · Hunger: <strong>${dish.hunger}</strong> · Sanity: <strong>${dish.sanity}</strong></div>
+          <div style="font-size:11.5px;color:#bfb296">${dish.recipeHint}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderPlayerStatusModal(scene?: GameSceneSnapshot) {
+  const list = element('player-status-list');
+  if (!list) return;
+  const p = scene?.player;
+  const charPrefab = p?.prefab || selectedCharacter || 'wilson';
+  const charInfo = CHARACTER_ROSTER.find(c => c.id === charPrefab) ?? CHARACTER_ROSTER[0];
+  const avatarUrl =
+    gameRenderer.getIconDataUrl(`avatar_${charPrefab}`) ||
+    gameRenderer.getIconDataUrl(`self_inspect_${charPrefab}`);
+  const avatarImg = avatarUrl ? `<img src="${avatarUrl}" alt="${charInfo.name}" style="width:44px;height:44px;object-fit:contain">` : '';
+  const dayCount = (scene?.clock?.cycles ?? 0) + 1;
+  const shardLabel = scene?.clock?.inCaves ? 'Caves Shard' : 'Master Forest';
+  const stateLabel = p?.isGhost ? 'Ghost (Haunting)' : 'Alive';
+  const peerCount = room?.connectedPeers ?? 0;
+
+  list.innerHTML = `
+    <div class="player-status-row">
+      <div class="character-avatar-frame" style="width:52px;height:52px">${avatarImg}</div>
+      <div style="flex:1">
+        <div style="font-weight:700;color:#f6dca0;font-size:16px">${p?.name || charInfo.name} <span style="font-size:12px;color:#a8d697">[Host]</span></div>
+        <div style="font-size:12.5px;color:#d8b874">${charInfo.title} · ${stateLabel}</div>
+      </div>
+      <div style="text-align:right;font-size:12.5px;color:#dfd3ba">
+        <div>Day ${dayCount} · ${shardLabel}</div>
+        <div style="color:#a4ad95">Tick ${scene?.tick ?? 0} · WebRTC Peers: ${peerCount}</div>
+      </div>
+    </div>
+  `;
+}
+
 renderCharacterRoster();
 renderCraftingHud();
 renderInventoryHud();
+renderCookbookModal();
 
 function updateHovererPositionAndText(clientX?: number, clientY?: number) {
   if (clientX !== undefined && clientY !== undefined) {
@@ -805,7 +968,7 @@ function updateHovererPositionAndText(clientX?: number, clientY?: number) {
     } else if (gameRenderer.hoveredEntity) {
       const ent = gameRenderer.hoveredEntity.entity;
       const title = formatPrefabName(ent.prefab);
-      const act = defaultActionForEntity(ent, gameScene?.player.equippedHand ?? '');
+      const act = defaultActionForEntity(ent, gameScene?.player.equippedHand ?? '', Boolean(gameScene?.player.isGhost));
       text = `${title}\nLMB: ${act.label}   RMB: Examine`;
     }
   }
@@ -845,6 +1008,9 @@ function updateGameHud(scene: GameSceneSnapshot) {
   }
   dstAudio.updateAmbient(scene.clock.phase);
 
+  // Toggle Ghost Resurrection Banner when player is a ghost
+  element('hud-resurrect-banner')?.classList.toggle('hidden', !p.isGhost);
+
   // Update circular status meters (integer only, matching scripts/widgets/badge.lua)
   const healthPct = Math.max(0, Math.min(100, Math.round((p.health / Math.max(1, p.maxHealth)) * 100)));
   const hungerPct = Math.max(0, Math.min(100, Math.round((p.hunger / Math.max(1, p.maxHunger)) * 100)));
@@ -865,6 +1031,12 @@ function updateGameHud(scene: GameSceneSnapshot) {
   gameRenderer.renderWorldClock(clockCanvas, scene);
   if (mapModalOpen) {
     gameRenderer.renderFullScreenMap(mapScreenCanvas, mapZoom, mapPanX, mapPanY);
+  }
+  if (avatarPopupOpen) {
+    renderPlayerAvatarPopup(scene);
+  }
+  if (playerStatusModalOpen) {
+    renderPlayerStatusModal(scene);
   }
 
   renderCraftingHud(scene);
@@ -1006,6 +1178,7 @@ async function ensureMasterAssetsLoaded() {
         applyKleiHudTextures();
         renderCraftingHud(gameScene);
         renderInventoryHud(gameScene);
+        renderCookbookModal();
         if (gameScene) gameRenderer.renderWorldClock(clockCanvas, gameScene);
       }
     }).catch(() => {});
@@ -1021,11 +1194,13 @@ async function startGame(characterOverride?: string) {
   status(`Booting Don't Starve Together Master World (${selectedCharacter})…`);
   const master = await ensureMasterAssetsLoaded();
   const creativeChecked = element<HTMLInputElement>('title-creative-check')?.checked ?? false;
+  const startSeason = element<HTMLSelectElement>('title-season-select')?.value ?? 'autumn';
   const initialScene: GameSceneSnapshot = await master.request('start-game', {
     width: gameCanvas.width,
     height: gameCanvas.height,
     creativeMode: creativeChecked,
     character: selectedCharacter,
+    season: startSeason,
   });
   gameMode = true;
   host = true;
@@ -1035,6 +1210,7 @@ async function startGame(characterOverride?: string) {
   button('pause').textContent = 'Pause';
   button('play-game').disabled = false;
   button('play-game').textContent = 'Start World';
+  dstAudio.playMusic('work_spring');
   updateGameHud(initialScene);
   gameRenderer.render(performance.now());
   status(`DST World Ready · ${formatPrefabName(selectedCharacter)} at (${initialScene.player.x.toFixed(1)}, ${initialScene.player.z.toFixed(1)})`);
@@ -1110,7 +1286,7 @@ gameCanvas.addEventListener('click', e => {
 
   const hit = gameRenderer.hitTest(sx, sy);
   if (hit && hit.entity.kind !== 'player') {
-    const act = defaultActionForEntity(hit.entity, gameScene?.player.equippedHand ?? '');
+    const act = defaultActionForEntity(hit.entity, gameScene?.player.equippedHand ?? '', Boolean(gameScene?.player.isGhost));
     void master.request('game-action', { action: { kind: 'interact', guid: hit.entity.guid, code: act.code } }).then(updateGameHud).catch(() => {});
   } else {
     const worldPt = gameRenderer.screenToWorld(sx, sy, 0);
@@ -1157,6 +1333,25 @@ function toggleMapModal(force?: boolean) {
   }
 }
 
+function toggleCookbookModal(force?: boolean) {
+  cookbookModalOpen = force !== undefined ? force : !cookbookModalOpen;
+  element('cookbook-screen-modal').classList.toggle('hidden', !cookbookModalOpen);
+  dstAudio.playEvents([{ path: 'dontstarve/HUD/craft_open' }]);
+  if (cookbookModalOpen) renderCookbookModal();
+}
+
+function togglePlayerStatusModal(force?: boolean) {
+  playerStatusModalOpen = force !== undefined ? force : !playerStatusModalOpen;
+  element('player-status-modal').classList.toggle('hidden', !playerStatusModalOpen);
+  dstAudio.playEvents([{ path: 'dontstarve/HUD/click_move' }]);
+  if (playerStatusModalOpen) renderPlayerStatusModal(gameScene);
+}
+
+function toggleAvatarPopup(force?: boolean) {
+  avatarPopupOpen = force !== undefined ? force : !avatarPopupOpen;
+  renderPlayerAvatarPopup(gameScene);
+}
+
 function togglePauseModal(force?: boolean) {
   pauseModalOpen = force !== undefined ? force : !pauseModalOpen;
   element('pause-screen-modal').classList.toggle('hidden', !pauseModalOpen);
@@ -1179,7 +1374,7 @@ window.addEventListener('keydown', e => {
     return;
   }
   if (!gameMode || !workers.has('master')) return;
-  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLSelectElement) return;
 
   if (e.code === 'Escape') {
     e.preventDefault();
@@ -1188,7 +1383,11 @@ window.addEventListener('keydown', e => {
       renderCraftingHud(gameScene);
       return;
     }
-    if (mapModalOpen) {
+    if (cookbookModalOpen) {
+      toggleCookbookModal(false);
+    } else if (playerStatusModalOpen) {
+      togglePlayerStatusModal(false);
+    } else if (mapModalOpen) {
       toggleMapModal(false);
     } else {
       togglePauseModal();
@@ -1198,6 +1397,11 @@ window.addEventListener('keydown', e => {
   if (e.code === 'KeyM' || e.code === 'Tab') {
     e.preventDefault();
     toggleMapModal();
+    return;
+  }
+  if (e.code === 'KeyP') {
+    e.preventDefault();
+    togglePlayerStatusModal();
     return;
   }
   if (e.code === 'KeyC') {
@@ -1220,6 +1424,7 @@ window.addEventListener('keydown', e => {
   }
   if (e.code === 'KeyI') {
     e.preventDefault();
+    toggleAvatarPopup();
     if (gameScene?.player.guid) {
       void master.request('game-action', { action: { kind: 'examine', guid: gameScene.player.guid } }).then(updateGameHud).catch(() => {});
     }
@@ -1343,9 +1548,15 @@ function handleInventoryMouse(e: MouseEvent, buttonType: 'left' | 'right') {
   const master = workers.get('master')!;
 
   if (target.closest('#hud-self-inspect')) {
+    toggleAvatarPopup();
     if (gameScene?.player.guid) {
       void master.request('game-action', { action: { kind: 'examine', guid: gameScene.player.guid } }).then(updateGameHud).catch(() => {});
     }
+    return;
+  }
+
+  if (target.closest('[data-open-cookbook]')) {
+    toggleCookbookModal(true);
     return;
   }
 
@@ -1398,6 +1609,11 @@ element('hud-backpack').addEventListener('click', e => handleInventoryMouse(e, '
 element('hud-backpack').addEventListener('contextmenu', e => { e.preventDefault(); handleInventoryMouse(e, 'right'); });
 element('hud-open-container').addEventListener('click', e => handleInventoryMouse(e, 'left'));
 element('hud-open-container').addEventListener('contextmenu', e => { e.preventDefault(); handleInventoryMouse(e, 'right'); });
+element('player-avatar-popup')?.addEventListener('click', e => {
+  if ((e.target as HTMLElement).closest('#close-avatar-popup-btn')) {
+    toggleAvatarPopup(false);
+  }
+});
 
 // MapScreen Zoom & Pan Interactions
 mapScreenCanvas.addEventListener('wheel', e => {
@@ -1438,13 +1654,30 @@ bind('map-zoom-in', () => { mapZoom = Math.min(3.5, mapZoom * 1.25); gameRendere
 bind('map-zoom-out', () => { mapZoom = Math.max(0.6, mapZoom * 0.8); gameRenderer.renderFullScreenMap(mapScreenCanvas, mapZoom, mapPanX, mapPanY); });
 bind('map-reset-view', () => { mapZoom = 1.0; mapPanX = 0; mapPanY = 0; gameRenderer.renderFullScreenMap(mapScreenCanvas, mapZoom, mapPanX, mapPanY); });
 
+bind('cookbook-close-btn', () => toggleCookbookModal(false));
+bind('player-status-close-btn', () => togglePlayerStatusModal(false));
+bind('hud-resurrect-btn', () => {
+  if (gameMode && workers.has('master')) {
+    return workers.get('master')!.request('game-action', { action: { kind: 'resurrect' } }).then(updateGameHud);
+  }
+});
+
 bind('hud-open-pause', () => togglePauseModal());
 bind('pause-resume-btn', () => togglePauseModal(false));
+bind('pause-cookbook-btn', () => {
+  togglePauseModal(false);
+  toggleCookbookModal(true);
+});
+bind('pause-player-status-btn', () => {
+  togglePauseModal(false);
+  togglePlayerStatusModal(true);
+});
 bind('pause-save-world-btn', () => saveWorldToLocalStorage());
 bind('pause-load-world-btn', () => loadWorldFromLocalStorage());
 bind('pause-change-char-btn', () => {
   togglePauseModal(false);
   element('main-screen-overlay').classList.remove('hidden');
+  dstAudio.playMusic('fe');
 });
 bind('hud-toggle-creative', () => {
   if (gameMode && workers.has('master')) {

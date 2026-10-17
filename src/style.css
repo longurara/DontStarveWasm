@@ -1198,3 +1198,113 @@ input, textarea {
   font-family: Consolas, monospace;
   font-size: 12px;
 }
+
+/* ============================================================================
+   6. PlayerAvatarPopup, CookbookPopupScreen, PlayerStatusScreen & Ghost Banner
+   (scripts/widgets/playeravatarpopup.lua, cookbookpopupscreen.lua, playerstatusscreen.lua)
+   ============================================================================ */
+.hud-center-top {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ghost-resurrect-banner {
+  background-color: rgba(24, 18, 28, 0.92);
+  border: 2px solid #9678b6;
+  border-radius: 8px;
+  padding: 10px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: #e9dff5;
+  font-weight: 700;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.85);
+}
+
+.player-avatar-popup {
+  background-color: #211811;
+  background-image: var(--tex-cm-backing, none);
+  background-size: 100% 100%;
+  border: 2px solid #8c6b42;
+  border-radius: 8px;
+  padding: 12px 16px;
+  min-width: 360px;
+  max-width: 440px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.85);
+}
+
+.avatar-popup-header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.avatar-equip-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  border-top: 1px solid rgba(140, 107, 66, 0.45);
+  padding-top: 8px;
+}
+
+.avatar-equip-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: #dfd3ba;
+  text-align: center;
+}
+
+.cookbook-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  max-height: 62vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.cookbook-card {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: rgba(14, 10, 7, 0.72);
+  border: 1px solid #685032;
+  border-radius: 7px;
+  padding: 10px 12px;
+}
+
+.player-status-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.player-status-row {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  background: rgba(14, 10, 7, 0.75);
+  border: 1px solid #685032;
+  border-radius: 7px;
+  padding: 12px 14px;
+}
+
+.klei-select {
+  background: #1b140e;
+  color: #f6dca0;
+  border: 1px solid #8c6b42;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
